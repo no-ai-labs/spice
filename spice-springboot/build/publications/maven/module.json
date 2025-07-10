@@ -1,0 +1,124 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.spice",
+    "module": "spice-springboot",
+    "version": "0.1.0-SNAPSHOT",
+    "attributes": {
+      "org.gradle.status": "integration"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.2"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "io.github.spice",
+          "module": "spice-core",
+          "version": {
+            "requires": "0.1.0-SNAPSHOT"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.2.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "spice-springboot-0.1.0-SNAPSHOT.jar",
+          "url": "spice-springboot-0.1.0-SNAPSHOT.jar",
+          "size": 29301,
+          "sha512": "df0bc4c764559b340d80da35b5d9ae9fc8a6ded750315869f30db907313fbaf92868f930b5ed94e54c4209db72154d23ada3791ff64a639f9e4e2eca6473ca75",
+          "sha256": "b9de92f707496b388ad04dd7821527c21761baf2b20803f504d9e0ae91750f81",
+          "sha1": "e838e14b5aa853f479ce1e1151c29ce7eeb1132e",
+          "md5": "52aa9caef950d9fedf430b25fb249b38"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.springframework.boot",
+          "module": "spring-boot-starter",
+          "version": {
+            "requires": "3.5.3"
+          }
+        },
+        {
+          "group": "org.springframework.boot",
+          "module": "spring-boot-autoconfigure",
+          "version": {
+            "requires": "3.5.3"
+          }
+        },
+        {
+          "group": "org.springframework",
+          "module": "spring-webflux",
+          "version": {
+            "requires": "6.2.1"
+          }
+        },
+        {
+          "group": "jakarta.validation",
+          "module": "jakarta.validation-api",
+          "version": {
+            "requires": "3.0.2"
+          }
+        },
+        {
+          "group": "io.github.spice",
+          "module": "spice-core",
+          "version": {
+            "requires": "0.1.0-SNAPSHOT"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.2.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "spice-springboot-0.1.0-SNAPSHOT.jar",
+          "url": "spice-springboot-0.1.0-SNAPSHOT.jar",
+          "size": 29301,
+          "sha512": "df0bc4c764559b340d80da35b5d9ae9fc8a6ded750315869f30db907313fbaf92868f930b5ed94e54c4209db72154d23ada3791ff64a639f9e4e2eca6473ca75",
+          "sha256": "b9de92f707496b388ad04dd7821527c21761baf2b20803f504d9e0ae91750f81",
+          "sha1": "e838e14b5aa853f479ce1e1151c29ce7eeb1132e",
+          "md5": "52aa9caef950d9fedf430b25fb249b38"
+        }
+      ]
+    }
+  ]
+}

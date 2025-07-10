@@ -1,0 +1,96 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "io.github.spice",
+    "module": "spice-core",
+    "version": "0.1.0-SNAPSHOT",
+    "attributes": {
+      "org.gradle.status": "integration"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.2"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.2.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "spice-core-0.1.0-SNAPSHOT.jar",
+          "url": "spice-core-0.1.0-SNAPSHOT.jar",
+          "size": 414021,
+          "sha512": "17ea4caa3eeff2b1f414a61688ed0de8accb58e18a3ee8861e3e72f9a2ebbd1ee11b4268744a867f64e45df072fbc8bff9c5e85618b4376d259786a5e1a4fd7b",
+          "sha256": "eccba44ba9466c8d886f5d92d04e1d313a80aeff063aec68a187addf1bbef6ac",
+          "sha1": "841de6ace533ef1d7347573c9cdd5807a6fa6839",
+          "md5": "d64f3ded72143992b2220ace9fb08a8d"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.7.3"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.6.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.2.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "spice-core-0.1.0-SNAPSHOT.jar",
+          "url": "spice-core-0.1.0-SNAPSHOT.jar",
+          "size": 414021,
+          "sha512": "17ea4caa3eeff2b1f414a61688ed0de8accb58e18a3ee8861e3e72f9a2ebbd1ee11b4268744a867f64e45df072fbc8bff9c5e85618b4376d259786a5e1a4fd7b",
+          "sha256": "eccba44ba9466c8d886f5d92d04e1d313a80aeff063aec68a187addf1bbef6ac",
+          "sha1": "841de6ace533ef1d7347573c9cdd5807a6fa6839",
+          "md5": "d64f3ded72143992b2220ace9fb08a8d"
+        }
+      ]
+    }
+  ]
+}
