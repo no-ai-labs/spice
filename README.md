@@ -64,6 +64,12 @@ MIT License. Use freely. Share wildly. Build something spicy. 🌶️
 
 ---
 
+## 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
+
+---
+
 ## 💬 Authors
 
 Built by No AI Labs
