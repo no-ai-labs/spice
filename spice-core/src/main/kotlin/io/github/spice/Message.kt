@@ -5,8 +5,8 @@ import java.time.Instant
 import java.util.*
 
 /**
- * JVM-Autogen의 핵심 Message 인터페이스
- * 모든 Agent 간 통신은 Message를 통해 이루어집니다.
+ * Core Message class for JVM-Autogen
+ * All agent-to-agent communication happens via Message.
  */
 @Serializable
 data class Message(
@@ -20,9 +20,9 @@ data class Message(
     val parentId: String? = null,
     val conversationId: String? = null
 ) {
-    
+
     /**
-     * 메시지 체인 생성 - 응답 메시지 생성 시 사용
+     * Create a reply message based on the current one
      */
     fun createReply(
         content: String,
@@ -42,9 +42,9 @@ data class Message(
             conversationId = this.conversationId ?: this.id
         )
     }
-    
+
     /**
-     * 메시지 전달 - 다른 Agent로 라우팅 시 사용
+     * Forward message to another agent (with updated receiver/timestamp)
      */
     fun forward(newReceiver: String): Message {
         return copy(
@@ -52,16 +52,16 @@ data class Message(
             timestamp = Instant.now().toEpochMilli()
         )
     }
-    
+
     /**
-     * 메타데이터 추가
+     * Add metadata to the message
      */
     fun withMetadata(key: String, value: String): Message {
         return copy(metadata = metadata + (key to value))
     }
-    
+
     /**
-     * 메시지 타입 변경
+     * Change the message type
      */
     fun withType(newType: MessageType): Message {
         return copy(type = newType)
@@ -69,7 +69,7 @@ data class Message(
 }
 
 /**
- * 메시지 타입 정의
+ * Definition of message types
  */
 enum class MessageType {
     TEXT,           // 일반 텍스트
@@ -83,11 +83,22 @@ enum class MessageType {
     BRANCH,         // 분기 메시지
     MERGE,          // 병합 메시지
     WORKFLOW_START, // 워크플로우 시작
-    WORKFLOW_END    // 워크플로우 종료
+    WORKFLOW_END,   // 워크플로우 종료
+    INTERRUPT,       // 인터럽트 메시지,
+    RESUME
 }
 
 /**
- * 메시지 라우팅 규칙
+ * Reason for an interrupt message (for UI, routing, etc)
+ */
+enum class InterruptReason {
+    CLARIFICATION_NEEDED,
+    USER_CONFIRMATION,
+    MISSING_DATA
+}
+
+/**
+ * Message routing rule (used for DAG transformation)
  */
 data class MessageRoutingRule(
     val sourceType: MessageType,
@@ -106,7 +117,7 @@ data class MessageRoutingRule(
 }
 
 /**
- * 메시지 라우터 - 멘타트의 복잡한 노드 연결 제약조건을 처리
+ * Message router - handles Mentat DAG node transformation logic
  */
 class MessageRouter {
     private val rules = mutableListOf<MessageRoutingRule>()
@@ -127,7 +138,7 @@ class MessageRouter {
     
     companion object {
         /**
-         * Spice Flow Graph 규칙을 Message 라우팅 규칙으로 변환
+         * Convert Spice Flow Graph rules into routing rules
          */
         fun createSpiceFlowRules(): MessageRouter {
             val router = MessageRouter()

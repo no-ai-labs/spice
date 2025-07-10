@@ -50,18 +50,31 @@ class AgentEngine {
             
             // 5. Agent execution
             val agentResponse = executeAgent(targetAgent, processedMessage, context)
+
+            // 6. Interrupt handling
+            if (agentResponse.type == MessageType.INTERRUPT) {
+                pauseAgent(context.id, targetAgent.id)
+                return AgentMessage(
+                    success = true,
+                    response = agentResponse,
+                    agentId = targetAgent.id,
+                    agentName = targetAgent.name,
+                    executionTime = System.currentTimeMillis() - context.startTime,
+                    metadata = mapOf("interrupted" to "true")
+                )
+            }
             
-            // 6. Tool request handling
+            // 7. Tool request handling
             val finalResponse = if (agentResponse.type == MessageType.TOOL_CALL) {
                 handleToolRequest(agentResponse, targetAgent, context)
             } else {
                 agentResponse
             }
             
-            // 7. Update execution context
+            // 8. Update execution context
             updateExecutionContext(context, processedMessage, finalResponse)
             
-            // 8. Convert to AgentMessage and return
+            // 9. Convert to AgentMessage and return
             AgentMessage(
                 success = true,
                 response = finalResponse,
@@ -90,6 +103,30 @@ class AgentEngine {
                 metadata = mapOf<String, String>("errorType" to "engine_error")
             )
         }
+    }
+
+    private fun pauseAgent(contextId: String, agentId: String) {
+        executionContexts[contextId]?.let { context ->
+            context.isSuspended = true
+            context.suspendedAgentId = agentId
+        }
+    }
+
+    suspend fun resumeAgent(contextId: String, reply: Message): AgentMessage {
+        val context = executionContexts[contextId]
+            ?: throw IllegalStateException("Context not found")
+
+        if (!context.isSuspended || context.suspendedAgentId == null) {
+            throw IllegalStateException("Agent is not suspended or missing")
+        }
+
+        val agent = agents[context.suspendedAgentId!!]
+            ?: throw IllegalStateException("Agent not registered")
+
+        context.isSuspended = false
+        context.suspendedAgentId = null
+
+        return receive(reply.copy(conversationId = contextId))
     }
     
     /**
@@ -398,7 +435,9 @@ data class ExecutionContext(
     val startTime: Long,
     val messageHistory: MutableList<Message>,
     var isTerminated: Boolean,
-    var lastAgentId: String?
+    var lastAgentId: String?,
+    var isSuspended: Boolean = false,
+    var suspendedAgentId: String? = null
 )
 
 /**
