@@ -3,6 +3,7 @@ package io.github.spice
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.selects.select
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * 🧠 Multi-Agent Conversation Flow System
@@ -30,7 +31,18 @@ data class GroupMetadata(
     val currentIndex: Int,
     val strategy: FlowStrategy,
     val coordinatorId: String? = null
-)
+) {
+    /**
+     * GroupMetadata를 Map으로 변환
+     */
+    fun toMetadataMap(): Map<String, String> = mapOf(
+        "groupId" to groupId,
+        "totalAgents" to totalAgents.toString(),
+        "currentIndex" to currentIndex.toString(),
+        "strategy" to strategy.toString(),
+        "coordinatorId" to (coordinatorId ?: "unknown")
+    )
+}
 
 /**
  * Agent 그룹을 관리하는 추상 클래스
@@ -120,8 +132,7 @@ abstract class GroupAgent(
             content = "Sequential processing completed:\n${results.joinToString("\n")}",
             sender = id,
             type = MessageType.RESULT,
-            metadata = mapOf(
-                "groupId" to groupMeta.groupId,
+            metadata = groupMeta.toMetadataMap() + mapOf(
                 "strategy" to "SEQUENTIAL",
                 "agentCount" to memberAgents.size.toString(),
                 "completedSteps" to results.size.toString()
@@ -151,8 +162,7 @@ abstract class GroupAgent(
             content = "Parallel processing completed:\n${results.joinToString("\n")}",
             sender = id,
             type = MessageType.RESULT,
-            metadata = mapOf(
-                "groupId" to groupMeta.groupId,
+            metadata = groupMeta.toMetadataMap() + mapOf(
                 "strategy" to "PARALLEL",
                 "agentCount" to memberAgents.size.toString()
             )
@@ -185,8 +195,7 @@ abstract class GroupAgent(
             content = "Broadcast completed ($successCount/${responses.size} successful):\n$summaryContent",
             sender = id,
             type = MessageType.RESULT,
-            metadata = mapOf(
-                "groupId" to groupMeta.groupId,
+            metadata = groupMeta.toMetadataMap() + mapOf(
                 "strategy" to "BROADCAST",
                 "successRate" to "${successCount}/${responses.size}"
             )
@@ -222,8 +231,7 @@ abstract class GroupAgent(
             content = "Pipeline processing completed:\n${pipelineSteps.joinToString("\n")}",
             sender = id,
             type = MessageType.RESULT,
-            metadata = mapOf(
-                "groupId" to groupMeta.groupId,
+            metadata = groupMeta.toMetadataMap() + mapOf(
                 "strategy" to "PIPELINE",
                 "finalOutput" to currentMessage.content
             )
@@ -250,31 +258,45 @@ abstract class GroupAgent(
             }
         }
         
-        // 첫 번째 성공한 결과 선택
-        val winner = select<AgentCompetitionResult?> {
+        // 첫 번째 완료된 결과 선택 (성공/실패 무관하게 가장 빠른 응답)
+        val firstCompleted = select<AgentCompetitionResult> {
             raceResults.forEach { deferred ->
-                deferred.onAwait { result ->
-                    if (result.success) result else null
-                }
+                deferred.onAwait { result -> result }
             }
-        } ?: run {
-            // 모든 Agent가 실패한 경우
-            val firstResult = raceResults.first().await()
-            firstResult
         }
         
-        // 나머지 작업들 취소
-        raceResults.forEach { it.cancel() }
+        // 성공한 결과가 아니면 모든 결과를 기다려서 성공한 것 찾기
+        val winner = if (firstCompleted.success) {
+            firstCompleted
+        } else {
+            val allResults = raceResults.awaitAll()
+            allResults.firstOrNull { it.success } ?: AgentCompetitionResult(
+                agentId = "fallback",
+                agentName = "System Fallback",
+                content = "All agents failed: ${allResults.joinToString("; ") { "${it.agentName}: ${it.content}" }}",
+                processingTime = allResults.maxOfOrNull { it.processingTime } ?: 0L,
+                success = false
+            )
+        }
+        
+        // 나머지 작업들 취소 (firstCompleted가 성공한 경우에만)
+        if (firstCompleted.success) {
+            raceResults.forEach { 
+                if (!it.isCompleted) it.cancel()
+            }
+        }
+        
+        val statusText = if (winner.success) "Winner" else "All Failed"
         
         message.createReply(
-            content = "Competition winner: ${winner.agentName} (${winner.processingTime}ms)\nResult: ${winner.content}",
+            content = "Competition $statusText: ${winner.agentName} (${winner.processingTime}ms)\nResult: ${winner.content}",
             sender = id,
             type = MessageType.RESULT,
-            metadata = mapOf(
-                "groupId" to groupMeta.groupId,
+            metadata = groupMeta.toMetadataMap() + mapOf(
                 "strategy" to "COMPETITION",
                 "winnerId" to winner.agentId,
-                "winnerTime" to winner.processingTime.toString()
+                "winnerTime" to winner.processingTime.toString(),
+                "competitionSuccess" to winner.success.toString()
             )
         )
     }
@@ -334,8 +356,19 @@ class SwarmAgent(
     private val defaultStrategy: FlowStrategy = FlowStrategy.PARALLEL
 ) : GroupAgent(id, name, description, listOf("swarm_intelligence", "adaptive_processing"), defaultStrategy) {
     
-    private val agentPool = mutableListOf<Agent>()
+    private val agentPool = CopyOnWriteArrayList<Agent>()
     private var currentStrategy = defaultStrategy
+    
+    // 전략 결정 훅 - 외부에서 커스터마이징 가능
+    private var strategyResolver: ((Message, List<Agent>) -> FlowStrategy)? = null
+    
+    /**
+     * 커스텀 전략 해결기 설정
+     */
+    fun setStrategyResolver(resolver: (Message, List<Agent>) -> FlowStrategy): SwarmAgent {
+        this.strategyResolver = resolver
+        return this
+    }
     
     /**
      * Agent 풀에 Agent 추가
@@ -412,41 +445,86 @@ class SwarmAgent(
     }
     
     /**
-     * 필요한 능력 추출
+     * 필요한 능력 추출 (강화된 토큰화 및 정규화)
      */
     private fun extractRequiredCapabilities(message: Message): List<String> {
         val capabilities = mutableListOf<String>()
         
         // 메타데이터에서 요구 능력 추출
         message.metadata["requiredCapability"]?.let { capabilities.add(it) }
-        message.metadata["capabilities"]?.split(",")?.let { capabilities.addAll(it) }
+        message.metadata["capabilities"]?.split(",")?.forEach { cap ->
+            capabilities.add(cap.trim().lowercase())
+        }
         
-        // 메시지 내용에서 키워드 기반 능력 추출
-        val content = message.content.lowercase()
-        when {
-            content.contains("search") || content.contains("find") -> capabilities.add("search")
-            content.contains("analyze") || content.contains("analysis") -> capabilities.add("data_analysis")
-            content.contains("api") || content.contains("call") -> capabilities.add("api_calls")
-            content.contains("file") || content.contains("document") -> capabilities.add("file_handling")
-            content.contains("calculate") || content.contains("math") -> capabilities.add("calculations")
+        // 강화된 키워드 매칭 테이블
+        val capabilityKeywords = mapOf(
+            "search" to listOf("search", "find", "lookup", "discover", "explore", "query"),
+            "data_analysis" to listOf("analyze", "analysis", "process", "compute", "calculate", "statistics", "metrics"),
+            "api_calls" to listOf("api", "call", "request", "http", "rest", "endpoint", "service"),
+            "file_handling" to listOf("file", "document", "pdf", "excel", "csv", "read", "write", "parse"),
+            "calculations" to listOf("calculate", "math", "arithmetic", "sum", "count", "average", "formula"),
+            "text_processing" to listOf("text", "string", "parse", "extract", "format", "transform"),
+            "web_scraping" to listOf("scrape", "crawl", "web", "html", "extract", "website"),
+            "database" to listOf("database", "sql", "query", "table", "record", "select", "insert"),
+            "ai_reasoning" to listOf("reason", "think", "decide", "evaluate", "judge", "conclude"),
+            "scheduling" to listOf("schedule", "calendar", "time", "date", "appointment", "meeting")
+        )
+        
+        // 정규화된 콘텐츠에서 토큰 추출
+        val normalizedContent = message.content.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")  // 특수문자 제거
+            .split(Regex("\\s+"))                // 공백으로 토큰화
+            .filter { it.length > 2 }            // 너무 짧은 토큰 제거
+        
+        // 키워드 매칭
+        capabilityKeywords.forEach { (capability, keywords) ->
+            if (keywords.any { keyword -> 
+                normalizedContent.any { token -> 
+                    token.contains(keyword) || keyword.contains(token)
+                }
+            }) {
+                capabilities.add(capability)
+            }
         }
         
         return capabilities.distinct()
     }
     
     /**
-     * 최적 전략 결정
+     * 최적 전략 결정 (커스터마이징 훅 지원)
      */
     private fun determineOptimalStrategy(message: Message, agents: List<Agent>): FlowStrategy {
+        // 커스텀 전략 해결기가 있으면 우선 사용
+        strategyResolver?.let { resolver ->
+            return resolver(message, agents)
+        }
+        
+        // 기본 전략 결정 로직
         return when {
             message.metadata["strategy"] == "sequential" -> FlowStrategy.SEQUENTIAL
             message.metadata["strategy"] == "parallel" -> FlowStrategy.PARALLEL
             message.metadata["strategy"] == "competition" -> FlowStrategy.COMPETITION
+            message.metadata["strategy"] == "broadcast" -> FlowStrategy.BROADCAST
+            message.metadata["strategy"] == "pipeline" -> FlowStrategy.PIPELINE
+            
+            // 에이전트 수 기반 전략
             agents.size == 1 -> FlowStrategy.SEQUENTIAL
             agents.size <= 3 -> FlowStrategy.PARALLEL
+            
+            // 메시지 타입 기반 전략
             message.type == MessageType.TOOL_CALL -> FlowStrategy.COMPETITION
-            message.content.contains("pipeline") -> FlowStrategy.PIPELINE
-            else -> defaultStrategy
+            message.type == MessageType.DATA -> FlowStrategy.PIPELINE
+            
+            // 콘텐츠 기반 전략 (강화됨)
+            message.content.lowercase().let { content ->
+                when {
+                    content.contains("pipeline") || content.contains("sequence") -> FlowStrategy.PIPELINE
+                    content.contains("broadcast") || content.contains("announce") -> FlowStrategy.BROADCAST
+                    content.contains("race") || content.contains("compete") -> FlowStrategy.COMPETITION
+                    content.contains("parallel") || content.contains("simultaneous") -> FlowStrategy.PARALLEL
+                    else -> defaultStrategy
+                }
+            }
         }
     }
 }
