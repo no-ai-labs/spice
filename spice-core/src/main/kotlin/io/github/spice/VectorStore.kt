@@ -16,17 +16,17 @@ import java.time.Duration
 /**
  * 🔍 Spice VectorStore System
  * 
- * RAG(Retrieval-Augmented Generation)를 위한 벡터 저장소 인터페이스와 구현체
- * Qdrant, Pinecone, Weaviate 등 다양한 벡터 DB를 지원합니다.
+ * Vector storage interface and implementations for RAG (Retrieval-Augmented Generation)
+ * Supports various vector databases like Qdrant, Pinecone, Weaviate, etc.
  */
 
 /**
- * 벡터 저장소 인터페이스
+ * Vector store interface
  */
 interface VectorStore {
     
     /**
-     * 벡터와 메타데이터 저장
+     * Store vectors and metadata
      */
     suspend fun upsert(
         collectionName: String,
@@ -34,7 +34,7 @@ interface VectorStore {
     ): VectorOperationResult
     
     /**
-     * 유사도 검색
+     * Similarity search
      */
     suspend fun search(
         collectionName: String,
@@ -45,7 +45,7 @@ interface VectorStore {
     ): List<VectorResult>
     
     /**
-     * 텍스트 기반 검색 (임베딩 자동 생성)
+     * Text-based search (automatic embedding generation)
      */
     suspend fun searchByText(
         collectionName: String,
@@ -56,7 +56,7 @@ interface VectorStore {
     ): List<VectorResult>
     
     /**
-     * 벡터 삭제
+     * Delete vectors
      */
     suspend fun delete(
         collectionName: String,
@@ -64,7 +64,7 @@ interface VectorStore {
     ): VectorOperationResult
     
     /**
-     * 컬렉션 생성
+     * Create collection
      */
     suspend fun createCollection(
         collectionName: String,
@@ -73,23 +73,23 @@ interface VectorStore {
     ): VectorOperationResult
     
     /**
-     * 컬렉션 삭제
+     * Delete collection
      */
     suspend fun deleteCollection(collectionName: String): VectorOperationResult
     
     /**
-     * 컬렉션 정보 조회
+     * Get collection information
      */
     suspend fun getCollectionInfo(collectionName: String): CollectionInfo?
     
     /**
-     * 연결 상태 확인
+     * Check connection status
      */
     suspend fun healthCheck(): Boolean
 }
 
 /**
- * 벡터 문서
+ * Vector document
  */
 @Serializable
 data class VectorDocument(
@@ -99,7 +99,7 @@ data class VectorDocument(
 )
 
 /**
- * 벡터 검색 결과
+ * Vector search result
  */
 @Serializable
 data class VectorResult(
@@ -110,7 +110,7 @@ data class VectorResult(
 )
 
 /**
- * 벡터 필터
+ * Vector filter
  */
 @Serializable
 data class VectorFilter(
@@ -120,7 +120,7 @@ data class VectorFilter(
 )
 
 /**
- * 필터 조건
+ * Filter condition
  */
 @Serializable
 sealed class FilterCondition {
@@ -138,14 +138,14 @@ sealed class FilterCondition {
 }
 
 /**
- * 거리 측정 방식
+ * Distance metric
  */
 enum class DistanceMetric {
     COSINE, EUCLIDEAN, DOT_PRODUCT
 }
 
 /**
- * 벡터 연산 결과
+ * Vector operation result
  */
 @Serializable
 data class VectorOperationResult(
@@ -156,7 +156,7 @@ data class VectorOperationResult(
 )
 
 /**
- * 컬렉션 정보
+ * Collection information
  */
 @Serializable
 data class CollectionInfo(
@@ -168,7 +168,7 @@ data class CollectionInfo(
 )
 
 /**
- * Qdrant 벡터 저장소 구현
+ * Qdrant vector store implementation
  */
 class QdrantVectorStore(
     private val host: String = "localhost",
@@ -293,8 +293,8 @@ class QdrantVectorStore(
         filter: VectorFilter?,
         scoreThreshold: Float?
     ): List<VectorResult> {
-        // 실제 구현에서는 임베딩 서비스를 호출해서 벡터로 변환
-        // 여기서는 예시로 더미 벡터를 사용
+        // In real implementation, call embedding service to convert to vector
+        // Here we use dummy vector for example
         val dummyVector = generateDummyEmbedding(queryText)
         return search(collectionName, dummyVector, topK, filter, scoreThreshold)
     }
@@ -461,10 +461,10 @@ class QdrantVectorStore(
     }
     
     /**
-     * 더미 임베딩 생성 (실제로는 OpenAI, Sentence Transformers 등 사용)
+     * Generate dummy embedding (in real use, use OpenAI, Sentence Transformers, etc.)
      */
     private fun generateDummyEmbedding(text: String): List<Float> {
-        // 텍스트 기반으로 간단한 해시 벡터 생성 (실제 사용 금지!)
+        // Generate simple hash vector based on text (DO NOT use in production!)
         val hash = text.hashCode()
         return (0 until 384).map { i ->
             ((hash + i) % 1000) / 1000.0f - 0.5f
@@ -473,7 +473,7 @@ class QdrantVectorStore(
 }
 
 /**
- * === Qdrant REST API 데이터 클래스들 ===
+ * === Qdrant REST API Data Classes ===
  */
 
 @Serializable
@@ -598,11 +598,11 @@ data class QdrantVectorParams(
 )
 
 /**
- * === 확장 함수들 ===
+ * === Extension Functions ===
  */
 
 /**
- * VectorFilter를 QdrantFilter로 변환
+ * Convert VectorFilter to QdrantFilter
  */
 fun VectorFilter.toQdrantFilter(): QdrantFilter {
     return QdrantFilter(
@@ -613,7 +613,7 @@ fun VectorFilter.toQdrantFilter(): QdrantFilter {
 }
 
 /**
- * FilterCondition을 QdrantCondition으로 변환
+ * Convert FilterCondition to QdrantCondition
  */
 fun FilterCondition.toQdrantCondition(): QdrantCondition {
     return when (this) {
@@ -627,7 +627,7 @@ fun FilterCondition.toQdrantCondition(): QdrantCondition {
         )
         is FilterCondition.In -> QdrantCondition(
             key = field,
-            match = QdrantMatch(values.first()) // Qdrant에서는 배열 매치가 다름
+            match = QdrantMatch(values.first()) // Array matching is different in Qdrant
         )
         is FilterCondition.Match -> QdrantCondition(
             key = field,
@@ -637,7 +637,7 @@ fun FilterCondition.toQdrantCondition(): QdrantCondition {
 }
 
 /**
- * DistanceMetric을 Qdrant 문자열로 변환
+ * Convert DistanceMetric to Qdrant string
  */
 fun DistanceMetric.toQdrantDistance(): String = when (this) {
     DistanceMetric.COSINE -> "Cosine"
@@ -646,7 +646,7 @@ fun DistanceMetric.toQdrantDistance(): String = when (this) {
 }
 
 /**
- * Qdrant 문자열을 DistanceMetric으로 변환
+ * Convert Qdrant string to DistanceMetric
  */
 fun String.fromQdrantDistance(): DistanceMetric = when (this) {
     "Cosine" -> DistanceMetric.COSINE
@@ -656,11 +656,11 @@ fun String.fromQdrantDistance(): DistanceMetric = when (this) {
 }
 
 /**
- * === 편의 함수들 ===
+ * === Utility Functions ===
  */
 
 /**
- * 간단한 텍스트 검색
+ * Simple text search
  */
 suspend fun VectorStore.searchText(
     collection: String,
@@ -671,7 +671,7 @@ suspend fun VectorStore.searchText(
 }
 
 /**
- * 메타데이터 필터링 DSL
+ * Metadata filtering DSL
  */
 fun buildFilter(init: FilterBuilder.() -> Unit): VectorFilter {
     val builder = FilterBuilder()
@@ -680,7 +680,7 @@ fun buildFilter(init: FilterBuilder.() -> Unit): VectorFilter {
 }
 
 /**
- * 필터 빌더
+ * Filter builder
  */
 class FilterBuilder {
     private val mustConditions = mutableListOf<FilterCondition>()
@@ -717,7 +717,7 @@ class FilterBuilder {
 }
 
 /**
- * VectorStore 팩토리
+ * VectorStore factory
  */
 object VectorStoreFactory {
     
@@ -729,7 +729,7 @@ object VectorStoreFactory {
         return QdrantVectorStore(host, port, apiKey)
     }
     
-    // 향후 다른 벡터 DB 지원
+    // Future support for other vector DBs
     // fun createPinecone(...): VectorStore
     // fun createWeaviate(...): VectorStore
 } 

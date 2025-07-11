@@ -72,19 +72,19 @@ data class Message(
  * Definition of message types
  */
 enum class MessageType {
-    TEXT,           // 일반 텍스트
-    SYSTEM,         // 시스템 메시지
-    TOOL_CALL,      // 도구 호출
-    TOOL_RESULT,    // 도구 실행 결과
-    ERROR,          // 에러 메시지
-    DATA,           // 데이터 전달
-    PROMPT,         // 프롬프트 메시지
-    RESULT,         // 최종 결과
-    BRANCH,         // 분기 메시지
-    MERGE,          // 병합 메시지
-    WORKFLOW_START, // 워크플로우 시작
-    WORKFLOW_END,   // 워크플로우 종료
-    INTERRUPT,       // 인터럽트 메시지,
+    TEXT,           // General text message
+    SYSTEM,         // System message
+    TOOL_CALL,      // Tool invocation
+    TOOL_RESULT,    // Tool execution result
+    ERROR,          // Error message
+    DATA,           // Data transfer
+    PROMPT,         // Prompt message
+    RESULT,         // Final result
+    BRANCH,         // Branch message
+    MERGE,          // Merge message
+    WORKFLOW_START, // Workflow start
+    WORKFLOW_END,   // Workflow end
+    INTERRUPT,      // Interrupt message
     RESUME
 }
 
@@ -130,7 +130,7 @@ class MessageRouter {
         val applicableRules = rules.filter { it.canRoute(message) }
         
         return if (applicableRules.isEmpty()) {
-            listOf(message) // 기본 전달
+            listOf(message) // Default forwarding
         } else {
             applicableRules.map { it.route(message) }
         }
@@ -143,7 +143,7 @@ class MessageRouter {
         fun createSpiceFlowRules(): MessageRouter {
             val router = MessageRouter()
             
-            // 규칙 1: PROMPT → PROMPT는 두 번째를 SYSTEM으로 변환
+            // Rule 1: PROMPT → PROMPT converts second to SYSTEM
             router.addRule(MessageRoutingRule(
                 sourceType = MessageType.PROMPT,
                 targetType = MessageType.SYSTEM,
@@ -151,7 +151,7 @@ class MessageRouter {
                 transformer = { msg -> msg.withMetadata("autoUpgraded", "promptToSystem") }
             ))
             
-            // 규칙 2: DATA → RESULT는 중간에 SYSTEM 메시지 삽입
+            // Rule 2: DATA → RESULT inserts SYSTEM message in between
             router.addRule(MessageRoutingRule(
                 sourceType = MessageType.DATA,
                 targetType = MessageType.SYSTEM,
@@ -162,7 +162,7 @@ class MessageRouter {
                 }
             ))
             
-            // 규칙 3: BRANCH → 여러 경로로 분기
+            // Rule 3: BRANCH → Split into multiple paths
             router.addRule(MessageRoutingRule(
                 sourceType = MessageType.BRANCH,
                 targetType = MessageType.SYSTEM,
