@@ -2,6 +2,12 @@
 **/build/
 **/.gradle/
 **/out/
+**/bin/
+**/.kotlin/
+**/.idea/
+**/.vscode/
+**/.gradle/
+**/.gradle/
 
 # IntelliJ / IDEA
 .idea/
