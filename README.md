@@ -36,7 +36,14 @@ From simple agent interactions to complex swarm intelligence, Spice provides the
 - **Anthropic Claude** — Claude-3.5-Sonnet with tool use and 200K context
 - **Google Vertex AI** — Gemini Pro with multimodal capabilities
 - **vLLM High-Performance** — Local deployment with batch optimization
+- **OpenRouter Multi-Provider** — Single API key for 50+ models from multiple providers
 - **Unified Interface** — Switch providers without changing code
+
+### 🧙‍♂️ **Intelligent Agent Patterns**
+- **WizardAgent** — One-shot intelligence upgrade for complex tasks
+- **Dynamic Model Switching** — Runtime model selection based on task complexity
+- **Cost Optimization** — Automatic model selection for optimal price/performance
+- **Context Preservation** — Seamless intelligence scaling without losing conversation state
 
 ### 🔍 **Vector & RAG Support**
 - **VectorStore Interface** — Qdrant, Pinecone, Weaviate support
@@ -87,7 +94,78 @@ val response = summarizer.processMessage(
 println(response.content)
 ```
 
-### 3. SwarmAgent for Team Coordination
+### 3. OpenRouterAgent for Multi-Provider Access
+
+```kotlin
+// Single API key for multiple LLM providers
+val multiModelAgent = OpenRouterAgent(
+    id = "multi-agent",
+    name = "Multi-Provider Agent",
+    apiKey = "your-openrouter-key",
+    model = "anthropic/claude-3.5-sonnet", // or "openai/gpt-4", "google/gemini-pro", etc.
+    maxTokens = 1000
+)
+
+// Process with any supported model
+val response = multiModelAgent.processMessage(
+    Message(
+        content = "Analyze this code for security issues",
+        sender = "user"
+    )
+)
+
+// Dynamic model switching
+val gptAgent = multiModelAgent.withModel("openai/gpt-4")
+val claudeAgent = multiModelAgent.withModel("anthropic/claude-3.5-sonnet")
+
+// Get available models
+val availableModels = multiModelAgent.getAvailableModels()
+println("Available models: ${availableModels.size}")
+```
+
+### 4. WizardAgent for One-Shot Intelligence Upgrade
+
+```kotlin
+// Create normal and wizard agents
+val normalAgent = OpenRouterAgent(
+    apiKey = "your-openrouter-key",
+    model = "google/bison-001" // Fast, cost-effective
+)
+
+val wizardAgent = OpenRouterAgent(
+    apiKey = "your-openrouter-key", 
+    model = "anthropic/claude-3.5-sonnet" // High-intelligence
+)
+
+// Create WizardAgent that upgrades when needed
+val wizard = WizardAgent(
+    id = "shape-shifter",
+    name = "Shape-Shifting Agent",
+    normalAgent = normalAgent,
+    wizardAgent = wizardAgent
+)
+
+// Simple question - uses normal mode
+val simpleResponse = wizard.processMessage(
+    Message(content = "What's the weather like?", sender = "user")
+)
+require(simpleResponse.metadata["wizard_mode"] == "false")
+
+// Complex request - automatically upgrades to wizard mode!
+val complexResponse = wizard.processMessage(
+    Message(content = "Create a detailed system architecture diagram for a microservices platform", sender = "user")
+)
+require(complexResponse.metadata["wizard_mode"] == "true")
+
+// Factory method for easy creation
+val easyWizard = WizardAgentFactory.createOpenRouterWizard(
+    apiKey = "your-openrouter-key",
+    normalModel = "google/bison-001",
+    wizardModel = "anthropic/claude-3.5-sonnet"
+)
+```
+
+### 5. SwarmAgent for Team Coordination
 
 ```kotlin
 // Create specialized agents
