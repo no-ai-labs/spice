@@ -24,7 +24,7 @@ class GraphvizFlowGenerator {
             appendEdgeDefinitions(edges)
             
             appendDotFooter()
-        }
+        }.trim()
     }
     
     /**
@@ -99,7 +99,6 @@ class GraphvizFlowGenerator {
         appendLine("        legend_tool -> legend_agent [label=\"TOOL_RESULT\", color=\"green\"];")
         appendLine("        legend_agent -> legend_user [label=\"RESPONSE\", color=\"purple\"];")
         appendLine("    }")
-        appendLine()
         appendLine("}")
     }
     
@@ -226,11 +225,20 @@ class GraphvizFlowGenerator {
             val style = edge.style ?: "solid"
             val tooltip = edge.content.replace("\"", "\\\"")
             
+            // 메타데이터를 tooltip에 포함
+            val metadataStr = if (edge.metadata.isNotEmpty()) {
+                edge.metadata.entries.joinToString(", ") { "${it.key}=${it.value}" }
+            } else ""
+            
+            val fullTooltip = if (metadataStr.isNotEmpty()) {
+                "$tooltip ($metadataStr)"
+            } else tooltip
+            
             appendLine("    $safeFrom -> $safeTo [")
             appendLine("        label=\"${edge.label}\",")
             appendLine("        color=\"$color\",")
             appendLine("        style=\"$style\",")
-            appendLine("        tooltip=\"$tooltip\",")
+            appendLine("        tooltip=\"$fullTooltip\",")
             appendLine("        fontcolor=\"$color\"")
             appendLine("    ];")
         }

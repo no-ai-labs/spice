@@ -137,7 +137,9 @@ class SpiceAutoConfiguration(
             return VertexAgent(
                 projectId = config.projectId,
                 location = config.location,
-                accessToken = "", // TODO: GCP 인증 토큰 처리
+                accessToken = "", // OAuth 2.0 access token (if available)
+                serviceAccountKeyPath = config.serviceAccountKeyPath,
+                useApplicationDefaultCredentials = config.useApplicationDefaultCredentials,
                 model = config.model,
                 temperature = config.temperature,
                 maxTokens = config.maxTokens,

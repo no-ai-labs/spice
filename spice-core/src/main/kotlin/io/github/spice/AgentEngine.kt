@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class AgentEngine {
     
-    private val agents = ConcurrentHashMap<String, Agent>()
+    private val agentRegistry: AgentRegistry = InMemoryAgentRegistry()
     private val executionContexts = ConcurrentHashMap<String, ExecutionContext>()
     private val messageRouter = MessageRouter.createSpiceFlowRules()
     private val toolRunner = ToolRunner()
@@ -20,15 +20,18 @@ class AgentEngine {
      * 🧠 Register Agent
      */
     fun registerAgent(agent: Agent) {
-        agents[agent.id] = agent
+        agentRegistry.register(agent)
         
         // Register Agent's Tools to ToolRunner
         agent.getTools().forEach { tool ->
             toolRunner.registerTool(tool)
         }
-        
-        println("🌶️ Agent registered: ${agent.id} (${agent.name})")
     }
+    
+    /**
+     * 🔍 Get Agent Registry
+     */
+    fun getAgentRegistry(): AgentRegistry = agentRegistry
     
     /**
      * 💬 Message reception and processing - Core method
@@ -120,7 +123,7 @@ class AgentEngine {
             throw IllegalStateException("Agent is not suspended or missing")
         }
 
-        val agent = agents[context.suspendedAgentId!!]
+        val agent = agentRegistry.get(context.suspendedAgentId!!)
             ?: throw IllegalStateException("Agent not registered")
 
         context.isSuspended = false
@@ -189,11 +192,11 @@ class AgentEngine {
     private fun selectAgent(message: Message, context: ExecutionContext): Agent {
         // 1. When receiver is explicitly specified
         message.receiver?.let { receiverId ->
-            agents[receiverId]?.let { return it }
+            agentRegistry.get(receiverId)?.let { return it }
         }
         
         // 2. Default Agent selection by message type
-        val candidateAgents = agents.values.filter { agent ->
+        val candidateAgents = agentRegistry.getAll().filter { agent ->
             agent.canHandle(message)
         }
         
@@ -392,10 +395,10 @@ class AgentEngine {
      */
     fun getEngineStatus(): EngineStatus {
         return EngineStatus(
-            registeredAgents = agents.size,
+            registeredAgents = agentRegistry.getAll().size,
             activeContexts = executionContexts.size,
             registeredTools = toolRunner.getRegisteredToolCount(),
-            agentList = agents.values.map { agent ->
+            agentList = agentRegistry.getAll().map { agent ->
                 AgentInfo(
                     id = agent.id,
                     name = agent.name,

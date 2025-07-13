@@ -5,6 +5,16 @@ import java.time.Instant
 import java.util.*
 
 /**
+ * Message role for conversation context
+ */
+enum class MessageRole {
+    USER,
+    ASSISTANT,
+    SYSTEM,
+    TOOL
+}
+
+/**
  * Core Message class for JVM-Autogen
  * All agent-to-agent communication happens via Message.
  */
@@ -13,6 +23,7 @@ data class Message(
     val id: String = UUID.randomUUID().toString(),
     val content: String,
     val type: MessageType = MessageType.TEXT,
+    val role: MessageRole = MessageRole.USER,
     val sender: String,
     val receiver: String? = null,
     val metadata: Map<String, String> = emptyMap(),
@@ -28,6 +39,7 @@ data class Message(
         content: String,
         sender: String,
         type: MessageType = MessageType.TEXT,
+        role: MessageRole = MessageRole.ASSISTANT,
         metadata: Map<String, String> = emptyMap()
     ): Message {
         return copy(
@@ -36,6 +48,7 @@ data class Message(
             sender = sender,
             receiver = this.sender,
             type = type,
+            role = role,
             metadata = metadata,
             timestamp = Instant.now().toEpochMilli(),
             parentId = this.id,
@@ -65,6 +78,13 @@ data class Message(
      */
     fun withType(newType: MessageType): Message {
         return copy(type = newType)
+    }
+    
+    /**
+     * Change the message role
+     */
+    fun withRole(newRole: MessageRole): Message {
+        return copy(role = newRole)
     }
 }
 

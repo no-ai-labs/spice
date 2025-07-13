@@ -271,8 +271,19 @@ class GraphvizFlowGeneratorTest {
         assertTrue(dotContent.endsWith("}"), "Should be properly closed")
         
         // 노드나 간선은 없어야 함 (범례 제외)
-        val nodeLines = dotContent.lines().filter { it.contains(" [") && !it.contains("legend_") }
-        val edgeLines = dotContent.lines().filter { it.contains(" ->") && !it.contains("legend_") }
+        val nodeLines = dotContent.lines().filter { 
+            it.contains(" [") && !it.contains("legend_") && 
+            !it.contains("node [") && !it.contains("edge [") &&
+            !it.trim().startsWith("//") && !it.trim().startsWith("rankdir") &&
+            !it.trim().startsWith("bgcolor") && !it.trim().startsWith("fontname") &&
+            !it.trim().startsWith("fontsize") && !it.trim().startsWith("label=") &&
+            !it.trim().startsWith("labelloc")
+        }
+        val edgeLines = dotContent.lines().filter { 
+            it.contains(" ->") && !it.contains("legend_") 
+        }
+        
+
         
         assertTrue(nodeLines.isEmpty(), "Should have no user-defined nodes")
         assertTrue(edgeLines.isEmpty(), "Should have no user-defined edges")

@@ -8,6 +8,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     
+    // Google Cloud 인증 라이브러리 (VertexAgent용)
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.19.0")
+    implementation("com.google.auth:google-auth-library-credentials:1.19.0")
+    
     // 로깅 (SLF4J API만, 구현체는 사용하는 프레임워크에서 제공)
     compileOnly("org.slf4j:slf4j-api:2.0.9")
     

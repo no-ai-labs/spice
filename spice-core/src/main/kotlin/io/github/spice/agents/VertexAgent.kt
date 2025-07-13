@@ -10,6 +10,10 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import com.google.auth.oauth2.GoogleCredentials
+import com.google.auth.oauth2.ServiceAccountCredentials
+import java.io.FileInputStream
+import java.io.IOException
 
 /**
  * 🤖 Dedicated Agent for communicating with Google Vertex AI API
@@ -20,8 +24,12 @@ class VertexAgent(
     name: String = "Google Vertex AI Agent",
     private val projectId: String,
     private val location: String = "us-central1",
-    private val accessToken: String,
-    private val model: String = "gemini-1.5-pro",
+    private val accessToken: String = "",
+    @Deprecated("Vertex AI does not support API key authentication")
+    private val apiKey: String = "",
+    private val serviceAccountKeyPath: String = "",
+    private val useApplicationDefaultCredentials: Boolean = true,
+    private val model: String = "gemini-1.5-flash-002",
     private val maxTokens: Int = 1000,
     private val temperature: Double = 0.7,
     private val timeout: Duration = Duration.ofSeconds(60)
@@ -47,6 +55,61 @@ class VertexAgent(
     private val json = Json { ignoreUnknownKeys = true }
     
     private val baseUrl = "https://$location-aiplatform.googleapis.com/v1/projects/$projectId/locations/$location/publishers/google/models"
+    
+    // Google Cloud 인증 정보 캐시
+    private var cachedCredentials: GoogleCredentials? = null
+    private var tokenExpiryTime: Long = 0
+    
+    /**
+     * Google Cloud 인증 토큰 획득
+     */
+    private suspend fun getAccessToken(): String {
+        // 기존 토큰이 유효한지 확인 (만료 5분 전에 갱신)
+        val now = System.currentTimeMillis()
+        if (cachedCredentials != null && now < tokenExpiryTime - 300000) {
+            return cachedCredentials!!.accessToken?.tokenValue ?: ""
+        }
+        
+        try {
+            val credentials = when {
+                // 1. 직접 제공된 액세스 토큰 사용
+                accessToken.isNotBlank() -> {
+                    // 직접 제공된 토큰이므로 캐싱하지 않음
+                    return accessToken
+                }
+                
+                // 2. 서비스 계정 JSON 키 파일 사용
+                serviceAccountKeyPath.isNotBlank() -> {
+                    ServiceAccountCredentials.fromStream(FileInputStream(serviceAccountKeyPath))
+                        .createScoped(listOf("https://www.googleapis.com/auth/cloud-platform"))
+                }
+                
+                // 3. Application Default Credentials 사용
+                useApplicationDefaultCredentials -> {
+                    GoogleCredentials.getApplicationDefault()
+                        .createScoped(listOf("https://www.googleapis.com/auth/cloud-platform"))
+                }
+                
+                else -> {
+                    throw IllegalStateException("No valid authentication method configured for Vertex AI")
+                }
+            }
+            
+            // 토큰 갱신
+            credentials.refreshIfExpired()
+            cachedCredentials = credentials
+            
+            // 만료 시간 설정 (일반적으로 1시간, 안전하게 50분으로 설정)
+            tokenExpiryTime = now + 3000000 // 50분
+            
+            return credentials.accessToken?.tokenValue ?: ""
+            
+        } catch (e: IOException) {
+            throw RuntimeException("Failed to obtain Google Cloud access token: ${e.message}", e)
+        } catch (e: Exception) {
+            throw RuntimeException("Authentication error: ${e.message}", e)
+        }
+    }
     
     override suspend fun processMessage(message: Message): Message {
         return try {
@@ -221,7 +284,11 @@ class VertexAgent(
     }
     
     override fun isReady(): Boolean {
-        return projectId.isNotBlank() && accessToken.isNotBlank()
+        return projectId.isNotBlank() && (
+            accessToken.isNotBlank() || 
+            serviceAccountKeyPath.isNotBlank() || 
+            useApplicationDefaultCredentials
+        )
     }
     
     private fun createGeminiRequest(message: Message): VertexGenerateRequest {
@@ -277,10 +344,13 @@ class VertexAgent(
         
         val requestBody = json.encodeToString(request)
         
+        // Google Cloud 인증 토큰 획득
+        val token = getAccessToken()
+        
         val httpRequest = HttpRequest.newBuilder()
             .uri(URI.create(endpoint))
             .header("Content-Type", "application/json")
-            .header("Authorization", "Bearer $accessToken")
+            .header("Authorization", "Bearer $token")
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
             .timeout(timeout)
             .build()

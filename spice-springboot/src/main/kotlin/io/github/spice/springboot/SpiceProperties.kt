@@ -115,7 +115,7 @@ data class VertexProperties(
     @field:NotBlank(message = "Google Cloud location is required")
     val location: String = "us-central1",
     
-    val model: String = "gemini-1.5-pro",
+    val model: String = "gemini-1.5-flash-002",
     
     @field:DecimalMin(value = "0.0", message = "Temperature must be >= 0.0")
     @field:DecimalMax(value = "2.0", message = "Temperature must be <= 2.0")
@@ -129,7 +129,17 @@ data class VertexProperties(
     
     val functionCalling: Boolean = true,
     
-    val multimodal: Boolean = true
+    val multimodal: Boolean = true,
+    
+    // API Key for authentication (not supported by Vertex AI)
+    @Deprecated("Vertex AI does not support API key authentication")
+    val apiKey: String = "",
+    
+    // Service Account JSON key file path for authentication
+    val serviceAccountKeyPath: String = "",
+    
+    // Use Application Default Credentials (ADC) if no service account key is provided
+    val useApplicationDefaultCredentials: Boolean = true
 )
 
 /**
