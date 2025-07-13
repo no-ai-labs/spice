@@ -358,6 +358,7 @@ fun apiAgent(
                         "API call initiated. Use api_call tool for specific requests.",
                         this@buildAgent.id,
                         MessageType.TOOL_CALL,
+                        MessageRole.ASSISTANT,
                         mapOf("toolName" to "api_call")
                     )
                 } else {
@@ -396,6 +397,7 @@ fun routingAgent(
                 "Routing to: ${route.value}",
                 this@buildAgent.id,
                 MessageType.SYSTEM,
+                MessageRole.ASSISTANT,
                 mapOf("route" to route.value, "pattern" to route.key)
             )
         } else {

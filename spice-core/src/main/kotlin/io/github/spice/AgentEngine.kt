@@ -44,6 +44,26 @@ class AgentEngine {
             // 2. Create/retrieve execution context
             val context = getOrCreateExecutionContext(message)
             
+            // 🔄 Check if context is suspended - prevent processing during suspension
+            if (context.isSuspended) {
+                return AgentMessage(
+                    success = false,
+                    response = Message(
+                        content = "Context is suspended. Use resumeAgent() to continue.",
+                        type = MessageType.ERROR,
+                        sender = "agent-engine"
+                    ),
+                    agentId = "agent-engine",
+                    agentName = "AgentEngine",
+                    executionTime = 0,
+                    error = "Context suspended",
+                    metadata = mapOf(
+                        "suspended_agent_id" to (context.suspendedAgentId ?: "unknown"),
+                        "context_id" to context.id
+                    )
+                )
+            }
+            
             // 3. Agent selection
             val targetAgent = selectAgent(message, context)
             
@@ -57,13 +77,19 @@ class AgentEngine {
             // 6. Interrupt handling
             if (agentResponse.type == MessageType.INTERRUPT) {
                 pauseAgent(context.id, targetAgent.id)
+                println("🌶️ Agent paused: ${targetAgent.id} in context: ${context.id}")
                 return AgentMessage(
                     success = true,
                     response = agentResponse,
                     agentId = targetAgent.id,
                     agentName = targetAgent.name,
                     executionTime = System.currentTimeMillis() - context.startTime,
-                    metadata = mapOf("interrupted" to "true")
+                    metadata = mapOf(
+                        "interrupted" to "true",
+                        "context_id" to context.id,
+                        "suspended_agent_id" to targetAgent.id,
+                        "interrupt_reason" to (agentResponse.metadata["reason"] ?: "unknown")
+                    )
                 )
             }
             
@@ -87,7 +113,8 @@ class AgentEngine {
                 metadata = mapOf<String, String>(
                     "messageId" to finalResponse.id,
                     "conversationId" to (finalResponse.conversationId ?: ""),
-                    "routingApplied" to (routedMessages.size > 1).toString()
+                    "routingApplied" to (routedMessages.size > 1).toString(),
+                    "context_id" to context.id
                 )
             )
             
@@ -108,28 +135,134 @@ class AgentEngine {
         }
     }
 
+    /**
+     * ⏸️ Pause Agent - Enhanced with validation and logging
+     */
     private fun pauseAgent(contextId: String, agentId: String) {
-        executionContexts[contextId]?.let { context ->
-            context.isSuspended = true
-            context.suspendedAgentId = agentId
+        val context = executionContexts[contextId]
+        if (context == null) {
+            println("⚠️ Warning: Cannot pause agent - context not found: $contextId")
+            return
         }
+        
+        if (context.isSuspended) {
+            println("⚠️ Warning: Context already suspended: $contextId")
+            return
+        }
+        
+        // Validate agent exists
+        val agent = agentRegistry.get(agentId)
+        if (agent == null) {
+            println("⚠️ Warning: Cannot pause - agent not found: $agentId")
+            return
+        }
+        
+        // Update context state
+        context.isSuspended = true
+        context.suspendedAgentId = agentId
+        context.suspendedAt = System.currentTimeMillis()
+        
+        println("🌶️ Agent paused successfully: $agentId in context: $contextId")
     }
 
+    /**
+     * ▶️ Resume Agent - Enhanced with comprehensive validation
+     */
     suspend fun resumeAgent(contextId: String, reply: Message): AgentMessage {
+        println("🌶️ Attempting to resume agent in context: $contextId")
+        
+        // 1. Validate context exists
         val context = executionContexts[contextId]
-            ?: throw IllegalStateException("Context not found")
+            ?: throw IllegalStateException("Context not found: $contextId")
 
-        if (!context.isSuspended || context.suspendedAgentId == null) {
-            throw IllegalStateException("Agent is not suspended or missing")
+        // 2. Validate context is actually suspended
+        if (!context.isSuspended) {
+            throw IllegalStateException("Context is not suspended: $contextId")
+        }
+        
+        if (context.suspendedAgentId == null) {
+            throw IllegalStateException("No suspended agent found in context: $contextId")
         }
 
+        // 3. Validate suspended agent still exists
         val agent = agentRegistry.get(context.suspendedAgentId!!)
-            ?: throw IllegalStateException("Agent not registered")
+            ?: throw IllegalStateException("Suspended agent no longer registered: ${context.suspendedAgentId}")
 
+        // 4. Validate agent is ready
+        if (!agent.isReady()) {
+            throw IllegalStateException("Suspended agent is not ready: ${context.suspendedAgentId}")
+        }
+
+        // 5. Clear suspension state BEFORE processing to prevent recursion
+        val suspendedAgentId = context.suspendedAgentId
         context.isSuspended = false
         context.suspendedAgentId = null
+        context.resumedAt = System.currentTimeMillis()
+        
+        println("🌶️ Resuming agent: $suspendedAgentId in context: $contextId")
 
-        return receive(reply.copy(conversationId = contextId))
+        try {
+            // 6. Process resume message with proper context
+            val resumeMessage = reply.copy(
+                conversationId = contextId,
+                type = MessageType.RESUME,
+                metadata = reply.metadata + mapOf(
+                    "resumed_from" to (suspendedAgentId ?: "unknown"),
+                    "context_id" to contextId,
+                    "resume_timestamp" to System.currentTimeMillis().toString()
+                )
+            )
+            
+            // 7. Process the resume message (this will NOT cause recursion now)
+            val result = receive(resumeMessage)
+            
+            println("🌶️ Agent resumed successfully: $suspendedAgentId")
+            return result
+            
+        } catch (e: Exception) {
+            // 8. Restore suspension state if resume fails
+            context.isSuspended = true
+            context.suspendedAgentId = suspendedAgentId
+            context.resumedAt = null
+            
+            println("⚠️ Resume failed, restoring suspension: ${e.message}")
+            throw IllegalStateException("Resume failed: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * 📊 Get Context Status - New method for debugging
+     */
+    fun getContextStatus(contextId: String): ContextStatus? {
+        val context = executionContexts[contextId] ?: return null
+        
+        return ContextStatus(
+            id = context.id,
+            isSuspended = context.isSuspended,
+            suspendedAgentId = context.suspendedAgentId,
+            suspendedAt = context.suspendedAt,
+            resumedAt = context.resumedAt,
+            isTerminated = context.isTerminated,
+            messageCount = context.messageHistory.size,
+            lastAgentId = context.lastAgentId,
+            uptime = System.currentTimeMillis() - context.startTime
+        )
+    }
+    
+    /**
+     * 🔄 Force Resume - Emergency method for stuck contexts
+     */
+    fun forceResume(contextId: String): Boolean {
+        val context = executionContexts[contextId] ?: return false
+        
+        if (!context.isSuspended) return false
+        
+        println("🌶️ Force resuming context: $contextId")
+        context.isSuspended = false
+        context.suspendedAgentId = null
+        context.resumedAt = System.currentTimeMillis()
+        
+        return true
     }
     
     /**
@@ -144,6 +277,12 @@ class AgentEngine {
         while (iterationCount < maxIterations && !context.isTerminated) {
             val agentMessage = receive(currentMessage)
             emit(agentMessage)
+            
+            // Check for suspension during workflow
+            if (context.isSuspended) {
+                println("🌶️ Workflow suspended in context: ${context.id}")
+                break
+            }
             
             // Check termination conditions
             if (shouldTerminate(agentMessage, context)) {
@@ -414,7 +553,7 @@ class AgentEngine {
     /**
      * 🧹 Cleanup expired contexts
      */
-    fun cleanupExpiredContexts(maxAgeMs: Long = 3600000) { // 1 hour
+    fun cleanupExpiredContexts(maxAgeMs: Long = 3600000) { // 1 hour default
         val currentTime = System.currentTimeMillis()
         val expiredContexts = executionContexts.filterValues { context ->
             currentTime - context.startTime > maxAgeMs
@@ -431,7 +570,7 @@ class AgentEngine {
 }
 
 /**
- * 🏃 Execution context
+ * 🏃 Enhanced Execution context with suspension tracking
  */
 data class ExecutionContext(
     val id: String,
@@ -440,7 +579,24 @@ data class ExecutionContext(
     var isTerminated: Boolean,
     var lastAgentId: String?,
     var isSuspended: Boolean = false,
-    var suspendedAgentId: String? = null
+    var suspendedAgentId: String? = null,
+    var suspendedAt: Long? = null,
+    var resumedAt: Long? = null
+)
+
+/**
+ * 📊 Context Status for debugging
+ */
+data class ContextStatus(
+    val id: String,
+    val isSuspended: Boolean,
+    val suspendedAgentId: String?,
+    val suspendedAt: Long?,
+    val resumedAt: Long?,
+    val isTerminated: Boolean,
+    val messageCount: Int,
+    val lastAgentId: String?,
+    val uptime: Long
 )
 
 /**
