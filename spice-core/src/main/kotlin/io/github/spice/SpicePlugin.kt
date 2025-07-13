@@ -5,14 +5,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.ServiceLoader
 
 /**
- * 🧩 Spice Plugin System
+ * Spice Plugin System
  * 
- * 확장 가능한 모듈형 아키텍처를 제공합니다.
- * Agent, Tool, MessageRouter 등을 플러그인으로 동적 로드할 수 있습니다.
+ * Provides an extensible modular architecture.
+ * Allows extending Spice functionality through plugins.
  */
 
 /**
- * 플러그인 메타데이터
+ * Plugin metadata
  */
 @Serializable
 data class PluginMetadata(
@@ -28,92 +28,102 @@ data class PluginMetadata(
 )
 
 /**
- * 플러그인 카테고리
+ * Plugin category
  */
 enum class PluginCategory {
-    AGENT,          // Agent 확장
-    TOOL,           // Tool 확장
-    MESSAGE_ROUTER, // MessageRouter 확장
-    ORCHESTRATOR,   // Orchestrator 확장
-    GENERAL,        // 일반 확장
-    INTEGRATION,    // 외부 서비스 통합
-    CUSTOM          // 커스텀 확장
+    AGENT,          // Agent extensions
+    TOOL,           // Tool extensions
+    MESSAGE_ROUTER, // MessageRouter extensions
+    ORCHESTRATOR,   // Orchestrator extensions
+    GENERAL,        // General extensions
+    INTEGRATION,    // External service integration
+    CUSTOM          // Custom extensions
 }
 
 /**
- * 플러그인 상태
+ * Plugin status
  */
-enum class PluginState {
-    LOADED,         // 로드됨
-    ACTIVATED,      // 활성화됨
-    DEACTIVATED,    // 비활성화됨
-    ERROR,          // 오류 상태
-    UPDATING        // 업데이트 중
+enum class PluginStatus {
+    ACTIVATED,      // Activated
+    DEACTIVATED,    // Deactivated
+    ERROR,          // Error state
+    UPDATING        // Updating
 }
 
 /**
- * 플러그인 인터페이스
+ * Plugin interface
  */
 interface SpicePlugin {
     
     /**
-     * 플러그인 메타데이터
+     * Plugin metadata
      */
     val metadata: PluginMetadata
     
     /**
-     * 플러그인 초기화
+     * Plugin context
      */
-    fun initialize(context: PluginContext)
+    var context: PluginContext?
     
     /**
-     * 플러그인 활성화
+     * Plugin activation
      */
-    fun activate()
+    suspend fun activate()
     
     /**
-     * 플러그인 비활성화
+     * Plugin deactivation
      */
-    fun deactivate()
+    suspend fun deactivate()
     
     /**
-     * 플러그인 정리
+     * Plugin cleanup
      */
-    fun cleanup()
+    suspend fun cleanup()
     
     /**
-     * 플러그인 상태 확인
+     * Plugin status check
      */
     fun isReady(): Boolean
     
     /**
-     * 플러그인 설정
+     * Plugin configuration
      */
     fun configure(config: Map<String, Any>)
 }
 
 /**
- * 플러그인 컨텍스트
+ * Plugin context
  */
-data class PluginContext(
-    val agentEngine: AgentEngine,
-    val pluginManager: PluginManager,
-    val configurationManager: ConfigurationManager,
+interface PluginContext {
+    val pluginId: String
     val logger: PluginLogger
-)
+    val configManager: ConfigManager
+    
+    /**
+     * Plugin configuration
+     */
+    fun getConfig(): Map<String, Any>
+    fun setConfig(key: String, value: Any)
+    
+    /**
+     * Access other plugins
+     */
+    fun getPlugin(id: String): SpicePlugin?
+    fun getAllPlugins(): List<SpicePlugin>
+}
 
 /**
- * 플러그인 로거
+ * Simple plugin logger implementation
  */
 interface PluginLogger {
     fun info(message: String)
     fun warn(message: String)
-    fun error(message: String, exception: Throwable? = null)
+    fun error(message: String, throwable: Throwable? = null)
     fun debug(message: String)
 }
 
 /**
- * 간단한 플러그인 로거 구현
+ * Simple plugin logger implementation
  */
 class SimplePluginLogger(private val pluginId: String) : PluginLogger {
     override fun info(message: String) = println("🌶️ [INFO] [$pluginId] $message")
@@ -123,235 +133,250 @@ class SimplePluginLogger(private val pluginId: String) : PluginLogger {
 }
 
 /**
- * 설정 관리자
+ * Configuration manager
  */
-interface ConfigurationManager {
-    fun getConfig(pluginId: String): Map<String, Any>
-    fun setConfig(pluginId: String, config: Map<String, Any>)
-    fun hasConfig(pluginId: String): Boolean
+interface ConfigManager {
+    fun getString(key: String, defaultValue: String = ""): String
+    fun getInt(key: String, defaultValue: Int = 0): Int
+    fun getBoolean(key: String, defaultValue: Boolean = false): Boolean
+    fun setProperty(key: String, value: Any)
 }
 
 /**
- * 간단한 설정 관리자 구현
+ * Simple configuration manager implementation
  */
-class SimpleConfigurationManager : ConfigurationManager {
-    private val configs = ConcurrentHashMap<String, Map<String, Any>>()
+class SimpleConfigManager : ConfigManager {
+    private val properties = ConcurrentHashMap<String, Any>()
     
-    override fun getConfig(pluginId: String): Map<String, Any> {
-        return configs[pluginId] ?: emptyMap()
+    override fun getString(key: String, defaultValue: String): String {
+        return properties[key]?.toString() ?: defaultValue
     }
     
-    override fun setConfig(pluginId: String, config: Map<String, Any>) {
-        configs[pluginId] = config
+    override fun getInt(key: String, defaultValue: Int): Int {
+        return properties[key]?.toString()?.toIntOrNull() ?: defaultValue
     }
     
-    override fun hasConfig(pluginId: String): Boolean {
-        return configs.containsKey(pluginId)
+    override fun getBoolean(key: String, defaultValue: Boolean): Boolean {
+        return properties[key]?.toString()?.toBooleanStrictOrNull() ?: defaultValue
+    }
+    
+    override fun setProperty(key: String, value: Any) {
+        properties[key] = value
     }
 }
 
 /**
- * 플러그인 정보
+ * Plugin information
  */
 data class PluginInfo(
     val metadata: PluginMetadata,
-    val state: PluginState,
+    val status: PluginStatus,
     val loadTime: Long,
     val activationTime: Long? = null,
     val errorMessage: String? = null
 )
 
 /**
- * 플러그인 매니저
+ * Plugin manager
  */
 class PluginManager(
     private val agentEngine: AgentEngine,
-    private val configurationManager: ConfigurationManager = SimpleConfigurationManager()
+    private val configManager: ConfigManager = SimpleConfigManager()
 ) {
     
     private val plugins = ConcurrentHashMap<String, SpicePlugin>()
-    private val pluginStates = ConcurrentHashMap<String, PluginState>()
+    private val pluginStates = ConcurrentHashMap<String, PluginStatus>()
     private val pluginInfos = ConcurrentHashMap<String, PluginInfo>()
     private val dependencyGraph = ConcurrentHashMap<String, List<String>>()
     
     /**
-     * 플러그인 로드
+     * Register plugin
      */
-    fun loadPlugin(plugin: SpicePlugin): Boolean {
+    fun registerPlugin(plugin: SpicePlugin): Boolean {
         val pluginId = plugin.metadata.id
         
-        return try {
-            // 의존성 체크
-            if (!checkDependencies(plugin.metadata.dependencies)) {
-                throw PluginException("Dependencies not satisfied for plugin: $pluginId")
+        if (plugins.containsKey(pluginId)) {
+            return false // Plugin already registered
+        }
+        
+        // Dependency check
+        val missingDeps = plugin.metadata.dependencies.filter { dep ->
+            !plugins.containsKey(dep)
+        }
+        
+        if (missingDeps.isNotEmpty()) {
+            return false // Missing dependencies
+        }
+        
+        // Store plugin information
+        plugins[pluginId] = plugin
+        pluginStates[pluginId] = PluginStatus.DEACTIVATED
+        pluginInfos[pluginId] = PluginInfo(
+            metadata = plugin.metadata,
+            status = PluginStatus.DEACTIVATED,
+            loadTime = System.currentTimeMillis()
+        )
+        
+        // Update dependency graph
+        dependencyGraph[pluginId] = plugin.metadata.dependencies
+        
+        // Create and initialize plugin context
+        val context = createPluginContext(pluginId)
+        plugin.context = context
+        
+        return true
+    }
+    
+    private fun createPluginContext(pluginId: String): PluginContext {
+        return object : PluginContext {
+            override val pluginId: String = pluginId
+            override val logger: PluginLogger = SimplePluginLogger(pluginId)
+            override val configManager: ConfigManager = SimpleConfigManager()
+            
+            private val config = ConcurrentHashMap<String, Any>()
+            
+            override fun getConfig(): Map<String, Any> = config.toMap()
+            
+            override fun setConfig(key: String, value: Any) {
+                config[key] = value
             }
             
-            // 플러그인 등록
-            plugins[pluginId] = plugin
-            pluginStates[pluginId] = PluginState.LOADED
+            override fun getPlugin(id: String): SpicePlugin? {
+                return plugins[id]
+            }
             
-            // 플러그인 정보 저장
-            pluginInfos[pluginId] = PluginInfo(
-                metadata = plugin.metadata,
-                state = PluginState.LOADED,
-                loadTime = System.currentTimeMillis()
-            )
-            
-            // 의존성 그래프 업데이트
-            dependencyGraph[pluginId] = plugin.metadata.dependencies
-            
-            // 플러그인 컨텍스트 생성 및 초기화
-            val context = PluginContext(
-                agentEngine = agentEngine,
-                pluginManager = this,
-                configurationManager = configurationManager,
-                logger = SimplePluginLogger(pluginId)
-            )
-            
-            plugin.initialize(context)
-            
-            println("🌶️ Plugin loaded: $pluginId (${plugin.metadata.name})")
-            true
-            
-        } catch (e: Exception) {
-            pluginStates[pluginId] = PluginState.ERROR
-            pluginInfos[pluginId] = PluginInfo(
-                metadata = plugin.metadata,
-                state = PluginState.ERROR,
-                loadTime = System.currentTimeMillis(),
-                errorMessage = e.message
-            )
-            
-            println("🌶️ Failed to load plugin: $pluginId - ${e.message}")
-            false
+            override fun getAllPlugins(): List<SpicePlugin> {
+                return plugins.values.toList()
+            }
         }
     }
     
     /**
-     * 플러그인 활성화
+     * Activate plugin
      */
-    fun activatePlugin(pluginId: String): Boolean {
+    suspend fun activatePlugin(pluginId: String): Boolean {
         val plugin = plugins[pluginId] ?: return false
         
+        // Check if dependency plugins are activated
+        val dependencies = dependencyGraph[pluginId] ?: emptyList()
+        val inactiveDeps = dependencies.filter { dep ->
+            pluginStates[dep] != PluginStatus.ACTIVATED
+        }
+        
+        if (inactiveDeps.isNotEmpty()) {
+            return false // Dependencies not activated
+        }
+        
         return try {
-            // 의존성 플러그인들이 활성화되어 있는지 확인
-            val dependencies = dependencyGraph[pluginId] ?: emptyList()
-            if (!dependencies.all { isPluginActive(it) }) {
-                throw PluginException("Required dependencies are not active")
+            plugin.activate()
+            
+            // Update plugin information
+            pluginInfos[pluginId]?.let { info ->
+                pluginInfos[pluginId] = info.copy(
+                    status = PluginStatus.ACTIVATED,
+                    activationTime = System.currentTimeMillis()
+                )
             }
             
-            plugin.activate()
-            pluginStates[pluginId] = PluginState.ACTIVATED
-            
-            // 플러그인 정보 업데이트
-            val currentInfo = pluginInfos[pluginId]!!
-            pluginInfos[pluginId] = currentInfo.copy(
-                state = PluginState.ACTIVATED,
-                activationTime = System.currentTimeMillis()
-            )
-            
-            println("🌶️ Plugin activated: $pluginId")
             true
-            
         } catch (e: Exception) {
-            pluginStates[pluginId] = PluginState.ERROR
-            println("🌶️ Failed to activate plugin: $pluginId - ${e.message}")
+            pluginInfos[pluginId] = pluginInfos[pluginId]?.copy(
+                status = PluginStatus.ERROR,
+                errorMessage = e.message
+            )
             false
         }
     }
     
     /**
-     * 플러그인 비활성화
+     * Deactivate plugin
      */
-    fun deactivatePlugin(pluginId: String): Boolean {
+    suspend fun deactivatePlugin(pluginId: String): Boolean {
         val plugin = plugins[pluginId] ?: return false
         
         return try {
             plugin.deactivate()
-            pluginStates[pluginId] = PluginState.DEACTIVATED
             
-            // 플러그인 정보 업데이트
-            val currentInfo = pluginInfos[pluginId]!!
-            pluginInfos[pluginId] = currentInfo.copy(
-                state = PluginState.DEACTIVATED,
+            // Update plugin information
+            pluginInfos[pluginId] = pluginInfos[pluginId]?.copy(
+                status = PluginStatus.DEACTIVATED,
                 activationTime = null
             )
             
-            println("🌶️ Plugin deactivated: $pluginId")
             true
-            
         } catch (e: Exception) {
-            pluginStates[pluginId] = PluginState.ERROR
-            println("🌶️ Failed to deactivate plugin: $pluginId - ${e.message}")
+            pluginInfos[pluginId] = pluginInfos[pluginId]?.copy(
+                status = PluginStatus.ERROR,
+                errorMessage = e.message
+            )
             false
         }
     }
     
     /**
-     * 플러그인 언로드
+     * Unregister plugin
      */
-    fun unloadPlugin(pluginId: String): Boolean {
+    suspend fun unregisterPlugin(pluginId: String): Boolean {
         val plugin = plugins[pluginId] ?: return false
         
         return try {
-            // 먼저 비활성화
-            if (isPluginActive(pluginId)) {
+            // Deactivate first
+            if (pluginStates[pluginId] == PluginStatus.ACTIVATED) {
                 deactivatePlugin(pluginId)
             }
             
+            // Cleanup
             plugin.cleanup()
             
-            // 플러그인 제거
+            // Remove from registry
             plugins.remove(pluginId)
             pluginStates.remove(pluginId)
             pluginInfos.remove(pluginId)
             dependencyGraph.remove(pluginId)
             
-            println("🌶️ Plugin unloaded: $pluginId")
             true
-            
         } catch (e: Exception) {
-            println("🌶️ Failed to unload plugin: $pluginId - ${e.message}")
             false
         }
     }
     
     /**
-     * 플러그인 상태 확인
+     * Query plugins
      */
-    fun isPluginActive(pluginId: String): Boolean {
-        return pluginStates[pluginId] == PluginState.ACTIVATED
+    fun getPlugin(pluginId: String): SpicePlugin? {
+        return plugins[pluginId]
     }
     
     /**
-     * 플러그인 조회
+     * Query all plugins
      */
-    fun getPlugin(pluginId: String): SpicePlugin? = plugins[pluginId]
+    fun getAllPlugins(): Map<String, SpicePlugin> {
+        return plugins.toMap()
+    }
     
     /**
-     * 모든 플러그인 조회
+     * Query plugin information
      */
-    fun getAllPlugins(): Map<String, SpicePlugin> = plugins.toMap()
+    fun getPluginInfo(pluginId: String): PluginInfo? {
+        return pluginInfos[pluginId]
+    }
     
     /**
-     * 플러그인 정보 조회
+     * Query all plugin information
      */
-    fun getPluginInfo(pluginId: String): PluginInfo? = pluginInfos[pluginId]
+    fun getAllPluginInfos(): Map<String, PluginInfo> {
+        return pluginInfos.toMap()
+    }
     
     /**
-     * 모든 플러그인 정보 조회
-     */
-    fun getAllPluginInfos(): Map<String, PluginInfo> = pluginInfos.toMap()
-    
-    /**
-     * 카테고리별 플러그인 조회
+     * Query plugins by category
      */
     fun getPluginsByCategory(category: PluginCategory): List<SpicePlugin> {
         return plugins.values.filter { it.metadata.category == category }
     }
     
     /**
-     * 의존성 체크
+     * Dependency check
      */
     private fun checkDependencies(dependencies: List<String>): Boolean {
         return dependencies.all { depId ->
@@ -360,80 +385,81 @@ class PluginManager(
     }
     
     /**
-     * 자동 플러그인 발견 및 로드 (ServiceLoader 기반)
+     * Sort plugins by dependency order
      */
-    fun discoverAndLoadPlugins() {
-        val serviceLoader = ServiceLoader.load(SpicePlugin::class.java)
-        
-        serviceLoader.forEach { plugin ->
-            loadPlugin(plugin)
-        }
-    }
-    
-    /**
-     * 플러그인 의존성 순서로 정렬
-     */
-    fun getPluginsInDependencyOrder(): List<String> {
+    fun getPluginActivationOrder(): List<String> {
         val result = mutableListOf<String>()
         val visited = mutableSetOf<String>()
         val visiting = mutableSetOf<String>()
         
         fun visit(pluginId: String) {
-            if (visiting.contains(pluginId)) {
-                throw PluginException("Circular dependency detected: $pluginId")
+            if (pluginId in visiting) {
+                throw IllegalStateException("Circular dependency detected: $pluginId")
             }
             
-            if (!visited.contains(pluginId)) {
-                visiting.add(pluginId)
-                
-                val dependencies = dependencyGraph[pluginId] ?: emptyList()
-                dependencies.forEach { depId ->
-                    if (plugins.containsKey(depId)) {
-                        visit(depId)
-                    }
+            if (pluginId in visited) return
+            
+            visiting.add(pluginId)
+            
+            val dependencies = dependencyGraph[pluginId] ?: emptyList()
+            dependencies.forEach { dep ->
+                if (plugins.containsKey(dep)) {
+                    visit(dep)
                 }
-                
-                visiting.remove(pluginId)
-                visited.add(pluginId)
-                result.add(pluginId)
             }
+            
+            visiting.remove(pluginId)
+            visited.add(pluginId)
+            result.add(pluginId)
         }
         
         plugins.keys.forEach { pluginId ->
-            visit(pluginId)
+            if (pluginId !in visited) {
+                visit(pluginId)
+            }
         }
         
         return result
     }
     
     /**
-     * 모든 플러그인 활성화 (의존성 순서)
+     * Activate all plugins (in dependency order)
      */
-    fun activateAllPlugins() {
-        val orderedPlugins = getPluginsInDependencyOrder()
+    suspend fun activateAllPlugins(): List<String> {
+        val activationOrder = getPluginActivationOrder()
+        val failed = mutableListOf<String>()
         
-        orderedPlugins.forEach { pluginId ->
-            if (pluginStates[pluginId] == PluginState.LOADED) {
-                activatePlugin(pluginId)
+        activationOrder.forEach { pluginId ->
+            if (pluginStates[pluginId] != PluginStatus.ACTIVATED) {
+                if (!activatePlugin(pluginId)) {
+                    failed.add(pluginId)
+                }
             }
         }
+        
+        return failed
     }
     
     /**
-     * 모든 플러그인 비활성화 (역순)
+     * Deactivate all plugins (in reverse order)
      */
-    fun deactivateAllPlugins() {
-        val orderedPlugins = getPluginsInDependencyOrder().reversed()
+    suspend fun deactivateAllPlugins(): List<String> {
+        val deactivationOrder = getPluginActivationOrder().reversed()
+        val failed = mutableListOf<String>()
         
-        orderedPlugins.forEach { pluginId ->
-            if (pluginStates[pluginId] == PluginState.ACTIVATED) {
-                deactivatePlugin(pluginId)
+        deactivationOrder.forEach { pluginId ->
+            if (pluginStates[pluginId] == PluginStatus.ACTIVATED) {
+                if (!deactivatePlugin(pluginId)) {
+                    failed.add(pluginId)
+                }
             }
         }
+        
+        return failed
     }
     
     /**
-     * 플러그인 통계
+     * Plugin statistics
      */
     fun getPluginStats(): PluginStats {
         val byState = pluginStates.values.groupingBy { it }.eachCount()
@@ -449,69 +475,58 @@ class PluginManager(
 }
 
 /**
- * 플러그인 통계
+ * Plugin statistics
  */
 data class PluginStats(
     val totalPlugins: Int,
-    val stateDistribution: Map<PluginState, Int>,
+    val stateDistribution: Map<PluginStatus, Int>,
     val categoryDistribution: Map<PluginCategory, Int>,
     val averageLoadTime: Double
 )
 
 /**
- * 플러그인 예외
+ * Plugin exception
  */
 class PluginException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
- * === 실제 플러그인 예제들 ===
+ * === Actual plugin examples ===
  */
 
 /**
- * 기본 플러그인 추상 클래스
+ * Base plugin class
+ * 
+ * Methods to implement in subclasses
  */
 abstract class BaseSpicePlugin(
     override val metadata: PluginMetadata
 ) : SpicePlugin {
     
-    protected var context: PluginContext? = null
-    protected var config: Map<String, Any> = emptyMap()
-    protected var isInitialized = false
+    override var context: PluginContext? = null
     
-    override fun initialize(context: PluginContext) {
-        this.context = context
-        this.config = context.configurationManager.getConfig(metadata.id)
-        onInitialize()
-        isInitialized = true
+    override suspend fun activate() {
+        // Default implementation
+        context?.logger?.info("Plugin ${metadata.name} activated")
     }
     
-    override fun activate() {
-        if (!isInitialized) {
-            throw PluginException("Plugin not initialized: ${metadata.id}")
-        }
-        onActivate()
+    override suspend fun deactivate() {
+        // Default implementation
+        context?.logger?.info("Plugin ${metadata.name} deactivated")
     }
     
-    override fun deactivate() {
-        onDeactivate()
+    override suspend fun cleanup() {
+        // Default implementation
+        context?.logger?.info("Plugin ${metadata.name} cleaned up")
     }
     
-    override fun cleanup() {
-        onCleanup()
-        context = null
-        config = emptyMap()
-        isInitialized = false
-    }
-    
-    override fun isReady(): Boolean = isInitialized
+    override fun isReady(): Boolean = context != null
     
     override fun configure(config: Map<String, Any>) {
-        this.config = config
-        onConfigure(config)
+        // Default implementation
     }
     
     /**
-     * 하위 클래스에서 구현할 메서드들
+     * Methods to implement in subclasses
      */
     protected open fun onInitialize() {}
     protected open fun onActivate() {}
@@ -521,147 +536,106 @@ abstract class BaseSpicePlugin(
 }
 
 /**
- * 웹훅 플러그인 예제
+ * Webhook notification plugin example
  */
-class WebhookPlugin : BaseSpicePlugin(
-    metadata = PluginMetadata(
-        id = "webhook-plugin",
-        name = "Webhook Integration",
+class WebhookNotificationPlugin : BaseSpicePlugin(
+    PluginMetadata(
+        id = "webhook-notification",
+        name = "Webhook Notification",
         version = "1.0.0",
-        description = "Provides webhook integration for external services",
+        description = "Sends notifications via webhook",
         author = "Spice Team",
         category = PluginCategory.INTEGRATION,
         permissions = listOf("network.http")
     )
 ) {
     
-    private var webhookUrl: String = ""
-    private var isWebhookActive = false
-    
-    override fun onInitialize() {
-        context?.logger?.info("Initializing webhook plugin...")
+    override suspend fun activate() {
+        super.activate()
         
-        // 설정에서 webhook URL 가져오기
-        webhookUrl = config["webhook_url"] as? String ?: ""
+        // Get webhook URL from configuration
+        val webhookUrl = context?.configManager?.getString("webhook.url", "")
         
-        if (webhookUrl.isEmpty()) {
-            context?.logger?.warn("No webhook URL configured")
-        }
-    }
-    
-    override fun onActivate() {
-        if (webhookUrl.isNotEmpty()) {
-            isWebhookActive = true
-            context?.logger?.info("Webhook active: $webhookUrl")
-            
-            // AgentEngine에 결과 리스너 등록
-            // (실제 구현에서는 AgentEngine에 이벤트 시스템이 필요)
-            
-        } else {
-            context?.logger?.warn("Cannot activate webhook: no URL configured")
-        }
-    }
-    
-    override fun onDeactivate() {
-        isWebhookActive = false
-        context?.logger?.info("Webhook deactivated")
-    }
-    
-    override fun onConfigure(config: Map<String, Any>) {
-        val newUrl = config["webhook_url"] as? String ?: ""
-        if (newUrl != webhookUrl) {
-            webhookUrl = newUrl
-            context?.logger?.info("Webhook URL updated: $webhookUrl")
-        }
-    }
-    
-    /**
-     * 웹훅 전송
-     */
-    fun sendWebhook(data: Map<String, Any>) {
-        if (!isWebhookActive || webhookUrl.isEmpty()) {
-            context?.logger?.warn("Webhook not active or URL not configured")
+        if (webhookUrl.isNullOrEmpty()) {
+            context?.logger?.warn("Webhook URL not configured")
             return
         }
         
-        context?.logger?.info("Sending webhook: $data")
-        // 실제 HTTP 요청 구현
-        // (이 예제에서는 로그만 출력)
+        context?.logger?.info("Webhook notification activated with URL: $webhookUrl")
+        
+        // Register event listeners
+        // (Implementation would require AgentEngine to have event system)
+    }
+    
+    override suspend fun deactivate() {
+        super.deactivate()
+        
+        // Unregister event listeners
+        context?.logger?.info("Webhook notification deactivated")
+    }
+    
+    /**
+     * Send webhook
+     */
+    private suspend fun sendWebhook(event: String, data: Map<String, Any>) {
+        val webhookUrl = context?.configManager?.getString("webhook.url", "") ?: return
+        
+        // Implement actual HTTP request
+        // (This example just logs)
+        context?.logger?.info("Sending webhook: $event with data: $data")
     }
 }
 
 /**
- * 로깅 플러그인 예제
+ * Logging plugin example
  */
-class LoggingPlugin : BaseSpicePlugin(
-    metadata = PluginMetadata(
-        id = "logging-plugin",
-        name = "Enhanced Logging",
+class FileLoggingPlugin : BaseSpicePlugin(
+    PluginMetadata(
+        id = "file-logging",
+        name = "File Logging",
         version = "1.0.0",
-        description = "Provides enhanced logging capabilities",
+        description = "Logs Agent activities to file",
         author = "Spice Team",
         category = PluginCategory.GENERAL,
         permissions = listOf("filesystem.write")
     )
 ) {
     
-    private var logLevel: String = "INFO"
-    private var logFile: String = ""
-    
-    override fun onInitialize() {
-        logLevel = config["log_level"] as? String ?: "INFO"
-        logFile = config["log_file"] as? String ?: ""
+    override suspend fun activate() {
+        super.activate()
         
-        context?.logger?.info("Logging plugin initialized - Level: $logLevel, File: $logFile")
+        val logPath = context?.configManager?.getString("log.path", "spice.log")
+        context?.logger?.info("File logging activated with path: $logPath")
+        
+        // Implementation would integrate with AgentEngine's logging system
+        // Capture all Agent execution logs and save to file
     }
     
-    override fun onActivate() {
-        context?.logger?.info("Enhanced logging activated")
+    override suspend fun deactivate() {
+        super.deactivate()
         
-        // 실제 구현에서는 AgentEngine의 로깅 시스템과 연동
-        // 모든 Agent 실행 로그를 캡처하여 파일에 저장
-    }
-    
-    override fun onDeactivate() {
-        context?.logger?.info("Enhanced logging deactivated")
+        // Close file handles
+        context?.logger?.info("File logging deactivated")
     }
     
     /**
-     * 로그 기록
+     * Write to file (implementation needed)
      */
-    fun logMessage(level: String, message: String, agentId: String? = null) {
-        if (shouldLog(level)) {
-            val timestamp = System.currentTimeMillis()
-            val logEntry = "[$timestamp] [$level] ${agentId?.let { "[$it] " } ?: ""}$message"
-            
-            // 파일 또는 콘솔에 로그 출력
-            if (logFile.isNotEmpty()) {
-                // 파일에 기록 (실제 구현 필요)
-                context?.logger?.debug("Writing to log file: $logFile")
-            } else {
-                println("🌶️ LOG: $logEntry")
-            }
-        }
-    }
-    
-    private fun shouldLog(level: String): Boolean {
-        val levels = listOf("DEBUG", "INFO", "WARN", "ERROR")
-        val currentLevelIndex = levels.indexOf(logLevel)
-        val messageLevelIndex = levels.indexOf(level)
-        
-        return messageLevelIndex >= currentLevelIndex
+    private fun writeToFile(message: String) {
+        // Implement file writing
+        // (This example just logs)
     }
 }
 
 /**
- * 편의 함수들
+ * Convenience functions
  */
 fun createPluginManager(agentEngine: AgentEngine): PluginManager {
     return PluginManager(agentEngine)
 }
 
 /**
- * 플러그인 빌더 DSL
+ * Plugin builder DSL
  */
 fun buildPlugin(id: String, name: String, init: PluginBuilder.() -> Unit): SpicePlugin {
     val builder = PluginBuilder(id, name)
@@ -670,7 +644,7 @@ fun buildPlugin(id: String, name: String, init: PluginBuilder.() -> Unit): Spice
 }
 
 /**
- * 플러그인 빌더
+ * Plugin builder
  */
 class PluginBuilder(private val id: String, private val name: String) {
     var version: String = "1.0.0"

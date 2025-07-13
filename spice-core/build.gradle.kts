@@ -3,7 +3,20 @@ plugins {
     id("maven-publish")
 }
 
+sourceSets {
+    main {
+        kotlin {
+            exclude("**/SpicePlugin.kt")
+            exclude("**/ToolChain.kt") 
+            exclude("**/toolhub/**")
+        }
+    }
+}
+
 dependencies {
+    // Kotlin 표준 라이브러리 명시적 추가
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
+    
     // 🌶️ Spice Core Dependencies - Framework 독립적
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")

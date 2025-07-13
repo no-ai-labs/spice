@@ -7,359 +7,454 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class AgentBuilderTest {
-    
+
     @Test
-    fun `DSL로 기본 Agent 생성 테스트`() = runBlocking {
-        // When: DSL로 Agent 생성
-        val agent = buildAgent {
+    fun `basic Agent creation with DSL test`() = runBlocking {
+        // When: Create Agent with DSL
+        val agent = agent {
             id = "test-agent"
             name = "Test Agent"
-            description = "Agent created for testing"
-            
-            capabilities {
-                add("testing")
-                add("validation")
-            }
+            description = "Test agent for DSL"
+            capabilities = setOf("text-processing")
+            supportedMessageTypes = setOf(MessageType.TEXT)
         }
-        
-        // Then: Agent 속성 검증
+
+        // Then: Verify Agent properties
         assertEquals("test-agent", agent.id)
         assertEquals("Test Agent", agent.name)
-        assertEquals("Agent created for testing", agent.description)
-        assertEquals(listOf("testing", "validation"), agent.capabilities)
-        assertTrue(agent.isReady())
+        assertEquals("Test agent for DSL", agent.description)
+        assertEquals(setOf("text-processing"), agent.capabilities)
+        assertEquals(setOf(MessageType.TEXT), agent.supportedMessageTypes)
+        assertTrue(agent.canHandle(Message(id = "test", type = MessageType.TEXT, content = "test", agentId = "test")))
     }
-    
+
     @Test
-    fun `DSL로 커스텀 메시지 핸들러가 있는 Agent 생성 테스트`() = runBlocking {
-        // When: 커스텀 메시지 핸들러가 있는 Agent 생성
-        val agent = buildAgent {
-            id = "custom-handler-agent"
-            name = "Custom Handler Agent"
+    fun `Agent creation with custom message handler using DSL test`() = runBlocking {
+        // When: Create Agent with custom message handler
+        val agent = agent {
+            id = "custom-agent"
+            name = "Custom Agent"
+            description = "Agent with custom handler"
+            capabilities = setOf("custom-processing")
+            supportedMessageTypes = setOf(MessageType.TEXT, MessageType.DATA)
             
             messageHandler { message ->
                 when (message.type) {
-                    MessageType.TEXT -> {
-                        message.createReply(
-                            "CUSTOM: ${message.content.uppercase()}",
-                            this@buildAgent.id,
-                            MessageType.TEXT
-                        )
-                    }
-                    else -> {
-                        message.createReply("DEFAULT: ${message.content}", this@buildAgent.id)
-                    }
+                    MessageType.TEXT -> Message(
+                        id = "text-response-${message.id}",
+                        type = MessageType.TEXT,
+                        content = "Text processed: ${message.content}",
+                        agentId = id,
+                        parentId = message.id
+                    )
+                    MessageType.DATA -> Message(
+                        id = "data-response-${message.id}",
+                        type = MessageType.DATA,
+                        content = "Data processed: ${message.content}",
+                        agentId = id,
+                        parentId = message.id
+                    )
+                    else -> Message(
+                        id = "error-${message.id}",
+                        type = MessageType.ERROR,
+                        content = "Unsupported message type: ${message.type}",
+                        agentId = id,
+                        parentId = message.id
+                    )
                 }
             }
         }
-        
-        // Then: 메시지 처리 테스트
-        val testMessage = Message(
-            content = "hello world",
-            sender = "user",
-            type = MessageType.TEXT
-        )
-        
-        val result = agent.processMessage(testMessage)
-        assertEquals("CUSTOM: HELLO WORLD", result.content)
-        assertEquals("custom-handler-agent", result.sender)
+
+        // Then: Test message processing
+        val textMessage = Message(id = "text1", type = MessageType.TEXT, content = "Hello", agentId = "test")
+        val textResponse = agent.process(textMessage)
+        assertEquals("Text processed: Hello", textResponse.content)
+        assertEquals(MessageType.TEXT, textResponse.type)
+
+        val dataMessage = Message(id = "data1", type = MessageType.DATA, content = "Data", agentId = "test")
+        val dataResponse = agent.process(dataMessage)
+        assertEquals("Data processed: Data", dataResponse.content)
+        assertEquals(MessageType.DATA, dataResponse.type)
     }
-    
+
     @Test
-    fun `DSL로 커스텀 Tool이 있는 Agent 생성 테스트`() = runBlocking {
-        // When: 커스텀 Tool이 있는 Agent 생성
-        val agent = buildAgent {
+    fun `Agent creation with custom Tool using DSL test`() = runBlocking {
+        // When: Create Agent with custom Tool
+        val agent = agent {
             id = "tool-agent"
             name = "Tool Agent"
+            description = "Agent with custom tools"
+            capabilities = setOf("tool-processing")
+            supportedMessageTypes = setOf(MessageType.TEXT, MessageType.TOOL_CALL)
             
-            tools {
-                add(WebSearchTool())
+            tool("calculator") {
+                description = "Simple calculator tool"
+                parameters = mapOf(
+                    "operation" to "string",
+                    "a" to "number",
+                    "b" to "number"
+                )
                 
-                custom("string_manipulator") {
-                    description = "Manipulates strings"
-                    parameter("text", "string", "Text to manipulate", required = true)
-                    parameter("operation", "string", "Operation to perform", required = true)
+                execute { params ->
+                    val operation = params["operation"] as? String ?: "add"
+                    val a = (params["a"] as? Number)?.toDouble() ?: 0.0
+                    val b = (params["b"] as? Number)?.toDouble() ?: 0.0
                     
-                    execute { params ->
-                        val text = params["text"] as String
-                        val operation = params["operation"] as String
-                        
-                        val result = when (operation) {
-                            "uppercase" -> text.uppercase()
-                            "lowercase" -> text.lowercase()
-                            "reverse" -> text.reversed()
-                            else -> "Unknown operation: $operation"
-                        }
-                        
-                        ToolResult.success("Result: $result")
+                    val result = when (operation) {
+                        "add" -> a + b
+                        "subtract" -> a - b
+                        "multiply" -> a * b
+                        "divide" -> if (b != 0.0) a / b else Double.NaN
+                        else -> Double.NaN
                     }
+                    
+                    ToolResult(
+                        success = !result.isNaN(),
+                        data = mapOf("result" to result),
+                        error = if (result.isNaN()) "Invalid operation or division by zero" else null
+                    )
+                }
+            }
+            
+            messageHandler { message ->
+                when (message.type) {
+                    MessageType.TOOL_CALL -> {
+                        val toolName = message.metadata["tool"] as? String
+                        val tool = tools.find { it.name == toolName }
+                        if (tool != null) {
+                            val params = message.metadata["params"] as? Map<String, Any> ?: emptyMap()
+                            val result = tool.execute(params)
+                            Message(
+                                id = "tool-result-${message.id}",
+                                type = MessageType.TOOL_RESULT,
+                                content = if (result.success) "Tool executed successfully" else "Tool execution failed",
+                                agentId = id,
+                                parentId = message.id,
+                                metadata = mapOf("toolResult" to result)
+                            )
+                        } else {
+                            Message(
+                                id = "error-${message.id}",
+                                type = MessageType.ERROR,
+                                content = "Tool not found: $toolName",
+                                agentId = id,
+                                parentId = message.id
+                            )
+                        }
+                    }
+                    else -> Message(
+                        id = "response-${message.id}",
+                        type = MessageType.TEXT,
+                        content = "Processed: ${message.content}",
+                        agentId = id,
+                        parentId = message.id
+                    )
                 }
             }
         }
+
+        // Then: Test tool functionality
+        assertEquals(1, agent.tools.size)
+        assertEquals("calculator", agent.tools.first().name)
         
-        // Then: Tool 검증
-        val tools = agent.getTools()
-        assertEquals(2, tools.size)
-        
-        val customTool = tools.find { it.name == "string_manipulator" }
-        assertNotNull(customTool, "Custom tool should exist")
-        
-        // Tool 실행 테스트
-        val toolResult = customTool.execute(mapOf(
-            "text" to "Hello World",
-            "operation" to "uppercase"
-        ))
-        
-        assertTrue(toolResult.success)
-        assertEquals("Result: HELLO WORLD", toolResult.result)
-    }
-    
-    @Test
-    fun `편의 함수로 textProcessingAgent 생성 테스트`() = runBlocking {
-        // When: 편의 함수로 Agent 생성
-        val agent = textProcessingAgent(
-            id = "text-processor",
-            name = "Text Processor"
-        ) { text ->
-            "PROCESSED: ${text.reversed()}"
-        }
-        
-        // Then: Agent 검증
-        assertEquals("text-processor", agent.id)
-        assertEquals("Text Processor", agent.name)
-        assertTrue(agent.capabilities.contains("text_processing"))
-        
-        // 메시지 처리 테스트
-        val message = Message(
-            content = "hello",
-            sender = "user",
-            type = MessageType.TEXT
-        )
-        
-        val result = agent.processMessage(message)
-        assertEquals("PROCESSED: olleh", result.content)
-    }
-    
-    @Test
-    fun `편의 함수로 apiAgent 생성 테스트`() = runBlocking {
-        // When: API Agent 생성
-        val agent = apiAgent(
-            id = "api-client",
-            name = "API Client",
-            baseUrl = "https://api.example.com"
-        )
-        
-        // Then: Agent 검증
-        assertEquals("api-client", agent.id)
-        assertEquals("API Client", agent.name)
-        assertTrue(agent.capabilities.contains("api_calls"))
-        assertTrue(agent.capabilities.contains("http_requests"))
-        
-        // Tool 확인
-        val apiTool = agent.getTools().find { it.name == "api_call" }
-        assertNotNull(apiTool, "API call tool should exist")
-        
-        // Tool 실행 테스트
-        val toolResult = apiTool.execute(mapOf(
-            "endpoint" to "/users",
-            "method" to "GET"
-        ))
-        
-        assertTrue(toolResult.success)
-        assertTrue(toolResult.result.contains("https://api.example.com/users"))
-    }
-    
-    @Test
-    fun `편의 함수로 routingAgent 생성 테스트`() = runBlocking {
-        // When: 라우팅 Agent 생성
-        val agent = routingAgent(
-            id = "router",
-            name = "Message Router",
-            routes = mapOf(
-                "weather" to "weather-service",
-                "news" to "news-service",
-                "search" to "search-service"
+        val toolCall = Message(
+            id = "tool1",
+            type = MessageType.TOOL_CALL,
+            content = "Calculate 5 + 3",
+            agentId = "test",
+            metadata = mapOf(
+                "tool" to "calculator",
+                "params" to mapOf("operation" to "add", "a" to 5, "b" to 3)
             )
         )
         
-        // Then: Agent 검증
-        assertEquals("router", agent.id)
-        assertEquals("Message Router", agent.name)
-        assertTrue(agent.capabilities.contains("message_routing"))
-        
-        // 라우팅 테스트
-        val weatherMessage = Message(
-            content = "What's the weather like today?",
-            sender = "user",
-            type = MessageType.TEXT
-        )
-        
-        val weatherResult = agent.processMessage(weatherMessage)
-        assertTrue(weatherResult.content.contains("weather-service"))
-        assertEquals("weather-service", weatherResult.metadata["route"])
-        
-        // 매칭되지 않는 메시지 테스트
-        val unknownMessage = Message(
-            content = "Random question",
-            sender = "user",
-            type = MessageType.TEXT
-        )
-        
-        val unknownResult = agent.processMessage(unknownMessage)
-        assertTrue(unknownResult.content.contains("No route found"))
+        val response = agent.process(toolCall)
+        assertEquals(MessageType.TOOL_RESULT, response.type)
+        val toolResult = response.metadata["toolResult"] as ToolResult
+        assertTrue(toolResult.success)
+        assertEquals(8.0, toolResult.data["result"])
     }
-    
+
     @Test
-    fun `복잡한 DSL Agent 생성 및 AgentEngine 통합 테스트`() = runBlocking {
-        // When: 복잡한 Agent 생성
-        val complexAgent = buildAgent {
-            id = "complex-agent"
-            name = "Complex Multi-Tool Agent"
-            description = "Agent with multiple capabilities and tools"
-            
-            capabilities {
-                add("text_processing")
-                add("calculations")
-                add("data_transformation")
+    fun `textProcessingAgent creation with convenience function test`() = runBlocking {
+        // When: Create Agent with convenience function
+        val agent = textProcessingAgent(
+            id = "text-processor",
+            name = "Text Processor",
+            description = "Processes text messages"
+        ) { message ->
+            Message(
+                id = "processed-${message.id}",
+                type = MessageType.TEXT,
+                content = "Processed: ${message.content.uppercase()}",
+                agentId = "text-processor",
+                parentId = message.id
+            )
+        }
+
+        // Then: Test functionality
+        assertEquals("text-processor", agent.id)
+        assertEquals("Text Processor", agent.name)
+        assertEquals(setOf("text-processing"), agent.capabilities)
+        assertEquals(setOf(MessageType.TEXT), agent.supportedMessageTypes)
+        
+        val testMessage = Message(id = "test", type = MessageType.TEXT, content = "hello", agentId = "test")
+        val response = agent.process(testMessage)
+        assertEquals("Processed: HELLO", response.content)
+        assertEquals(MessageType.TEXT, response.type)
+    }
+
+    @Test
+    fun `apiAgent creation with convenience function test`() = runBlocking {
+        // When: Create API Agent
+        val agent = apiAgent(
+            id = "api-agent",
+            name = "API Agent",
+            description = "Handles API calls"
+        ) { message ->
+            // Simulate API call
+            val apiResponse = when (message.content) {
+                "get_weather" -> "Sunny, 25°C"
+                "get_time" -> "2024-01-01 12:00:00"
+                else -> "Unknown command"
             }
             
-            tools {
-                custom("calculator") {
-                    description = "Simple calculator"
-                    parameter("a", "number", "First number", required = true)
-                    parameter("b", "number", "Second number", required = true)
-                    parameter("operation", "string", "Math operation", required = true)
-                    
-                    execute { params ->
-                        val a = (params["a"] as Number).toDouble()
-                        val b = (params["b"] as Number).toDouble()
-                        val op = params["operation"] as String
-                        
-                        val result = when (op) {
-                            "add" -> a + b
-                            "subtract" -> a - b
-                            "multiply" -> a * b
-                            "divide" -> if (b != 0.0) a / b else throw IllegalArgumentException("Division by zero")
-                            else -> throw IllegalArgumentException("Unknown operation: $op")
-                        }
-                        
-                        ToolResult.success("$a $op $b = $result")
-                    }
-                }
+            Message(
+                id = "api-response-${message.id}",
+                type = MessageType.DATA,
+                content = apiResponse,
+                agentId = "api-agent",
+                parentId = message.id,
+                metadata = mapOf("api_call" to true)
+            )
+        }
+
+        // Then: Test API functionality
+        assertEquals("api-agent", agent.id)
+        assertEquals("API Agent", agent.name)
+        assertEquals(setOf("api-integration"), agent.capabilities)
+        assertTrue(agent.supportedMessageTypes.contains(MessageType.TEXT))
+        assertTrue(agent.supportedMessageTypes.contains(MessageType.DATA))
+        
+        val weatherRequest = Message(id = "weather", type = MessageType.TEXT, content = "get_weather", agentId = "test")
+        val weatherResponse = agent.process(weatherRequest)
+        assertEquals("Sunny, 25°C", weatherResponse.content)
+        assertEquals(MessageType.DATA, weatherResponse.type)
+        assertEquals(true, weatherResponse.metadata["api_call"])
+    }
+
+    @Test
+    fun `routingAgent creation with convenience function test`() = runBlocking {
+        // When: Create routing Agent
+        val agent = routingAgent(
+            id = "router",
+            name = "Message Router",
+            description = "Routes messages based on content"
+        ) { message ->
+            val targetAgent = when {
+                message.content.contains("calculate") -> "calculator-agent"
+                message.content.contains("weather") -> "weather-agent"
+                else -> "default-agent"
+            }
+            
+            Message(
+                id = "route-${message.id}",
+                type = MessageType.TEXT,
+                content = "Routing to: $targetAgent",
+                agentId = "router",
+                parentId = message.id,
+                metadata = mapOf("target_agent" to targetAgent)
+            )
+        }
+
+        // Routing test
+        val calcMessage = Message(id = "calc", type = MessageType.TEXT, content = "calculate 2+2", agentId = "test")
+        val calcResponse = agent.process(calcMessage)
+        assertEquals("calculator-agent", calcResponse.metadata["target_agent"])
+        
+        val weatherMessage = Message(id = "weather", type = MessageType.TEXT, content = "weather today", agentId = "test")
+        val weatherResponse = agent.process(weatherMessage)
+        assertEquals("weather-agent", weatherResponse.metadata["target_agent"])
+        
+        val defaultMessage = Message(id = "default", type = MessageType.TEXT, content = "hello", agentId = "test")
+        val defaultResponse = agent.process(defaultMessage)
+        assertEquals("default-agent", defaultResponse.metadata["target_agent"])
+    }
+
+    @Test
+    fun `complex DSL Agent creation and AgentEngine integration test`() = runBlocking {
+        // When: Create complex Agent
+        val complexAgent = agent {
+            id = "complex-agent"
+            name = "Complex Agent"
+            description = "Agent with multiple capabilities"
+            capabilities = setOf("text-processing", "data-analysis", "tool-execution")
+            supportedMessageTypes = setOf(MessageType.TEXT, MessageType.DATA, MessageType.TOOL_CALL)
+            
+            tool("text_analyzer") {
+                description = "Analyzes text content"
+                parameters = mapOf("text" to "string")
                 
-                custom("data_transformer") {
-                    description = "Transforms data"
-                    parameter("data", "string", "Data to transform", required = true)
-                    parameter("format", "string", "Target format", required = true)
+                execute { params ->
+                    val text = params["text"] as? String ?: ""
+                    val wordCount = text.split("\\s+".toRegex()).size
+                    val charCount = text.length
                     
-                    execute { params ->
-                        val data = params["data"] as String
-                        val format = params["format"] as String
-                        
-                        val transformed = when (format) {
-                            "uppercase" -> data.uppercase()
-                            "lowercase" -> data.lowercase()
-                            "json" -> """{"data": "$data"}"""
-                            else -> "Unsupported format: $format"
-                        }
-                        
-                        ToolResult.success("Transformed to $format: $transformed")
-                    }
+                    ToolResult(
+                        success = true,
+                        data = mapOf(
+                            "word_count" to wordCount,
+                            "char_count" to charCount,
+                            "has_numbers" to text.any { it.isDigit() }
+                        )
+                    )
+                }
+            }
+            
+            tool("data_processor") {
+                description = "Processes data"
+                parameters = mapOf("data" to "any")
+                
+                execute { params ->
+                    val data = params["data"]
+                    ToolResult(
+                        success = true,
+                        data = mapOf("processed" to true, "original" to data)
+                    )
                 }
             }
             
             canHandle { message ->
-                message.type in listOf(MessageType.TEXT, MessageType.DATA, MessageType.TOOL_CALL)
+                when (message.type) {
+                    MessageType.TEXT -> message.content.isNotBlank()
+                    MessageType.DATA -> true
+                    MessageType.TOOL_CALL -> {
+                        val toolName = message.metadata["tool"] as? String
+                        tools.any { it.name == toolName }
+                    }
+                    else -> false
+                }
             }
             
             messageHandler { message ->
                 when (message.type) {
                     MessageType.TEXT -> {
-                        if (message.content.contains("calculate", ignoreCase = true)) {
-                            message.createReply(
-                                "Use calculator tool for calculations",
-                                this@buildAgent.id,
-                                MessageType.TOOL_CALL,
-                                mapOf("toolName" to "calculator")
-                            )
-                        } else if (message.content.contains("transform", ignoreCase = true)) {
-                            message.createReply(
-                                "Use data_transformer tool for data transformation",
-                                this@buildAgent.id,
-                                MessageType.TOOL_CALL,
-                                mapOf("toolName" to "data_transformer")
+                        if (message.content.startsWith("analyze:")) {
+                            val textToAnalyze = message.content.removePrefix("analyze:")
+                            val analyzerTool = tools.find { it.name == "text_analyzer" }
+                            val result = analyzerTool?.execute(mapOf("text" to textToAnalyze))
+                            
+                            Message(
+                                id = "analysis-${message.id}",
+                                type = MessageType.DATA,
+                                content = "Analysis complete",
+                                agentId = id,
+                                parentId = message.id,
+                                metadata = mapOf("analysis_result" to result)
                             )
                         } else {
-                            message.createReply(
-                                "Complex processing: ${message.content}",
-                                this@buildAgent.id
+                            Message(
+                                id = "text-response-${message.id}",
+                                type = MessageType.TEXT,
+                                content = "Text processed: ${message.content}",
+                                agentId = id,
+                                parentId = message.id
                             )
                         }
                     }
                     MessageType.DATA -> {
-                        message.createReply(
-                            "Data received and analyzed: ${message.content}",
-                            this@buildAgent.id,
-                            MessageType.RESULT
+                        val processorTool = tools.find { it.name == "data_processor" }
+                        val result = processorTool?.execute(mapOf("data" to message.content))
+                        
+                        Message(
+                            id = "data-response-${message.id}",
+                            type = MessageType.DATA,
+                            content = "Data processed",
+                            agentId = id,
+                            parentId = message.id,
+                            metadata = mapOf("processing_result" to result)
                         )
                     }
-                    else -> {
-                        message.createReply(
-                            "Default processing: ${message.content}",
-                            this@buildAgent.id
-                        )
+                    MessageType.TOOL_CALL -> {
+                        val toolName = message.metadata["tool"] as? String
+                        val tool = tools.find { it.name == toolName }
+                        if (tool != null) {
+                            val params = message.metadata["params"] as? Map<String, Any> ?: emptyMap()
+                            val result = tool.execute(params)
+                            Message(
+                                id = "tool-result-${message.id}",
+                                type = MessageType.TOOL_RESULT,
+                                content = "Tool executed: $toolName",
+                                agentId = id,
+                                parentId = message.id,
+                                metadata = mapOf("tool_result" to result)
+                            )
+                        } else {
+                            Message(
+                                id = "error-${message.id}",
+                                type = MessageType.ERROR,
+                                content = "Tool not found: $toolName",
+                                agentId = id,
+                                parentId = message.id
+                            )
+                        }
                     }
+                    else -> Message(
+                        id = "error-${message.id}",
+                        type = MessageType.ERROR,
+                        content = "Unsupported message type: ${message.type}",
+                        agentId = id,
+                        parentId = message.id
+                    )
                 }
             }
         }
+
+        // Then: Test complex Agent functionality
+        assertEquals("complex-agent", complexAgent.id)
+        assertEquals(2, complexAgent.tools.size)
+        assertTrue(complexAgent.tools.any { it.name == "text_analyzer" })
+        assertTrue(complexAgent.tools.any { it.name == "data_processor" })
+
+        // Test AgentEngine integration
+        val engine = AgentEngine()
+        engine.registerAgent(complexAgent)
         
-        // AgentEngine에 등록
-        val agentEngine = AgentEngine()
-        agentEngine.registerAgent(complexAgent)
-        
-        // Then: 통합 테스트
-        
-        // 1. 일반 텍스트 메시지
-        val textMessage = Message(
-            content = "Hello complex agent",
-            sender = "user",
-            type = MessageType.TEXT
+        // 1. Text analysis
+        val analysisMessage = Message(
+            id = "analysis",
+            type = MessageType.TEXT,
+            content = "analyze:Hello world 123",
+            agentId = "test"
         )
-        val textResult = agentEngine.receive(textMessage)
-        assertTrue(textResult.success)
-        assertTrue(textResult.response.content.contains("Complex processing"))
+        val analysisResult = engine.processMessage(analysisMessage)
         
-        // 2. 계산 요청 메시지
-        val calcMessage = Message(
-            content = "Can you calculate something for me?",
-            sender = "user",
-            type = MessageType.TEXT
-        )
-        val calcResult = agentEngine.receive(calcMessage)
-        assertTrue(calcResult.success, "Calculation message should be processed successfully: ${calcResult.error}")
-        // AgentEngine에서 처리된 응답 확인 (실제 응답 내용 출력해서 디버깅)
-        println("Calc Response: ${calcResult.response.content}")
-        assertTrue(calcResult.response.content.isNotEmpty(), "Response should not be empty")
+        // Verify response from AgentEngine processing (print actual response content for debugging)
+        println("Analysis result: ${analysisResult.response.content}")
+        assertEquals(MessageType.DATA, analysisResult.response.type)
         
-        // 3. 데이터 메시지
+        // 2. Data message
         val dataMessage = Message(
-            content = "Sample data to process",
-            sender = "user",
-            type = MessageType.DATA
+            id = "data",
+            type = MessageType.DATA,
+            content = "sample data",
+            agentId = "test"
         )
-        val dataResult = agentEngine.receive(dataMessage)
-        assertTrue(dataResult.success)
-        assertEquals(MessageType.RESULT, dataResult.response.type)
-        assertTrue(dataResult.response.content.contains("Data received and analyzed"))
+        val dataResult = engine.processMessage(dataMessage)
+        assertEquals(MessageType.DATA, dataResult.response.type)
         
-        // 4. Tool 직접 실행
-        val calculator = complexAgent.getTools().find { it.name == "calculator" }!!
-        val mathResult = calculator.execute(mapOf(
-            "a" to 10,
-            "b" to 5,
-            "operation" to "add"
-        ))
-        assertTrue(mathResult.success)
-        assertEquals("10.0 add 5.0 = 15.0", mathResult.result)
+        // 3. Tool call
+        val toolMessage = Message(
+            id = "tool",
+            type = MessageType.TOOL_CALL,
+            content = "Call text analyzer",
+            agentId = "test",
+            metadata = mapOf(
+                "tool" to "text_analyzer",
+                "params" to mapOf("text" to "Test text")
+            )
+        )
+        val toolResult = engine.processMessage(toolMessage)
+        assertEquals(MessageType.TOOL_RESULT, toolResult.response.type)
     }
 } 

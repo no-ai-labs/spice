@@ -21,9 +21,9 @@ import kotlinx.serialization.encodeToString
  *     baseAgent = vertexAgent,
  *     promptBuilder = CustomPromptBuilder(),
  *     config = PlanningConfig(
- *         maxSteps = 10,
+ *         maxSteps = 8,
  *         outputFormat = OutputFormat.STRUCTURED_PLAN,
- *         planningStrategy = PlanningStrategy.SEQUENTIAL
+ *         planningStrategy = PlanningStrategy.ITERATIVE
  *     )
  * )
  * ```
@@ -37,15 +37,8 @@ class PlanningAgent(
 ) : BaseAgent(
     id = id,
     name = name,
-    description = "Analyzes user goals and generates structured plans with customizable prompts and output formats",
-    capabilities = baseAgent.capabilities + listOf(
-        "task_planning",
-        "goal_decomposition", 
-        "workflow_generation",
-        "step_sequencing",
-        "dependency_analysis",
-        "structured_output"
-    )
+    description = "Analyzes user goals and generates structured plans",
+    capabilities = baseAgent.capabilities + listOf("planning", "goal_analysis", "task_decomposition")
 ) {
     
     private val json = Json { 
@@ -94,25 +87,19 @@ class PlanningAgent(
                 content = "Planning failed: ${e.message}",
                 sender = id,
                 type = MessageType.ERROR,
-                metadata = mapOf(
-                    "error" to "planning_failed",
-                    "cause" to (e::class.simpleName ?: "Unknown")
-                )
+                metadata = mapOf("error_type" to "planning_error")
             )
         }
     }
     
     /**
-     * Extract context from message metadata
+     * Extract planning context from message metadata
      */
     private fun extractContext(message: Message): PlanningContext {
         return PlanningContext(
-            userProfile = message.metadata["user_profile"],
-            companyProfile = message.metadata["company_profile"],
+            userProfile = message.metadata["user_profile"] ?: "user",
             domain = message.metadata["domain"],
             priority = message.metadata["priority"],
-            deadline = message.metadata["deadline"],
-            resources = message.metadata["resources"]?.split(",")?.map { it.trim() },
             constraints = message.metadata["constraints"]?.split(",")?.map { it.trim() }
         )
     }
@@ -123,200 +110,50 @@ class PlanningAgent(
     private fun parseResponse(content: String): StructuredPlan {
         return try {
             // Try to parse as JSON first
-            if (content.trim().startsWith("[") || content.trim().startsWith("{")) {
-                parseJsonResponse(content)
+            if (content.trim().startsWith("{") || content.trim().startsWith("[")) {
+                json.decodeFromString<StructuredPlan>(content)
             } else {
-                // Fallback to text parsing
-                parseTextResponse(content)
+                // Fallback: parse as plain text
+                parseTextToPlan(content)
             }
         } catch (e: Exception) {
-            // Emergency fallback
-            StructuredPlan(
-                title = "Generated Plan",
-                description = "Plan generated from user goal",
-                steps = listOf(
-                    PlanStep(
-                        id = "step-1",
-                        title = "Review and refine plan",
-                        description = content,
-                        type = StepType.ACTION,
-                        estimatedTime = null,
-                        dependencies = emptyList()
-                    )
-                )
-            )
+            // Fallback: create simple plan from text
+            parseTextToPlan(content)
         }
     }
     
     /**
-     * Parse JSON response
+     * Parse plain text into structured plan
      */
-    private fun parseJsonResponse(content: String): StructuredPlan {
-        return when {
-            content.trim().startsWith("[") -> {
-                // Simple array format
-                val steps = json.decodeFromString<List<String>>(content)
-                StructuredPlan(
-                    title = "Generated Plan",
-                    description = "Plan generated from user goal",
-                    steps = steps.mapIndexed { index, step ->
-                        PlanStep(
-                            id = "step-${index + 1}",
-                            title = step,
-                            description = step,
-                            type = StepType.ACTION,
-                            estimatedTime = null,
-                            dependencies = if (index > 0) listOf("step-$index") else emptyList()
-                        )
-                    }
-                )
-            }
-            content.trim().startsWith("{") -> {
-                // Full structured plan format
-                json.decodeFromString<StructuredPlan>(content)
-            }
-            else -> throw IllegalArgumentException("Invalid JSON format")
-        }
-    }
-    
-    /**
-     * Parse text response
-     */
-    private fun parseTextResponse(content: String): StructuredPlan {
+    private fun parseTextToPlan(content: String): StructuredPlan {
         val lines = content.split("\n").filter { it.isNotBlank() }
         val steps = mutableListOf<PlanStep>()
         
-        for ((index, line) in lines.withIndex()) {
-            val cleanLine = line.trim()
-                .removePrefix("${index + 1}.")
-                .removePrefix("-")
-                .removePrefix("*")
-                .trim()
-            
-            if (cleanLine.isNotEmpty()) {
-                steps.add(
-                    PlanStep(
-                        id = "step-${index + 1}",
-                        title = cleanLine,
-                        description = cleanLine,
-                        type = StepType.ACTION,
-                        estimatedTime = null,
-                        dependencies = if (index > 0) listOf("step-$index") else emptyList()
-                    )
-                )
+        lines.forEachIndexed { index, line ->
+            val cleanLine = line.trim().removePrefix("-").removePrefix("*").removePrefix("${index + 1}.").trim()
+            if (cleanLine.isNotBlank()) {
+                steps.add(PlanStep(
+                    id = "step-${index + 1}",
+                    title = cleanLine,
+                    description = cleanLine,
+                    type = StepType.ACTION,
+                    estimatedTime = null,
+                    dependencies = emptyList()
+                ))
             }
         }
         
         return StructuredPlan(
             title = "Generated Plan",
             description = "Plan generated from user goal",
-            steps = steps
+            steps = steps,
+            metadata = mapOf("generated_from" to "text_parsing")
         )
     }
 }
 
 /**
- * 🏗️ PromptBuilder Interface for customizable prompt generation
- */
-interface PromptBuilder {
-    fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String
-}
-
-/**
- * 📝 Default PromptBuilder implementation
- */
-class DefaultPromptBuilder : PromptBuilder {
-    override fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String {
-        return buildString {
-            appendLine("You are a task planning agent in a multi-agent AI system.")
-            appendLine("Break down the following goal into atomic, structured tasks.")
-            appendLine()
-            
-            // Add context if available
-            context.userProfile?.let { appendLine("User Profile: $it") }
-            context.companyProfile?.let { appendLine("Company Profile: $it") }
-            context.domain?.let { appendLine("Domain: $it") }
-            context.priority?.let { appendLine("Priority: $it") }
-            context.deadline?.let { appendLine("Deadline: $it") }
-            context.resources?.let { appendLine("Available Resources: ${it.joinToString(", ")}") }
-            context.constraints?.let { appendLine("Constraints: ${it.joinToString(", ")}") }
-            
-            appendLine()
-            appendLine("Planning Strategy: ${config.planningStrategy.description}")
-            appendLine("Maximum Steps: ${config.maxSteps}")
-            appendLine()
-            
-            when (config.outputFormat) {
-                OutputFormat.JSON -> {
-                    appendLine("Output JSON only:")
-                    appendLine("[")
-                    appendLine("  \"Step 1\",")
-                    appendLine("  \"Step 2\",")
-                    appendLine("  \"Step 3\"")
-                    appendLine("]")
-                }
-                OutputFormat.STRUCTURED_PLAN -> {
-                    appendLine("Output structured plan in JSON format:")
-                    appendLine("{")
-                    appendLine("  \"title\": \"Plan Title\",")
-                    appendLine("  \"description\": \"Plan Description\",")
-                    appendLine("  \"steps\": [")
-                    appendLine("    {")
-                    appendLine("      \"id\": \"step-1\",")
-                    appendLine("      \"title\": \"Step Title\",")
-                    appendLine("      \"description\": \"Step Description\",")
-                    appendLine("      \"type\": \"ACTION\",")
-                    appendLine("      \"estimatedTime\": \"30m\",")
-                    appendLine("      \"dependencies\": []")
-                    appendLine("    }")
-                    appendLine("  ]")
-                    appendLine("}")
-                }
-                else -> {
-                    appendLine("Output as numbered list:")
-                    appendLine("1. Step 1")
-                    appendLine("2. Step 2")
-                    appendLine("3. Step 3")
-                }
-            }
-            
-            appendLine()
-            appendLine("Goal: \"$goal\"")
-        }
-    }
-}
-
-/**
- * 🎯 Custom PromptBuilder for company-specific scenarios
- */
-class CompanyPromptBuilder(
-    private val companyTemplate: String,
-    private val domainSpecificRules: Map<String, String> = emptyMap()
-) : PromptBuilder {
-    
-    override fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String {
-        val basePrompt = DefaultPromptBuilder().buildPrompt(goal, context, config)
-        
-        return buildString {
-            appendLine(companyTemplate)
-            appendLine()
-            
-            // Add domain-specific rules
-            context.domain?.let { domain ->
-                domainSpecificRules[domain]?.let { rules ->
-                    appendLine("Domain-specific rules for $domain:")
-                    appendLine(rules)
-                    appendLine()
-                }
-            }
-            
-            appendLine(basePrompt)
-        }
-    }
-}
-
-/**
- * ⚙️ PlanningConfig for customizable planning behavior
+ * Planning configuration
  */
 @Serializable
 data class PlanningConfig(
@@ -330,21 +167,7 @@ data class PlanningConfig(
 )
 
 /**
- * 📋 PlanningContext for contextual information
- */
-@Serializable
-data class PlanningContext(
-    val userProfile: String? = null,
-    val companyProfile: String? = null,
-    val domain: String? = null,
-    val priority: String? = null,
-    val deadline: String? = null,
-    val resources: List<String>? = null,
-    val constraints: List<String>? = null
-)
-
-/**
- * 📊 Output format options
+ * Output formats
  */
 enum class OutputFormat {
     JSON,
@@ -354,29 +177,29 @@ enum class OutputFormat {
 }
 
 /**
- * 🎯 Planning strategy options
+ * Planning strategies
  */
-enum class PlanningStrategy(val description: String) {
-    SEQUENTIAL("Execute steps one after another"),
-    PARALLEL("Execute steps in parallel where possible"),
-    HYBRID("Mix of sequential and parallel execution"),
-    MILESTONE_BASED("Organize steps around key milestones"),
-    ITERATIVE("Plan in iterations with feedback loops")
+enum class PlanningStrategy {
+    SEQUENTIAL,      // Step-by-step execution
+    PARALLEL,        // Parallel task execution
+    HYBRID,          // Mix of sequential and parallel
+    MILESTONE_BASED, // Organized around milestones
+    ITERATIVE        // Iterative development cycles
 }
 
 /**
- * 📝 Step type classification
+ * Planning context
  */
-enum class StepType {
-    ACTION,      // Actionable task
-    DECISION,    // Decision point
-    MILESTONE,   // Key milestone
-    REVIEW,      // Review/validation step
-    PARALLEL     // Parallel execution group
-}
+@Serializable
+data class PlanningContext(
+    val userProfile: String,
+    val domain: String? = null,
+    val priority: String? = null,
+    val constraints: List<String>? = null
+)
 
 /**
- * 🗂️ StructuredPlan data class
+ * Structured plan
  */
 @Serializable
 data class StructuredPlan(
@@ -385,58 +208,172 @@ data class StructuredPlan(
     val steps: List<PlanStep>,
     val metadata: Map<String, String> = emptyMap()
 ) {
+    
     fun hasDependencies(): Boolean = steps.any { it.dependencies.isNotEmpty() }
     
-    fun toFormattedString(): String = buildString {
-        appendLine("📋 $title")
-        appendLine("📝 $description")
-        appendLine()
+    fun toFormattedString(): String {
+        val sb = StringBuilder()
+        sb.appendLine("📋 $title")
+        sb.appendLine("=".repeat(50))
+        sb.appendLine()
+        sb.appendLine("📝 Description: $description")
+        sb.appendLine()
+        sb.appendLine("📊 Steps (${steps.size}):")
         
         steps.forEachIndexed { index, step ->
-            appendLine("${index + 1}. ${step.title}")
+            sb.appendLine("${index + 1}. ${step.title}")
             if (step.description != step.title) {
-                appendLine("   📄 ${step.description}")
+                sb.appendLine("   └─ ${step.description}")
             }
-            step.estimatedTime?.let { appendLine("   ⏱️ $it") }
+            if (step.estimatedTime != null) {
+                sb.appendLine("   ⏱️ Estimated time: ${step.estimatedTime}")
+            }
             if (step.dependencies.isNotEmpty()) {
-                appendLine("   🔗 Depends on: ${step.dependencies.joinToString(", ")}")
+                sb.appendLine("   🔗 Dependencies: ${step.dependencies.joinToString(", ")}")
             }
-            appendLine()
+            sb.appendLine()
         }
+        
+        return sb.toString()
     }
     
-    fun toMarkdown(): String = buildString {
-        appendLine("# $title")
-        appendLine()
-        appendLine("$description")
-        appendLine()
+    fun toMarkdown(): String {
+        val sb = StringBuilder()
+        sb.appendLine("# $title")
+        sb.appendLine()
+        sb.appendLine("## Description")
+        sb.appendLine(description)
+        sb.appendLine()
+        sb.appendLine("## Steps")
+        sb.appendLine()
         
         steps.forEachIndexed { index, step ->
-            appendLine("## ${index + 1}. ${step.title}")
+            sb.appendLine("### ${index + 1}. ${step.title}")
             if (step.description != step.title) {
-                appendLine("$description")
+                sb.appendLine(step.description)
             }
-            step.estimatedTime?.let { appendLine("**Time:** $it") }
+            if (step.estimatedTime != null) {
+                sb.appendLine("**Estimated time:** ${step.estimatedTime}")
+            }
             if (step.dependencies.isNotEmpty()) {
-                appendLine("**Dependencies:** ${step.dependencies.joinToString(", ")}")
+                sb.appendLine("**Dependencies:** ${step.dependencies.joinToString(", ")}")
             }
-            appendLine()
+            sb.appendLine()
         }
+        
+        return sb.toString()
     }
     
-    fun toPlainText(): String = steps.joinToString("\n") { "${it.title}" }
+    fun toPlainText(): String {
+        val sb = StringBuilder()
+        sb.appendLine("$title")
+        sb.appendLine()
+        sb.appendLine("$description")
+        sb.appendLine()
+        
+        steps.forEachIndexed { index, step ->
+            sb.appendLine("${index + 1}. ${step.title}")
+        }
+        
+        return sb.toString()
+    }
 }
 
 /**
- * 📌 Individual plan step
+ * Plan step
  */
 @Serializable
 data class PlanStep(
     val id: String,
     val title: String,
     val description: String,
-    val type: StepType = StepType.ACTION,
+    val type: StepType,
     val estimatedTime: String? = null,
-    val dependencies: List<String> = emptyList(),
-    val metadata: Map<String, String> = emptyMap()
-) 
+    val dependencies: List<String> = emptyList()
+)
+
+/**
+ * Step types
+ */
+enum class StepType {
+    ACTION,
+    DECISION,
+    MILESTONE,
+    RESEARCH,
+    VALIDATION
+}
+
+/**
+ * Prompt builder interface
+ */
+interface PromptBuilder {
+    fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String
+}
+
+/**
+ * Default prompt builder
+ */
+class DefaultPromptBuilder : PromptBuilder {
+    override fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String {
+        return """
+            You are a task planning agent in a multi-agent AI system.
+            Break down the following goal into ${config.maxSteps} or fewer structured, actionable steps.
+            
+            Goal: "$goal"
+            
+            Context:
+            - User Profile: ${context.userProfile}
+            - Domain: ${context.domain ?: "general"}
+            - Priority: ${context.priority ?: "medium"}
+            - Constraints: ${context.constraints?.joinToString(", ") ?: "none"}
+            
+            Planning Strategy: ${config.planningStrategy}
+            
+            ${if (config.includeTimeEstimates) "Include time estimates for each step." else ""}
+            ${if (config.includeDependencies) "Identify dependencies between steps." else ""}
+            ${if (config.allowParallelSteps) "Mark steps that can be executed in parallel." else ""}
+            ${config.customInstructions?.let { "Additional instructions: $it" } ?: ""}
+            
+            Output format: ${config.outputFormat}
+            
+            Provide a clear, actionable plan that can be executed step by step.
+        """.trimIndent()
+    }
+}
+
+/**
+ * Company-specific prompt builder
+ */
+class CompanyPromptBuilder(
+    private val companyTemplate: String,
+    private val domainSpecificRules: Map<String, String> = emptyMap()
+) : PromptBuilder {
+    
+    override fun buildPrompt(goal: String, context: PlanningContext, config: PlanningConfig): String {
+        val domainRule = context.domain?.let { domainSpecificRules[it] } ?: ""
+        
+        return """
+            $companyTemplate
+            
+            Goal: "$goal"
+            
+            Context:
+            - User Profile: ${context.userProfile}
+            - Domain: ${context.domain ?: "general"}
+            - Priority: ${context.priority ?: "medium"}
+            - Constraints: ${context.constraints?.joinToString(", ") ?: "none"}
+            
+            ${if (domainRule.isNotBlank()) "Domain-specific guidance: $domainRule" else ""}
+            
+            Planning Strategy: ${config.planningStrategy}
+            Max Steps: ${config.maxSteps}
+            
+            ${if (config.includeTimeEstimates) "Include realistic time estimates." else ""}
+            ${if (config.includeDependencies) "Identify task dependencies." else ""}
+            ${if (config.allowParallelSteps) "Identify parallel execution opportunities." else ""}
+            ${config.customInstructions?.let { "Additional instructions: $it" } ?: ""}
+            
+            Create a detailed, actionable plan optimized for our context.
+        """.trimIndent()
+    }
+} 

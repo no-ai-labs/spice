@@ -4,290 +4,272 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
+import java.io.File
 
 class GraphvizFlowGeneratorTest {
-    
+
     @Test
-    fun `기본 메시지 흐름 DOT 생성 테스트`() {
-        // Given: 간단한 메시지 흐름
+    fun `basic message flow DOT generation test`() {
+        // Given: Simple message list
         val messages = listOf(
             Message(
+                id = "msg1",
+                type = MessageType.TEXT,
                 content = "Hello",
-                sender = "user",
-                receiver = "agent",
-                type = MessageType.TEXT
+                agentId = "agent1",
+                metadata = mapOf("nodeType" to "start")
             ),
             Message(
-                content = "Hello back!",
-                sender = "agent",
-                receiver = "user",
-                type = MessageType.TEXT
+                id = "msg2",
+                type = MessageType.TEXT,
+                content = "World",
+                agentId = "agent2",
+                parentId = "msg1",
+                metadata = mapOf("nodeType" to "process")
+            ),
+            Message(
+                id = "msg3",
+                type = MessageType.TEXT,
+                content = "End",
+                agentId = "agent1",
+                parentId = "msg2",
+                metadata = mapOf("nodeType" to "end")
             )
         )
-        
-        // When: DOT 파일 생성
-        val dotContent = messages.generateGraphvizDot("Simple Chat Flow")
-        
-        // Then: DOT 형식 검증
-        assertNotNull(dotContent)
-        assertTrue(dotContent.startsWith("digraph"), "Should start with digraph")
-        assertTrue(dotContent.endsWith("}"), "Should end with closing brace")
-        
-        // 그래프 제목 확인
-        assertTrue(dotContent.contains("Simple Chat Flow"), "Should contain title")
-        
-        // 노드 정의 확인
-        assertTrue(dotContent.contains("user"), "Should contain user node")
-        assertTrue(dotContent.contains("agent"), "Should contain agent node")
-        
-        // 간선 정의 확인
-        assertTrue(dotContent.contains("->"), "Should contain edges")
-        assertTrue(dotContent.contains("TEXT"), "Should contain message type labels")
-        
-        // 범례 확인
-        assertTrue(dotContent.contains("Legend"), "Should contain legend")
-        assertTrue(dotContent.contains("cluster_legend"), "Should contain legend cluster")
-        
-        println("Generated DOT Content:")
+
+        // When: Generate DOT file
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify DOT structure
+        assertTrue(dotContent.contains("digraph"), "Should contain digraph declaration")
+        assertTrue(dotContent.contains("rankdir=TB"), "Should contain top-to-bottom direction")
+        assertTrue(dotContent.contains("node [shape=box]"), "Should contain node shape definition")
+
+        // Verify node definitions
+        assertTrue(dotContent.contains("msg1"), "Should contain msg1 node")
+        assertTrue(dotContent.contains("msg2"), "Should contain msg2 node")
+        assertTrue(dotContent.contains("msg3"), "Should contain msg3 node")
+
+        // Verify edge definitions
+        assertTrue(dotContent.contains("msg1 -> msg2"), "Should contain msg1 to msg2 edge")
+        assertTrue(dotContent.contains("msg2 -> msg3"), "Should contain msg2 to msg3 edge")
+
+        println("Generated DOT content:")
         println(dotContent)
     }
-    
-    @Test
-    fun `샘플 워크플로우 DOT 생성 테스트`() {
-        // Given: 복잡한 워크플로우 메시지
-        val workflowMessages = createSampleWorkflow()
-        
-        // When: DOT 생성
-        val dotContent = workflowMessages.generateGraphvizDot("Data Processing Workflow")
-        
-        // Then: 워크플로우 구조 검증
-        assertTrue(dotContent.contains("WORKFLOW_START"), "Should contain workflow start")
-        assertTrue(dotContent.contains("WORKFLOW_END"), "Should contain workflow end")
-        assertTrue(dotContent.contains("DATA"), "Should contain data messages")
-        assertTrue(dotContent.contains("TOOL_CALL"), "Should contain tool calls")
-        assertTrue(dotContent.contains("TOOL_RESULT"), "Should contain tool results")
-        assertTrue(dotContent.contains("BRANCH"), "Should contain branch logic")
-        assertTrue(dotContent.contains("RESULT"), "Should contain results")
-        
-        // 노드 타입별 색상 확인
-        assertTrue(dotContent.contains("lightblue"), "Should use user color")
-        assertTrue(dotContent.contains("lightgreen"), "Should use agent color")
-        assertTrue(dotContent.contains("orange"), "Should use tool color")
-        
-        // 간선 색상 확인
-        assertTrue(dotContent.contains("color=\"blue\""), "Should have blue edges for TEXT")
-        assertTrue(dotContent.contains("color=\"red\""), "Should have red edges for TOOL_CALL")
-        assertTrue(dotContent.contains("color=\"green\""), "Should have green edges for TOOL_RESULT")
-        
-        println("Workflow DOT length: ${dotContent.length} characters")
-    }
-    
-    @Test
-    fun `에러 흐름 DOT 생성 테스트`() {
-        // Given: 에러가 포함된 메시지 흐름
-        val errorMessages = createErrorWorkflow()
-        
-        // When: DOT 생성
-        val dotContent = errorMessages.generateGraphvizDot("Error Handling Flow")
-        
-        // Then: 에러 처리 구조 검증
-        assertTrue(dotContent.contains("ERROR"), "Should contain error messages")
-        assertTrue(dotContent.contains("color=\"red\""), "Should have red error edges")
-        assertTrue(dotContent.contains("risky"), "Should contain risky operations")
-        assertTrue(dotContent.contains("dangerous"), "Should contain dangerous operations")
-        
-        // 에러 처리 툴팁 확인
-        assertTrue(dotContent.contains("tooltip="), "Should contain tooltips")
-        
-        println("Error Flow DOT preview:")
-        println(dotContent.split("\n").take(20).joinToString("\n"))
-    }
-    
-    @Test
-    fun `인터럽트 재개 흐름 DOT 생성 테스트`() {
-        // Given: 인터럽트/재개가 포함된 메시지 흐름
-        val interruptMessages = createInterruptWorkflow()
-        
-        // When: DOT 생성
-        val dotContent = interruptMessages.generateGraphvizDot("Interrupt Resume Flow")
-        
-        // Then: 인터럽트 구조 검증
-        assertTrue(dotContent.contains("INTERRUPT"), "Should contain interrupt messages")
-        assertTrue(dotContent.contains("RESUME"), "Should contain resume messages")
-        assertTrue(dotContent.contains("color=\"crimson\""), "Should have crimson interrupt edges")
-        assertTrue(dotContent.contains("color=\"darkblue\""), "Should have darkblue resume edges")
-        
-        // 메타데이터 기반 처리 확인
-        assertTrue(dotContent.contains("user_input_required"), "Should show interrupt reason in content")
-        
-        println("Interrupt Flow contains INTERRUPT: ${dotContent.contains("INTERRUPT")}")
-        println("Interrupt Flow contains RESUME: ${dotContent.contains("RESUME")}")
-    }
-    
-    @Test
-    fun `AgentEngine 통합 플로우 DOT 생성 테스트`() = runBlocking {
-        // Given: AgentEngine과 샘플 메시지
-        val agentEngine = AgentEngine()
-        agentEngine.registerAgent(UniversalAgent())
-        
-        val sampleMessages = listOf(
-            Message(
-                content = "Process this data",
-                sender = "user",
-                type = MessageType.DATA
-            ),
-            Message(
-                content = "Analyze results", 
-                sender = "user",
-                type = MessageType.TEXT
-            ),
-            Message(
-                content = "Generate report",
-                sender = "user", 
-                type = MessageType.PROMPT
-            )
-        )
-        
-        // When: AgentEngine으로부터 플로우 DOT 생성
-        val dotContent = agentEngine.generateFlowDot(sampleMessages, "Agent Processing Flow")
-        
-        // Then: 처리 결과 검증
-        assertNotNull(dotContent)
-        assertTrue(dotContent.contains("Agent Processing Flow"), "Should contain title")
-        assertTrue(dotContent.contains("universal-agent"), "Should contain agent responses")
-        
-        // 처리된 메시지와 응답 모두 포함 확인
-        assertTrue(dotContent.contains("user"), "Should contain user nodes")
-        assertTrue(dotContent.contains("universal"), "Should contain universal agent")
-        
-        println("Agent Engine Flow DOT generated successfully")
-    }
-    
-    @Test
-    fun `다양한 메시지 타입별 색상 및 스타일 테스트`() {
-        // Given: 모든 메시지 타입을 포함한 메시지 리스트
-        val allTypeMessages = MessageType.values().map { messageType ->
-            Message(
-                content = "Message of type $messageType",
-                sender = "test-sender",
-                receiver = "test-receiver", 
-                type = messageType
-            )
-        }
-        
-        // When: DOT 생성
-        val dotContent = allTypeMessages.generateGraphvizDot("All Message Types")
-        
-        // Then: 각 메시지 타입별 색상 확인
-        MessageType.values().forEach { messageType ->
-            assertTrue(
-                dotContent.contains(messageType.toString()),
-                "Should contain $messageType in DOT"
-            )
-        }
-        
-        // 색상 매핑 확인
-        assertTrue(dotContent.contains("color=\"blue\""), "Should have blue for TEXT")
-        assertTrue(dotContent.contains("color=\"purple\""), "Should have purple for PROMPT")
-        assertTrue(dotContent.contains("color=\"red\""), "Should have red for TOOL_CALL/ERROR")
-        assertTrue(dotContent.contains("color=\"green\""), "Should have green for TOOL_RESULT")
-        assertTrue(dotContent.contains("color=\"orange\""), "Should have orange for DATA")
-        assertTrue(dotContent.contains("color=\"navy\""), "Should have navy for WORKFLOW")
-        assertTrue(dotContent.contains("color=\"brown\""), "Should have brown for BRANCH/MERGE")
-        assertTrue(dotContent.contains("color=\"crimson\""), "Should have crimson for INTERRUPT")
-        assertTrue(dotContent.contains("color=\"darkblue\""), "Should have darkblue for RESUME")
-        
-        println("All message types DOT contains ${MessageType.values().size} different types")
-    }
-    
-    @Test
-    fun `노드 타입별 모양 및 색상 테스트`() {
-        // Given: 다양한 노드 타입을 가진 메시지
-        val messages = listOf(
-            Message(content = "User message", sender = "user", receiver = "agent"),
-            Message(content = "Agent response", sender = "my-agent", receiver = "user"),
-            Message(content = "Tool execution", sender = "search-tool", receiver = "agent"),
-            Message(content = "System message", sender = "system", receiver = "user")
-        )
-        
-        // When: DOT 생성
-        val dotContent = messages.generateGraphvizDot("Node Types Test")
-        
-        // Then: 노드 모양 확인
-        assertTrue(dotContent.contains("shape=ellipse"), "Should have ellipse for user")
-        assertTrue(dotContent.contains("shape=box"), "Should have box for agent")
-        assertTrue(dotContent.contains("shape=diamond"), "Should have diamond for tool")
-        assertTrue(dotContent.contains("shape=hexagon"), "Should have hexagon for system")
-        
-        // 노드 색상 확인
-        assertTrue(dotContent.contains("fillcolor=\"lightblue\""), "Should have lightblue for user")
-        assertTrue(dotContent.contains("fillcolor=\"lightgreen\""), "Should have lightgreen for agent")
-        assertTrue(dotContent.contains("fillcolor=\"orange\""), "Should have orange for tool")
-        assertTrue(dotContent.contains("fillcolor=\"lightgray\""), "Should have lightgray for system")
-        
-        println("Node types correctly mapped to shapes and colors")
-    }
-    
-    @Test
-    fun `DOT 파일 저장 기능 테스트`() {
-        // Given: 간단한 메시지 흐름
-        val messages = listOf(
-            Message(content = "Test message", sender = "user", receiver = "agent")
-        )
-        
-        val dotContent = messages.generateGraphvizDot("Save Test")
-        
-        // When: 파일로 저장
-        val testFilePath = "test_flow.dot"
-        dotContent.saveToDotFile(testFilePath)
-        
-        // Then: 파일 생성 확인
-        val savedFile = java.io.File(testFilePath)
-        assertTrue(savedFile.exists(), "DOT file should be created")
-        
-        val savedContent = savedFile.readText()
-        assertTrue(savedContent.contains("Save Test"), "Saved content should match")
-        assertTrue(savedContent.contains("digraph"), "Should be valid DOT format")
-        
-        // 정리
-        savedFile.delete()
-        
-        println("DOT file save/load test completed successfully")
-    }
-    
-    @Test
-    fun `빈 메시지 리스트 처리 테스트`() {
-        // Given: 빈 메시지 리스트
-        val emptyMessages = emptyList<Message>()
-        
-        // When: DOT 생성
-        val dotContent = emptyMessages.generateGraphvizDot("Empty Flow")
-        
-        // Then: 기본 구조는 유지
-        assertTrue(dotContent.contains("digraph"), "Should still have digraph structure")
-        assertTrue(dotContent.contains("Empty Flow"), "Should contain title")
-        assertTrue(dotContent.contains("Legend"), "Should still have legend")
-        assertTrue(dotContent.startsWith("digraph"), "Should be valid DOT")
-        assertTrue(dotContent.endsWith("}"), "Should be properly closed")
-        
-        // 노드나 간선은 없어야 함 (범례 제외)
-        val nodeLines = dotContent.lines().filter { 
-            it.contains(" [") && !it.contains("legend_") && 
-            !it.contains("node [") && !it.contains("edge [") &&
-            !it.trim().startsWith("//") && !it.trim().startsWith("rankdir") &&
-            !it.trim().startsWith("bgcolor") && !it.trim().startsWith("fontname") &&
-            !it.trim().startsWith("fontsize") && !it.trim().startsWith("label=") &&
-            !it.trim().startsWith("labelloc")
-        }
-        val edgeLines = dotContent.lines().filter { 
-            it.contains(" ->") && !it.contains("legend_") 
-        }
-        
 
+    @Test
+    fun `sample workflow DOT generation test`() {
+        // Given: Complex workflow messages
+        val messages = GraphvizFlowGenerator.generateSampleWorkflow()
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify workflow structure
+        assertTrue(dotContent.contains("workflow_start"), "Should contain workflow start")
+        assertTrue(dotContent.contains("data_collection"), "Should contain data collection")
+        assertTrue(dotContent.contains("tool_call"), "Should contain tool call")
+        assertTrue(dotContent.contains("tool_result"), "Should contain tool result")
+        assertTrue(dotContent.contains("result_generation"), "Should contain result generation")
+        assertTrue(dotContent.contains("workflow_end"), "Should contain workflow end")
+
+        // Verify node type colors
+        assertTrue(dotContent.contains("fillcolor=lightblue"), "Should contain start node color")
+        assertTrue(dotContent.contains("fillcolor=lightgreen"), "Should contain process node color")
+        assertTrue(dotContent.contains("fillcolor=lightcoral"), "Should contain end node color")
+
+        println("Sample workflow DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `error flow DOT generation test`() {
+        // Given: Error flow messages
+        val messages = GraphvizFlowGenerator.generateErrorFlow()
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify error handling structure
+        assertTrue(dotContent.contains("normal_processing"), "Should contain normal processing")
+        assertTrue(dotContent.contains("error_occurred"), "Should contain error occurrence")
+        assertTrue(dotContent.contains("error_handling"), "Should contain error handling")
+        assertTrue(dotContent.contains("recovery_attempt"), "Should contain recovery attempt")
+        assertTrue(dotContent.contains("fallback_response"), "Should contain fallback response")
+
+        // Verify error styling
+        assertTrue(dotContent.contains("fillcolor=red"), "Should contain error node color")
+        assertTrue(dotContent.contains("style=filled"), "Should contain filled style")
+
+        println("Error flow DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `interrupt resume flow DOT generation test`() {
+        // Given: Interrupt/resume flow messages
+        val messages = GraphvizFlowGenerator.generateInterruptResumeFlow()
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify interrupt structure
+        assertTrue(dotContent.contains("normal_processing"), "Should contain normal processing")
+        assertTrue(dotContent.contains("interrupt_triggered"), "Should contain interrupt trigger")
+        assertTrue(dotContent.contains("interrupt_handling"), "Should contain interrupt handling")
+        assertTrue(dotContent.contains("resume_processing"), "Should contain resume processing")
+
+        // Verify metadata-based processing
+        assertTrue(dotContent.contains("interrupted"), "Should contain interrupted metadata")
+        assertTrue(dotContent.contains("resumed"), "Should contain resumed metadata")
+
+        println("Interrupt/Resume flow DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `AgentEngine integration flow DOT generation test`() = runBlocking {
+        // Given: Simple Agent setup
+        val agent = object : Agent {
+            override val id: String = "test-agent"
+            override val name: String = "Test Agent"
+            override val description: String = "Test agent for DOT generation"
+            override val capabilities: Set<String> = setOf("text-processing")
+            override val supportedMessageTypes: Set<MessageType> = setOf(MessageType.TEXT)
+
+            override suspend fun canHandle(message: Message): Boolean = true
+
+            override suspend fun process(message: Message): Message {
+                return Message(
+                    id = "response-${message.id}",
+                    type = MessageType.TEXT,
+                    content = "Processed: ${message.content}",
+                    agentId = id,
+                    parentId = message.id
+                )
+            }
+        }
+
+        val engine = AgentEngine()
+        engine.registerAgent(agent)
+
+        // When: Generate flow DOT from AgentEngine
+        val dotContent = engine.generateFlowDot(listOf(
+            Message(
+                id = "input1",
+                type = MessageType.TEXT,
+                content = "Test input",
+                agentId = "test-agent"
+            )
+        ))
+
+        // Then: Verify DOT generation
+        assertTrue(dotContent.contains("digraph"), "Should contain digraph declaration")
+        assertTrue(dotContent.contains("input1"), "Should contain input message")
+
+        println("AgentEngine flow DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `various message type colors and styles test`() {
+        // Given: Messages with different types
+        val messages = listOf(
+            Message(id = "1", type = MessageType.TEXT, content = "Text", agentId = "agent1"),
+            Message(id = "2", type = MessageType.DATA, content = "Data", agentId = "agent2"),
+            Message(id = "3", type = MessageType.TOOL_CALL, content = "Tool", agentId = "agent3"),
+            Message(id = "4", type = MessageType.TOOL_RESULT, content = "Result", agentId = "agent4"),
+            Message(id = "5", type = MessageType.ERROR, content = "Error", agentId = "agent5"),
+            Message(id = "6", type = MessageType.INTERRUPT, content = "Interrupt", agentId = "agent6"),
+            Message(id = "7", type = MessageType.SYSTEM, content = "System", agentId = "agent7")
+        )
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify different colors and styles
+        assertTrue(dotContent.contains("fillcolor=lightblue"), "Should contain TEXT color")
+        assertTrue(dotContent.contains("fillcolor=lightgreen"), "Should contain DATA color")
+        assertTrue(dotContent.contains("fillcolor=yellow"), "Should contain TOOL_CALL color")
+        assertTrue(dotContent.contains("fillcolor=orange"), "Should contain TOOL_RESULT color")
+        assertTrue(dotContent.contains("fillcolor=red"), "Should contain ERROR color")
+        assertTrue(dotContent.contains("fillcolor=purple"), "Should contain INTERRUPT color")
+        assertTrue(dotContent.contains("fillcolor=gray"), "Should contain SYSTEM color")
+
+        println("Message type colors DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `node type shapes and colors test`() {
+        // Given: Messages with various node types
+        val messages = listOf(
+            Message(id = "1", type = MessageType.TEXT, content = "Start", agentId = "agent1", 
+                   metadata = mapOf("nodeType" to "start")),
+            Message(id = "2", type = MessageType.TEXT, content = "Process", agentId = "agent2", 
+                   metadata = mapOf("nodeType" to "process")),
+            Message(id = "3", type = MessageType.TEXT, content = "End", agentId = "agent3", 
+                   metadata = mapOf("nodeType" to "end"))
+        )
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Verify node shapes
+        assertTrue(dotContent.contains("shape=ellipse"), "Should contain ellipse shape for start")
+        assertTrue(dotContent.contains("shape=box"), "Should contain box shape for process")
+        assertTrue(dotContent.contains("shape=doublecircle"), "Should contain double circle for end")
+
+        // Verify node colors
+        assertTrue(dotContent.contains("fillcolor=lightblue"), "Should contain start node color")
+        assertTrue(dotContent.contains("fillcolor=lightgreen"), "Should contain process node color")
+        assertTrue(dotContent.contains("fillcolor=lightcoral"), "Should contain end node color")
+
+        println("Node shapes and colors DOT:")
+        println(dotContent)
+    }
+
+    @Test
+    fun `DOT file save functionality test`() {
+        // Given: Simple message list
+        val messages = listOf(
+            Message(id = "1", type = MessageType.TEXT, content = "Test", agentId = "agent1")
+        )
+
+        // When: Save to file
+        val tempFile = File.createTempFile("test_flow", ".dot")
+        GraphvizFlowGenerator.saveDotToFile(messages, tempFile.absolutePath)
+
+        // Then: Verify file creation
+        assertTrue(tempFile.exists(), "DOT file should be created")
+        assertTrue(tempFile.length() > 0, "DOT file should not be empty")
         
-        assertTrue(nodeLines.isEmpty(), "Should have no user-defined nodes")
-        assertTrue(edgeLines.isEmpty(), "Should have no user-defined edges")
-        
-        println("Empty message list handled gracefully")
+        val content = tempFile.readText()
+        assertTrue(content.contains("digraph"), "File should contain DOT content")
+
+        // Cleanup
+        tempFile.delete()
+    }
+
+    @Test
+    fun `empty message list DOT generation test`() {
+        // Given: Empty message list
+        val messages = emptyList<Message>()
+
+        // When: Generate DOT
+        val dotContent = GraphvizFlowGenerator.generateDot(messages)
+
+        // Then: Basic structure should be maintained
+        assertTrue(dotContent.contains("digraph"), "Should contain digraph declaration")
+        assertTrue(dotContent.contains("rankdir=TB"), "Should contain direction")
+        assertTrue(dotContent.contains("node [shape=box]"), "Should contain node definition")
+
+        // Should not contain any nodes or edges (except legend)
+        assertFalse(dotContent.contains(" -> "), "Should not contain edges")
+
+        println("Empty messages DOT:")
+        println(dotContent)
     }
 } 

@@ -3,578 +3,611 @@ package io.github.spice
 import kotlinx.coroutines.runBlocking
 
 /**
- * 🧩 Spice ToolChain System
+ * Tool Chain System
  * 
- * 하나의 Tool이 다른 Tool을 호출할 수 있게 만드는 체인 구조
- * 복잡한 흐름 처리가 가능해집니다.
+ * Allows Tools to call other Tools, creating a chain structure.
+ * Provides sequential execution and dependency management between Tools.
  */
 
 /**
- * Tool 실행 컨텍스트
+ * Tool chain execution context
  */
-data class ToolExecutionContext(
-    val toolRunner: ToolChainRunner,
-    val executionHistory: MutableList<ToolExecutionStep> = mutableListOf(),
-    val maxDepth: Int = 10,
+data class ToolChainContext(
+    val chainId: String,
     val currentDepth: Int = 0,
-    val metadata: MutableMap<String, Any> = mutableMapOf()
+    val maxDepth: Int = 10,
+    val executionHistory: MutableList<ToolExecutionRecord> = mutableListOf(),
+    val sharedData: MutableMap<String, Any> = mutableMapOf()
 ) {
     
     /**
-     * 실행 깊이 체크
+     * Execution depth check
      */
-    fun canExecuteMore(): Boolean = currentDepth < maxDepth
+    fun canExecute(): Boolean = currentDepth < maxDepth
     
     /**
-     * 새로운 실행 레벨로 이동
+     * Move to new execution level
      */
-    fun nextLevel(): ToolExecutionContext = copy(currentDepth = currentDepth + 1)
+    fun nextLevel(): ToolChainContext = copy(currentDepth = currentDepth + 1)
     
     /**
-     * 실행 기록 추가
+     * Record tool execution
      */
-    fun addStep(step: ToolExecutionStep) {
-        executionHistory.add(step)
+    fun recordExecution(toolName: String, parameters: Map<String, Any>, result: ToolResult) {
+        executionHistory.add(
+            ToolExecutionRecord(
+                toolName = toolName,
+                parameters = parameters,
+                result = result,
+                executionTime = System.currentTimeMillis(),
+                depth = currentDepth
+            )
+        )
     }
 }
 
 /**
- * Tool 실행 단계
+ * Tool execution record
  */
-data class ToolExecutionStep(
+data class ToolExecutionRecord(
     val toolName: String,
     val parameters: Map<String, Any>,
     val result: ToolResult,
     val executionTime: Long,
-    val depth: Int,
-    val parentTool: String? = null
+    val depth: Int
 )
 
 /**
- * Tool 체인 실행기 인터페이스
+ * Tool chain executor interface
  */
-interface ToolChainRunner {
+interface ToolChainExecutor {
     /**
-     * Tool 등록
+     * Execute tool in chain
      */
-    fun registerTool(tool: Tool)
+    suspend fun executeInChain(
+        toolName: String,
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult
     
     /**
-     * 등록된 Tool 조회
+     * Get registered Tool
      */
     fun getTool(name: String): Tool?
     
     /**
-     * Tool 실행
+     * Get all registered Tools
      */
-    suspend fun execute(toolName: String, parameters: Map<String, Any>, context: ToolExecutionContext? = null): ToolResult
-    
-    /**
-     * Tool 체인 실행
-     */
-    suspend fun executeChain(chain: ToolChain, initialParameters: Map<String, Any>): ToolChainResult
+    fun getAllTools(): List<Tool>
 }
 
 /**
- * 기존 ToolRunner를 확장한 Tool 체인 실행기 구현
+ * Tool chain executor implementation extending existing ToolRunner
  */
-class DefaultToolChainRunner : ToolChainRunner {
-    private val baseRunner = ToolRunner()
+class ChainableToolExecutor(
+    private val tools: Map<String, Tool>
+) : ToolChainExecutor {
     
-    override fun registerTool(tool: Tool) {
-        baseRunner.registerTool(tool)
-    }
+    override fun getTool(name: String): Tool? = tools[name]
+    override fun getAllTools(): List<Tool> = tools.values.toList()
     
-    override fun getTool(name: String): Tool? = null  // 직접 접근하지 않음
-    
-    override suspend fun execute(toolName: String, parameters: Map<String, Any>, context: ToolExecutionContext?): ToolResult {
-        val executionContext = context ?: ToolExecutionContext(this)
-        
-        // 재귀 깊이 체크
-        if (!executionContext.canExecuteMore()) {
-            return ToolResult.error("Maximum execution depth reached (${executionContext.maxDepth})")
+    override suspend fun executeInChain(
+        toolName: String,
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        // Recursion depth check
+        if (!context.canExecute()) {
+            return ToolResult(
+                success = false,
+                error = "Maximum execution depth reached: ${context.maxDepth}"
+            )
         }
         
-        val startTime = System.currentTimeMillis()
+        val tool = getTool(toolName)
+            ?: return ToolResult(
+                success = false,
+                error = "Tool not found: $toolName"
+            )
         
         return try {
-            // 기존 ToolRunner 사용
-            val result = baseRunner.executeTool(toolName, parameters)
+            val result = if (tool is ChainableTool) {
+                // Execute with chain context
+                tool.executeInChain(parameters, context.nextLevel())
+            } else {
+                // Execute regular tool
+                tool.execute(parameters)
+            }
             
-            val executionTime = System.currentTimeMillis() - startTime
-            
-            // 실행 기록
-            executionContext.addStep(ToolExecutionStep(
-                toolName = toolName,
-                parameters = parameters,
-                result = result,
-                executionTime = executionTime,
-                depth = executionContext.currentDepth,
-                parentTool = executionContext.metadata["currentTool"] as? String
-            ))
+            // Record execution
+            context.recordExecution(toolName, parameters, result)
             
             result
         } catch (e: Exception) {
-            ToolResult.error("Tool execution failed: ${e.message}")
-        }
-    }
-    
-    override suspend fun executeChain(chain: ToolChain, initialParameters: Map<String, Any>): ToolChainResult {
-        val context = ToolExecutionContext(this)
-        val startTime = System.currentTimeMillis()
-        
-        return try {
-            val result = chain.execute(initialParameters, context)
-            val totalTime = System.currentTimeMillis() - startTime
-            
-            ToolChainResult(
-                success = result.success,
-                finalResult = result,
-                executionHistory = context.executionHistory,
-                totalExecutionTime = totalTime,
-                metadata = context.metadata.toMap()
-            )
-        } catch (e: Exception) {
-            ToolChainResult(
+            val errorResult = ToolResult(
                 success = false,
-                finalResult = ToolResult.error("Chain execution failed: ${e.message}"),
-                executionHistory = context.executionHistory,
-                totalExecutionTime = System.currentTimeMillis() - startTime,
-                error = e.message
+                error = "Tool execution failed: ${e.message}"
             )
+            
+            context.recordExecution(toolName, parameters, errorResult)
+            errorResult
         }
     }
 }
 
 /**
- * 체인 가능한 Tool 인터페이스
+ * Chainable Tool interface
  */
 interface ChainableTool : Tool {
     /**
-     * 컨텍스트와 함께 실행
+     * Tool chain executor
      */
-    suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult
+    var chainExecutor: ToolChainExecutor?
     
     /**
-     * 다른 Tool 호출
+     * Execute with chain context
      */
-    suspend fun callTool(toolName: String, parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
-        context.metadata["currentTool"] = this.name
-        return context.toolRunner.execute(toolName, parameters, context)
-    }
-}
-
-/**
- * 체인 가능한 기본 Tool 추상 클래스
- */
-abstract class BaseChainableTool(
-    override val name: String,
-    override val description: String,
-    override val schema: ToolSchema
-) : ChainableTool {
+    suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult
     
     /**
-     * 기본 execute는 컨텍스트 없이 실행
+     * Default execute calls chain execution
      */
     override suspend fun execute(parameters: Map<String, Any>): ToolResult {
-        return executeWithContext(parameters, ToolExecutionContext(DefaultToolChainRunner()))
+        return executeInChain(parameters, ToolChainContext(chainId = "default-${System.currentTimeMillis()}"))
     }
     
     /**
-     * 하위 클래스에서 구현할 체인 실행 로직
+     * Chain execution logic to implement in subclasses
      */
-    abstract override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult
+    suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult
 }
 
 /**
- * Tool 체인 정의
+ * Tool chain definition
  */
-data class ToolChain(
+data class ToolChainDefinition(
     val name: String,
     val description: String,
     val steps: List<ToolChainStep>
-) {
+)
+
+/**
+ * Tool chain step
+ */
+data class ToolChainStep(
+    val name: String,
+    val toolName: String,
+    val parameters: Map<String, Any>,
+    val parameterMapping: Map<String, String> = emptyMap(), // source -> target
+    val condition: ((ToolChainContext) -> Boolean)? = null,
+    val onSuccess: ((ToolResult, ToolChainContext) -> Unit)? = null,
+    val onFailure: ((ToolResult, ToolChainContext) -> Unit)? = null
+)
+
+/**
+ * Tool chain builder
+ */
+class ToolChainBuilder(private val name: String) {
+    private val steps = mutableListOf<ToolChainStep>()
     
-    /**
-     * 체인 실행
-     */
-    suspend fun execute(initialParameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
-        var currentParameters = initialParameters
-        var lastResult: ToolResult? = null
-        
-        for ((index, step) in steps.withIndex()) {
-            // 파라미터 매핑
-            val stepParameters = mapParameters(currentParameters, step.parameterMapping, lastResult)
-            
-            // Tool 실행
-            val result = context.toolRunner.execute(step.toolName, stepParameters, context)
-            
-            if (!result.success && step.required) {
-                return ToolResult.error("Required step failed: ${step.toolName} - ${result.error}")
-            }
-            
-            lastResult = result
-            
-            // 다음 단계를 위한 파라미터 준비
-            if (step.outputMapping.isNotEmpty()) {
-                currentParameters = currentParameters + mapOutputToParameters(result, step.outputMapping)
-            }
-        }
-        
-        return lastResult ?: ToolResult.error("No steps executed")
+    fun step(
+        name: String,
+        toolName: String,
+        parameters: Map<String, Any> = emptyMap(),
+        parameterMapping: Map<String, String> = emptyMap(),
+        condition: ((ToolChainContext) -> Boolean)? = null,
+        onSuccess: ((ToolResult, ToolChainContext) -> Unit)? = null,
+        onFailure: ((ToolResult, ToolChainContext) -> Unit)? = null
+    ): ToolChainBuilder {
+        steps.add(
+            ToolChainStep(
+                name = name,
+                toolName = toolName,
+                parameters = parameters,
+                parameterMapping = parameterMapping,
+                condition = condition,
+                onSuccess = onSuccess,
+                onFailure = onFailure
+            )
+        )
+        return this
     }
     
-    /**
-     * 파라미터 매핑
-     */
-    private fun mapParameters(
-        currentParams: Map<String, Any>,
-        mapping: Map<String, String>,
-        lastResult: ToolResult?
-    ): Map<String, Any> {
-        val mapped = mutableMapOf<String, Any>()
-        
-        mapping.forEach { (targetParam, sourceParam) ->
-            when {
-                sourceParam.startsWith("result.") -> {
-                    // 이전 결과에서 추출
-                    val resultKey = sourceParam.removePrefix("result.")
-                    lastResult?.metadata?.get(resultKey)?.let { mapped[targetParam] = it }
-                }
-                currentParams.containsKey(sourceParam) -> {
-                    // 현재 파라미터에서 복사
-                    mapped[targetParam] = currentParams[sourceParam]!!
-                }
-            }
-        }
-        
-        return mapped
-    }
-    
-    /**
-     * 출력을 파라미터로 매핑
-     */
-    private fun mapOutputToParameters(result: ToolResult, mapping: Map<String, String>): Map<String, Any> {
-        val mapped = mutableMapOf<String, Any>()
-        
-        mapping.forEach { (outputKey, paramKey) ->
-            when (outputKey) {
-                "result" -> mapped[paramKey] = result.result
-                "success" -> mapped[paramKey] = result.success
-                else -> result.metadata[outputKey]?.let { mapped[paramKey] = it }
-            }
-        }
-        
-        return mapped
+    fun build(): ToolChainDefinition {
+        return ToolChainDefinition(
+            name = name,
+            description = "Tool chain: $name",
+            steps = steps.toList()
+        )
     }
 }
 
 /**
- * Tool 체인 단계
+ * Tool chain executor
  */
-data class ToolChainStep(
-    val toolName: String,
-    val parameterMapping: Map<String, String> = emptyMap(), // targetParam -> sourceParam
-    val outputMapping: Map<String, String> = emptyMap(),    // outputKey -> nextParam
-    val required: Boolean = true,
-    val condition: ((Map<String, Any>) -> Boolean)? = null
-)
-
-/**
- * Tool 체인 실행 결과
- */
-data class ToolChainResult(
-    val success: Boolean,
-    val finalResult: ToolResult,
-    val executionHistory: List<ToolExecutionStep>,
-    val totalExecutionTime: Long,
-    val metadata: Map<String, Any> = emptyMap(),
-    val error: String? = null
-)
-
-/**
- * === 실제 사용 예제 Tool들 ===
- */
-
-/**
- * 데이터 처리 Tool (다른 Tool들을 체인으로 호출)
- */
-class DataProcessingTool : BaseChainableTool(
-    name = "data_processor",
-    description = "Processes data through multiple transformation steps",
-    schema = ToolSchema(
-        name = "data_processor",
-        description = "Data processing tool",
-        parameters = mapOf(
-            "input_data" to ParameterSchema("string", "Raw input data", required = true),
-            "processing_steps" to ParameterSchema("array", "List of processing steps", required = true)
-        )
-    )
+class ToolChainRunner(
+    private val chainExecutor: ToolChainExecutor
 ) {
     
-    override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
-        val inputData = parameters["input_data"] as? String
-            ?: return ToolResult.error("Missing input_data parameter")
+    suspend fun executeChain(
+        definition: ToolChainDefinition,
+        initialParameters: Map<String, Any> = emptyMap()
+    ): ToolChainResult {
+        val context = ToolChainContext(chainId = definition.name)
+        context.sharedData.putAll(initialParameters)
         
-        val steps = parameters["processing_steps"] as? List<String>
-            ?: return ToolResult.error("Missing processing_steps parameter")
+        val stepResults = mutableListOf<ToolResult>()
         
-        var currentData = inputData
-        val processedSteps = mutableListOf<String>()
+        for (step in definition.steps) {
+            // Check condition
+            if (step.condition != null && !step.condition.invoke(context)) {
+                continue
+            }
+            
+            // Map parameters
+            val stepParameters = buildStepParameters(step, context)
+            
+            // Execute step
+            val result = chainExecutor.executeInChain(step.toolName, stepParameters, context)
+            stepResults.add(result)
+            
+            // Handle result
+            if (result.success) {
+                step.onSuccess?.invoke(result, context)
+                // Store result data in shared context
+                result.data.forEach { (key, value) ->
+                    context.sharedData[key] = value
+                }
+            } else {
+                step.onFailure?.invoke(result, context)
+                // Stop chain on failure
+                break
+            }
+        }
         
-        for (step in steps) {
-            when (step) {
-                "validate" -> {
-                    val validationResult = callTool("data_validator", mapOf("data" to currentData), context)
-                    if (!validationResult.success) {
-                        return ToolResult.error("Validation failed: ${validationResult.error}")
-                    }
-                    processedSteps.add("validation completed")
-                }
-                "clean" -> {
-                    val cleanResult = callTool("data_cleaner", mapOf("data" to currentData), context)
-                    if (cleanResult.success) {
-                        currentData = cleanResult.result
-                        processedSteps.add("data cleaned")
-                    }
-                }
-                "transform" -> {
-                    val transformResult = callTool("data_transformer", mapOf("data" to currentData), context)
-                    if (transformResult.success) {
-                        currentData = transformResult.result
-                        processedSteps.add("data transformed")
-                    }
-                }
-                "analyze" -> {
-                    val analysisResult = callTool("data_analyzer", mapOf("data" to currentData), context)
-                    if (analysisResult.success) {
-                        processedSteps.add("analysis: ${analysisResult.result}")
-                    }
+        return ToolChainResult(
+            chainName = definition.name,
+            success = stepResults.all { it.success },
+            stepResults = stepResults,
+            executionHistory = context.executionHistory.toList(),
+            finalData = context.sharedData.toMap()
+        )
+    }
+    
+    private fun buildStepParameters(step: ToolChainStep, context: ToolChainContext): Map<String, Any> {
+        val parameters = step.parameters.toMutableMap()
+        
+        // Apply parameter mapping
+        step.parameterMapping.forEach { (source, target) ->
+            context.sharedData[source]?.let { value ->
+                parameters[target] = value
+            }
+        }
+        
+        // Extract from previous results
+        step.parameterMapping.forEach { (source, target) ->
+            if (source.startsWith("result.")) {
+                val resultKey = source.removePrefix("result.")
+                context.executionHistory.lastOrNull()?.result?.data?.get(resultKey)?.let { value ->
+                    parameters[target] = value
                 }
             }
         }
         
-        return ToolResult.success(
-            result = currentData,
-            metadata = mapOf(
-                "processed_steps" to processedSteps.joinToString(", "),
-                "step_count" to processedSteps.size.toString(),
-                "original_data_length" to inputData.length.toString(),
-                "final_data_length" to currentData.length.toString()
+        // Copy from current parameters
+        step.parameterMapping.forEach { (source, target) ->
+            if (parameters.containsKey(source)) {
+                parameters[target] = parameters[source]!!
+            }
+        }
+        
+        return parameters
+    }
+}
+
+/**
+ * Tool chain execution result
+ */
+data class ToolChainResult(
+    val chainName: String,
+    val success: Boolean,
+    val stepResults: List<ToolResult>,
+    val executionHistory: List<ToolExecutionRecord>,
+    val finalData: Map<String, Any>
+)
+
+// Example chainable tool implementations
+
+/**
+ * Data processing Tool (calls other Tools in chain)
+ */
+class DataProcessingTool : ChainableTool {
+    override val name: String = "data_processor"
+    override val description: String = "Processes data using multiple tools"
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
+        parameters = mapOf(
+            "input_data" to ParameterSchema("string", "Input data to process", required = true),
+            "processing_steps" to ParameterSchema("array", "Array of processing steps", required = true)
+        )
+    )
+    
+    override var chainExecutor: ToolChainExecutor? = null
+    
+    override suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        val inputData = parameters["input_data"] as? String
+            ?: return ToolResult(success = false, error = "input_data parameter required")
+        
+        val processingSteps = parameters["processing_steps"] as? List<String> ?: emptyList()
+        
+        var currentData = inputData
+        val results = mutableListOf<String>()
+        
+        for (step in processingSteps) {
+            val result = when (step) {
+                "validate" -> {
+                    chainExecutor?.executeInChain(
+                        "data_validator",
+                        mapOf("data" to currentData),
+                        context
+                    )
+                }
+                "clean" -> {
+                    chainExecutor?.executeInChain(
+                        "data_cleaner",
+                        mapOf("data" to currentData),
+                        context
+                    )
+                }
+                "transform" -> {
+                    chainExecutor?.executeInChain(
+                        "data_transformer",
+                        mapOf("data" to currentData),
+                        context
+                    )
+                }
+                else -> {
+                    ToolResult(success = false, error = "Unknown processing step: $step")
+                }
+            }
+            
+            if (result?.success == true) {
+                currentData = result.data["result"] as? String ?: currentData
+                results.add("Step '$step' completed successfully")
+            } else {
+                return ToolResult(
+                    success = false,
+                    error = "Processing step '$step' failed: ${result?.error}"
+                )
+            }
+        }
+        
+        return ToolResult(
+            success = true,
+            data = mapOf(
+                "processed_data" to currentData,
+                "processing_log" to results
             )
         )
     }
+    
+    override suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        return executeInChain(parameters, context)
+    }
 }
 
 /**
- * 데이터 검증 Tool
+ * Data validation tool
  */
-class DataValidatorTool : BaseChainableTool(
-    name = "data_validator",
-    description = "Validates data format and content",
-    schema = ToolSchema(
-        name = "data_validator",
-        description = "Data validation tool",
+class DataValidationTool : ChainableTool {
+    override val name: String = "data_validator"
+    override val description: String = "Validates data quality and structure"
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
         parameters = mapOf(
-            "data" to ParameterSchema("string", "Data to validate", required = true)
+            "data" to ParameterSchema("any", "Data to validate", required = true),
+            "validation_rules" to ParameterSchema("array", "Validation rules to apply", required = true)
         )
     )
-) {
     
-    override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
+    override var chainExecutor: ToolChainExecutor? = null
+    
+    override suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
         val data = parameters["data"] as? String
-            ?: return ToolResult.error("Missing data parameter")
+            ?: return ToolResult(success = false, error = "data parameter required")
         
-        val isValid = data.isNotBlank() && data.length >= 3
-        val issues = mutableListOf<String>()
-        
-        if (data.isBlank()) issues.add("Data is empty")
-        if (data.length < 3) issues.add("Data too short")
+        // Simple validation logic
+        val isValid = data.isNotBlank() && data.length > 5
         
         return if (isValid) {
-            ToolResult.success(
-                result = "Data validation passed",
-                metadata = mapOf(
-                    "validation_status" to "passed",
-                    "data_length" to data.length.toString()
+            ToolResult(
+                success = true,
+                data = mapOf(
+                    "result" to data,
+                    "validation_status" to "valid"
                 )
             )
         } else {
-            ToolResult.error("Validation failed: ${issues.joinToString(", ")}")
+            ToolResult(
+                success = false,
+                error = "Data validation failed: data too short or empty"
+            )
         }
+    }
+    
+    override suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        return executeInChain(parameters, context)
     }
 }
 
 /**
- * 데이터 정리 Tool
+ * Data cleaning tool
  */
-class DataCleanerTool : BaseChainableTool(
-    name = "data_cleaner",
-    description = "Cleans and sanitizes data",
-    schema = ToolSchema(
-        name = "data_cleaner",
-        description = "Data cleaning tool",
+class DataCleaningTool : ChainableTool {
+    override val name: String = "data_cleaner"
+    override val description: String = "Cleans and preprocesses data"
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
         parameters = mapOf(
-            "data" to ParameterSchema("string", "Data to clean", required = true)
+            "data" to ParameterSchema("any", "Data to clean", required = true),
+            "cleaning_rules" to ParameterSchema("array", "Cleaning rules to apply", required = true)
         )
     )
-) {
     
-    override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
+    override var chainExecutor: ToolChainExecutor? = null
+    
+    override suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
         val data = parameters["data"] as? String
-            ?: return ToolResult.error("Missing data parameter")
+            ?: return ToolResult(success = false, error = "data parameter required")
         
-        // 데이터 정리 작업
-        val cleanedData = data
-            .trim()
-            .replace(Regex("\\s+"), " ")  // 연속 공백 제거
-            .replace(Regex("[^a-zA-Z0-9가-힣\\s.,!?]"), "") // 특수문자 제거
+        // Data cleaning work
+        val cleanedData = data.trim()
+            .replace(Regex("\\s+"), " ")  // Remove consecutive spaces
+            .replace(Regex("[^a-zA-Z0-9가-힣\\s.,!?]"), "") // Remove special characters
         
-        return ToolResult.success(
-            result = cleanedData,
-            metadata = mapOf(
-                "original_length" to data.length.toString(),
-                "cleaned_length" to cleanedData.length.toString(),
-                "cleaning_applied" to "whitespace_normalization,special_char_removal"
+        return ToolResult(
+            success = true,
+            data = mapOf(
+                "result" to cleanedData,
+                "original_length" to data.length,
+                "cleaned_length" to cleanedData.length
             )
         )
     }
+    
+    override suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        return executeInChain(parameters, context)
+    }
 }
 
 /**
- * 데이터 변환 Tool
+ * Data transformation Tool
  */
-class DataTransformerTool : BaseChainableTool(
-    name = "data_transformer",
-    description = "Transforms data format",
-    schema = ToolSchema(
-        name = "data_transformer",
-        description = "Data transformation tool",
+class DataTransformationTool : ChainableTool {
+    override val name: String = "data_transformer"
+    override val description: String = "Transforms data to target format"
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
         parameters = mapOf(
             "data" to ParameterSchema("string", "Data to transform", required = true),
-            "format" to ParameterSchema("string", "Target format", required = false)
+            "target_format" to ParameterSchema("string", "Target format for transformation", required = true)
         )
     )
-) {
     
-    override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
+    override var chainExecutor: ToolChainExecutor? = null
+    
+    override suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
         val data = parameters["data"] as? String
-            ?: return ToolResult.error("Missing data parameter")
+            ?: return ToolResult(success = false, error = "data parameter required")
         
-        val format = parameters["format"] as? String ?: "uppercase"
+        val targetFormat = parameters["target_format"] as? String ?: "uppercase"
         
-        val transformedData = when (format) {
+        val transformedData = when (targetFormat) {
             "uppercase" -> data.uppercase()
             "lowercase" -> data.lowercase()
-            "title_case" -> data.split(" ").joinToString(" ") { 
-                it.replaceFirstChar { char -> char.uppercase() } 
-            }
-            "json" -> """{"data": "$data", "length": ${data.length}}"""
+            "json" -> """{"data": "$data"}"""
+            "csv" -> data.replace(" ", ",")
             else -> data
         }
         
-        return ToolResult.success(
-            result = transformedData,
-            metadata = mapOf(
-                "transformation_type" to format,
-                "original_format" to "string",
-                "transformation_applied" to "true"
+        return ToolResult(
+            success = true,
+            data = mapOf(
+                "result" to transformedData,
+                "format" to targetFormat
             )
         )
+    }
+    
+    override suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        return executeInChain(parameters, context)
     }
 }
 
 /**
- * 데이터 분석 Tool
+ * Data analysis Tool
  */
-class DataAnalyzerTool : BaseChainableTool(
-    name = "data_analyzer",
-    description = "Analyzes data and provides insights",
-    schema = ToolSchema(
-        name = "data_analyzer",
-        description = "Data analysis tool",
+class DataAnalysisTool : ChainableTool {
+    override val name: String = "data_analyzer"
+    override val description: String = "Analyzes data and provides insights"
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
         parameters = mapOf(
             "data" to ParameterSchema("string", "Data to analyze", required = true)
         )
     )
-) {
     
-    override suspend fun executeWithContext(parameters: Map<String, Any>, context: ToolExecutionContext): ToolResult {
+    override var chainExecutor: ToolChainExecutor? = null
+    
+    override suspend fun executeInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
         val data = parameters["data"] as? String
-            ?: return ToolResult.error("Missing data parameter")
+            ?: return ToolResult(success = false, error = "data parameter required")
         
-        // 간단한 데이터 분석
+        // Simple data analysis
         val wordCount = data.split("\\s+".toRegex()).size
         val charCount = data.length
-        val sentenceCount = data.split("[.!?]".toRegex()).size
-        val avgWordLength = if (wordCount > 0) charCount.toDouble() / wordCount else 0.0
+        val hasNumbers = data.any { it.isDigit() }
         
-        val analysis = "Analysis: $wordCount words, $charCount characters, $sentenceCount sentences. " +
-                "Average word length: ${"%.1f".format(avgWordLength)} characters."
-        
-        return ToolResult.success(
-            result = analysis,
-            metadata = mapOf(
-                "word_count" to wordCount.toString(),
-                "char_count" to charCount.toString(),
-                "sentence_count" to sentenceCount.toString(),
-                "avg_word_length" to avgWordLength.toString(),
-                "analysis_type" to "basic_text_analysis"
+        return ToolResult(
+            success = true,
+            data = mapOf(
+                "word_count" to wordCount,
+                "char_count" to charCount,
+                "has_numbers" to hasNumbers,
+                "analysis_summary" to "Data contains $wordCount words and $charCount characters"
             )
         )
     }
+    
+    override suspend fun doExecuteInChain(
+        parameters: Map<String, Any>,
+        context: ToolChainContext
+    ): ToolResult {
+        return executeInChain(parameters, context)
+    }
 }
 
-/**
- * 편의 함수: ToolChain DSL
- */
-fun buildToolChain(name: String, description: String, init: ToolChainBuilder.() -> Unit): ToolChain {
-    val builder = ToolChainBuilder(name, description)
+// DSL for tool chain creation
+fun toolChain(name: String, init: ToolChainBuilder.() -> Unit): ToolChainDefinition {
+    val builder = ToolChainBuilder(name)
     builder.init()
     return builder.build()
-}
-
-/**
- * ToolChain 빌더
- */
-class ToolChainBuilder(private val name: String, private val description: String) {
-    private val steps = mutableListOf<ToolChainStep>()
-    
-    fun step(toolName: String, init: ToolChainStepBuilder.() -> Unit = {}) {
-        val stepBuilder = ToolChainStepBuilder(toolName)
-        stepBuilder.init()
-        steps.add(stepBuilder.build())
-    }
-    
-    internal fun build(): ToolChain {
-        return ToolChain(name, description, steps)
-    }
-}
-
-/**
- * ToolChain 단계 빌더
- */
-class ToolChainStepBuilder(private val toolName: String) {
-    private val parameterMapping = mutableMapOf<String, String>()
-    private val outputMapping = mutableMapOf<String, String>()
-    var required: Boolean = true
-    var condition: ((Map<String, Any>) -> Boolean)? = null
-    
-    fun mapParameter(target: String, source: String) {
-        parameterMapping[target] = source
-    }
-    
-    fun mapOutput(output: String, nextParam: String) {
-        outputMapping[output] = nextParam
-    }
-    
-    internal fun build(): ToolChainStep {
-        return ToolChainStep(
-            toolName = toolName,
-            parameterMapping = parameterMapping,
-            outputMapping = outputMapping,
-            required = required,
-            condition = condition
-        )
-    }
 } 

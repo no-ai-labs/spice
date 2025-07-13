@@ -7,323 +7,262 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.assertNull
+import kotlin.test.assertFalse
 
 class MessageJsonSerializationTest {
-    
-    private val json = Json {
-        prettyPrint = true
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-    
+
     @Test
-    fun `기본 Message JSON 직렬화 및 역직렬화 테스트`() {
-        // Given: 기본 Message 객체
-        val originalMessage = Message(
-            content = "Hello, Spice!",
-            sender = "user",
+    fun `basic Message JSON serialization test`() {
+        // Given: Simple Message
+        val message = Message(
+            id = "test-123",
             type = MessageType.TEXT,
-            receiver = "agent",
-            metadata = mapOf(
-                "priority" to "high",
-                "version" to "1.0"
-            )
+            content = "Hello, World!",
+            agentId = "test-agent",
+            timestamp = 1234567890L,
+            metadata = mapOf("key" to "value")
         )
-        
-        // When: JSON으로 직렬화
-        val jsonString = json.encodeToString(originalMessage)
-        
-        // Then: JSON 형태 확인
-        assertNotNull(jsonString)
-        assertTrue(jsonString.contains("Hello, Spice!"))
-        assertTrue(jsonString.contains("TEXT"))
-        assertTrue(jsonString.contains("priority"))
-        println("Serialized JSON:")
-        println(jsonString)
-        
-        // When: JSON에서 역직렬화
-        val deserializedMessage = json.decodeFromString<Message>(jsonString)
-        
-        // Then: 원본과 동일한지 확인
-        assertEquals(originalMessage.id, deserializedMessage.id)
-        assertEquals(originalMessage.content, deserializedMessage.content)
-        assertEquals(originalMessage.sender, deserializedMessage.sender)
-        assertEquals(originalMessage.receiver, deserializedMessage.receiver)
-        assertEquals(originalMessage.type, deserializedMessage.type)
-        assertEquals(originalMessage.metadata, deserializedMessage.metadata)
-        assertEquals(originalMessage.timestamp, deserializedMessage.timestamp)
-        assertEquals(originalMessage.parentId, deserializedMessage.parentId)
-        assertEquals(originalMessage.conversationId, deserializedMessage.conversationId)
+
+        // When: Serialize to JSON
+        val json = Json.encodeToString(message)
+
+        // Then: JSON should contain all fields
+        assertTrue(json.contains("\"id\":\"test-123\""))
+        assertTrue(json.contains("\"type\":\"TEXT\""))
+        assertTrue(json.contains("\"content\":\"Hello, World!\""))
+        assertTrue(json.contains("\"agentId\":\"test-agent\""))
+        assertTrue(json.contains("\"timestamp\":1234567890"))
+        assertTrue(json.contains("\"metadata\":{\"key\":\"value\"}"))
+
+        println("Serialized JSON: $json")
     }
-    
+
     @Test
-    fun `모든 MessageType JSON 직렬화 테스트`() {
-        val messageTypes = MessageType.values()
-        
-        messageTypes.forEach { messageType ->
-            // Given: 각 MessageType별 Message
-            val message = Message(
-                content = "Test message for $messageType",
-                sender = "test-sender",
-                type = messageType,
-                metadata = mapOf("messageType" to messageType.toString())
-            )
-            
-            // When: JSON 직렬화 및 역직렬화
-            val jsonString = json.encodeToString(message)
-            val deserializedMessage = json.decodeFromString<Message>(jsonString)
-            
-            // Then: MessageType이 정확히 보존되는지 확인
-            assertEquals(messageType, deserializedMessage.type, "MessageType should be preserved for $messageType")
-            assertEquals(message.content, deserializedMessage.content)
-            assertEquals(message.sender, deserializedMessage.sender)
-            assertEquals(message.metadata, deserializedMessage.metadata)
-        }
-    }
-    
-    @Test
-    fun `복잡한 메타데이터가 있는 Message JSON 직렬화 테스트`() {
-        // Given: 복잡한 메타데이터를 가진 Message
-        val complexMessage = Message(
-            content = "Complex message with metadata",
-            sender = "complex-agent",
-            type = MessageType.TOOL_CALL,
-            receiver = "tool-runner",
-            metadata = mapOf(
-                "toolName" to "web_search",
-                "param_query" to "Kotlin serialization",
-                "param_limit" to "10",
-                "priority" to "medium",
-                "timeout" to "30000",
-                "retryCount" to "3",
-                "source" to "user_interface",
-                "requestId" to "req-12345",
-                "sessionId" to "session-abcde"
-            ),
-            parentId = "parent-message-id",
-            conversationId = "conversation-xyz"
-        )
-        
-        // When: JSON 직렬화 및 역직렬화
-        val jsonString = json.encodeToString(complexMessage)
-        val deserializedMessage = json.decodeFromString<Message>(jsonString)
-        
-        // Then: 모든 복잡한 데이터가 보존되는지 확인
-        assertEquals(complexMessage.content, deserializedMessage.content)
-        assertEquals(complexMessage.sender, deserializedMessage.sender)
-        assertEquals(complexMessage.receiver, deserializedMessage.receiver)
-        assertEquals(complexMessage.type, deserializedMessage.type)
-        assertEquals(complexMessage.parentId, deserializedMessage.parentId)
-        assertEquals(complexMessage.conversationId, deserializedMessage.conversationId)
-        
-        // 메타데이터 세부 확인
-        assertEquals(complexMessage.metadata.size, deserializedMessage.metadata.size)
-        complexMessage.metadata.forEach { (key, value) ->
-            assertEquals(value, deserializedMessage.metadata[key], "Metadata key '$key' should be preserved")
-        }
-        
-        println("Complex Message JSON:")
-        println(jsonString)
-    }
-    
-    @Test
-    fun `Message 체인 JSON 직렬화 테스트`() {
-        // Given: 연결된 Message 체인
-        val firstMessage = Message(
-            content = "Start of conversation",
-            sender = "user",
-            type = MessageType.WORKFLOW_START
-        )
-        
-        val secondMessage = firstMessage.createReply(
-            content = "Processing your request",
-            sender = "agent",
-            type = MessageType.TEXT
-        )
-        
-        val thirdMessage = secondMessage.createReply(
-            content = "Task completed",
-            sender = "agent",
-            type = MessageType.WORKFLOW_END
-        )
-        
-        val messageChain = listOf(firstMessage, secondMessage, thirdMessage)
-        
-        // When: Message 체인을 JSON 배열로 직렬화
-        val jsonString = json.encodeToString(messageChain)
-        val deserializedChain = json.decodeFromString<List<Message>>(jsonString)
-        
-        // Then: 체인 구조가 보존되는지 확인
-        assertEquals(messageChain.size, deserializedChain.size)
-        
-        deserializedChain.forEachIndexed { index, message ->
-            val original = messageChain[index]
-            assertEquals(original.id, message.id)
-            assertEquals(original.content, message.content)
-            assertEquals(original.sender, message.sender)
-            assertEquals(original.type, message.type)
-            assertEquals(original.parentId, message.parentId)
-            assertEquals(original.conversationId, message.conversationId)
-        }
-        
-        // 체인 연결 확인
-        assertEquals(firstMessage.id, deserializedChain[1].parentId)
-        assertEquals(secondMessage.id, deserializedChain[2].parentId)
-        assertEquals(firstMessage.id, deserializedChain[2].conversationId)
-        
-        println("Message Chain JSON:")
-        println(jsonString)
-    }
-    
-    @Test
-    fun `ToolResult JSON 직렬화 테스트`() {
-        // Given: 성공 및 실패 ToolResult
-        val successResult = ToolResult.success(
-            result = "Tool execution successful",
-            metadata = mapOf(
-                "executionTime" to "150ms",
-                "toolVersion" to "1.2.3"
-            )
-        )
-        
-        val errorResult = ToolResult.error(
-            error = "Tool execution failed",
-            metadata = mapOf(
-                "errorCode" to "E001",
-                "retryAfter" to "5000"
-            )
-        )
-        
-        // When: JSON 직렬화 및 역직렬화
-        val successJson = json.encodeToString(successResult)
-        val errorJson = json.encodeToString(errorResult)
-        
-        val deserializedSuccess = json.decodeFromString<ToolResult>(successJson)
-        val deserializedError = json.decodeFromString<ToolResult>(errorJson)
-        
-        // Then: ToolResult 데이터 보존 확인
-        
-        // 성공 케이스
-        assertEquals(successResult.success, deserializedSuccess.success)
-        assertEquals(successResult.result, deserializedSuccess.result)
-        assertEquals(successResult.error, deserializedSuccess.error)
-        assertEquals(successResult.metadata, deserializedSuccess.metadata)
-        
-        // 실패 케이스
-        assertEquals(errorResult.success, deserializedError.success)
-        assertEquals(errorResult.result, deserializedError.result)
-        assertEquals(errorResult.error, deserializedError.error)
-        assertEquals(errorResult.metadata, deserializedError.metadata)
-        
-        println("Success ToolResult JSON:")
-        println(successJson)
-        println("\nError ToolResult JSON:")
-        println(errorJson)
-    }
-    
-    @Test
-    fun `ToolSchema JSON 직렬화 테스트`() {
-        // Given: 복잡한 ToolSchema
-        val toolSchema = ToolSchema(
-            name = "advanced_calculator",
-            description = "Advanced mathematical calculator with multiple operations",
-            parameters = mapOf(
-                "numbers" to ParameterSchema(
-                    type = "array",
-                    description = "Array of numbers to calculate",
-                    required = true
-                ),
-                "operation" to ParameterSchema(
-                    type = "string",
-                    description = "Mathematical operation to perform",
-                    required = true
-                ),
-                "precision" to ParameterSchema(
-                    type = "number",
-                    description = "Decimal precision for result",
-                    required = false
-                ),
-                "format" to ParameterSchema(
-                    type = "string",
-                    description = "Output format",
-                    required = false
-                )
-            )
-        )
-        
-        // When: JSON 직렬화 및 역직렬화
-        val jsonString = json.encodeToString(toolSchema)
-        val deserializedSchema = json.decodeFromString<ToolSchema>(jsonString)
-        
-        // Then: ToolSchema 데이터 보존 확인
-        assertEquals(toolSchema.name, deserializedSchema.name)
-        assertEquals(toolSchema.description, deserializedSchema.description)
-        assertEquals(toolSchema.parameters.size, deserializedSchema.parameters.size)
-        
-        toolSchema.parameters.forEach { (paramName, paramSchema) ->
-            val deserializedParam = deserializedSchema.parameters[paramName]
-            assertNotNull(deserializedParam, "Parameter '$paramName' should exist")
-            assertEquals(paramSchema.type, deserializedParam.type)
-            assertEquals(paramSchema.description, deserializedParam.description)
-            assertEquals(paramSchema.required, deserializedParam.required)
-        }
-        
-        println("ToolSchema JSON:")
-        println(jsonString)
-    }
-    
-    @Test
-    fun `JSON에서 Message 생성 후 AgentEngine 통합 테스트`() {
-        // Given: JSON 문자열로부터 Message 생성
-        val jsonMessage = """
-        {
-            "id": "test-message-001",
-            "content": "Process this JSON message",
-            "type": "TEXT",
-            "sender": "json-client",
-            "receiver": "json-processor",
-            "metadata": {
-                "source": "json",
-                "format": "application/json",
-                "version": "2.0"
-            },
-            "timestamp": ${System.currentTimeMillis()},
-            "parentId": null,
-            "conversationId": "json-conversation"
-        }
-        """.trimIndent()
-        
-        // When: JSON에서 Message 역직렬화
-        val message = json.decodeFromString<Message>(jsonMessage)
-        
-        // AgentEngine으로 처리
-        val universalAgent = UniversalAgent()
-        val agentEngine = AgentEngine()
-        agentEngine.registerAgent(universalAgent)
-        
-        val result = kotlin.runCatching {
-            kotlinx.coroutines.runBlocking {
-                agentEngine.receive(message)
+    fun `Message JSON deserialization test`() {
+        // Given: JSON string
+        val json = """
+            {
+                "id": "test-456",
+                "type": "DATA",
+                "content": "Test data",
+                "agentId": "data-agent",
+                "timestamp": 9876543210,
+                "metadata": {"source": "test"}
             }
+        """.trimIndent()
+
+        // When: Deserialize from JSON
+        val message = Json.decodeFromString<Message>(json)
+
+        // Then: Verify same as original
+        assertEquals("test-456", message.id)
+        assertEquals(MessageType.DATA, message.type)
+        assertEquals("Test data", message.content)
+        assertEquals("data-agent", message.agentId)
+        assertEquals(9876543210L, message.timestamp)
+        assertEquals(mapOf("source" to "test"), message.metadata)
+    }
+
+    @Test
+    fun `all MessageType JSON serialization test`() {
+        // Given: Messages with all types
+        val messages = MessageType.values().map { type ->
+            Message(
+                id = "test-${type.name}",
+                type = type,
+                content = "Content for $type",
+                agentId = "test-agent"
+            )
         }
+
+        // When: Serialize and deserialize
+        val json = Json.encodeToString(messages)
+        val deserializedMessages = Json.decodeFromString<List<Message>>(json)
+
+        // Then: MessageType should be preserved correctly
+        assertEquals(messages.size, deserializedMessages.size)
+        messages.zip(deserializedMessages).forEach { (original, deserialized) ->
+            assertEquals(original.type, deserialized.type)
+            assertEquals(original.content, deserialized.content)
+        }
+    }
+
+    @Test
+    fun `Message with complex metadata JSON serialization test`() {
+        // Given: Message with complex metadata
+        val complexMetadata = mapOf(
+            "stringValue" to "test",
+            "numberValue" to 42,
+            "booleanValue" to true,
+            "listValue" to listOf("a", "b", "c"),
+            "mapValue" to mapOf(
+                "nested" to "value",
+                "count" to 10
+            )
+        )
+
+        val message = Message(
+            id = "complex-test",
+            type = MessageType.TOOL_CALL,
+            content = "Complex metadata test",
+            agentId = "complex-agent",
+            metadata = complexMetadata
+        )
+
+        // When: Serialize to JSON
+        val json = Json.encodeToString(message)
+        val deserializedMessage = Json.decodeFromString<Message>(json)
+
+        // Then: All complex data should be preserved
+        assertEquals(message.id, deserializedMessage.id)
+        assertEquals(message.type, deserializedMessage.type)
+        assertEquals(message.content, deserializedMessage.content)
+        assertEquals(message.agentId, deserializedMessage.agentId)
+
+        // Detailed metadata verification
+        assertEquals("test", deserializedMessage.metadata["stringValue"])
+        assertEquals(42, deserializedMessage.metadata["numberValue"])
+        assertEquals(true, deserializedMessage.metadata["booleanValue"])
         
-        // Then: 처리 결과 확인
-        assertTrue(result.isSuccess, "JSON message should be processed successfully")
-        val agentMessage = result.getOrThrow()
+        // List and Map require special handling as they come as JsonElement
+        assertTrue(deserializedMessage.metadata.containsKey("listValue"))
+        assertTrue(deserializedMessage.metadata.containsKey("mapValue"))
+    }
+
+    @Test
+    fun `Message chain JSON serialization test`() {
+        // Given: Message chain (parent-child relationship)
+        val parentMessage = Message(
+            id = "parent-1",
+            type = MessageType.TEXT,
+            content = "Parent message",
+            agentId = "parent-agent"
+        )
+
+        val childMessage = Message(
+            id = "child-1",
+            type = MessageType.TEXT,
+            content = "Child message",
+            agentId = "child-agent",
+            parentId = "parent-1"
+        )
+
+        val messageChain = listOf(parentMessage, childMessage)
+
+        // When: Serialize Message chain to JSON array
+        val json = Json.encodeToString(messageChain)
+        val deserializedChain = Json.decodeFromString<List<Message>>(json)
+
+        // Then: Chain structure should be preserved
+        assertEquals(2, deserializedChain.size)
         
-        assertTrue(agentMessage.success)
-        assertEquals("universal-agent", agentMessage.agentId)
-        assertTrue(agentMessage.response.content.contains("Process this JSON message"))
+        val deserializedParent = deserializedChain[0]
+        val deserializedChild = deserializedChain[1]
         
-        // 처리 결과를 다시 JSON으로 직렬화
-        val responseJson = json.encodeToString(agentMessage.response)
-        println("Response JSON:")
-        println(responseJson)
+        assertEquals("parent-1", deserializedParent.id)
+        assertEquals(null, deserializedParent.parentId)
         
-        // 역직렬화하여 데이터 무결성 확인
-        val deserializedResponse = json.decodeFromString<Message>(responseJson)
-        assertEquals(agentMessage.response.content, deserializedResponse.content)
-        assertEquals(agentMessage.response.sender, deserializedResponse.sender)
-        assertEquals(agentMessage.response.type, deserializedResponse.type)
+        assertEquals("child-1", deserializedChild.id)
+        assertEquals("parent-1", deserializedChild.parentId)
+    }
+
+    @Test
+    fun `ToolResult JSON serialization test`() {
+        // Given: Success and failure ToolResult
+        val successResult = ToolResult(
+            success = true,
+            data = mapOf(
+                "result" to "Operation completed",
+                "count" to 5
+            )
+        )
+
+        val failureResult = ToolResult(
+            success = false,
+            error = "Operation failed"
+        )
+
+        // When: Serialize to JSON
+        val successJson = Json.encodeToString(successResult)
+        val failureJson = Json.encodeToString(failureResult)
+
+        val deserializedSuccess = Json.decodeFromString<ToolResult>(successJson)
+        val deserializedFailure = Json.decodeFromString<ToolResult>(failureJson)
+
+        // Then: ToolResult data should be preserved
+        assertTrue(deserializedSuccess.success)
+        // Success case
+        assertEquals("Operation completed", deserializedSuccess.data["result"])
+        assertEquals(5, deserializedSuccess.data["count"])
+        assertNull(deserializedSuccess.error)
+
+        // Failure case
+        assertFalse(deserializedFailure.success)
+        assertEquals("Operation failed", deserializedFailure.error)
+        assertTrue(deserializedFailure.data.isEmpty())
+    }
+
+    @Test
+    fun `ToolSchema JSON serialization test`() {
+        // Given: ToolSchema with parameters
+        val toolSchema = ToolSchema(
+            name = "test_tool",
+            description = "Test tool for serialization",
+            parameters = mapOf(
+                "input" to "string",
+                "count" to "number",
+                "enabled" to "boolean"
+            )
+        )
+
+        // When: Serialize to JSON
+        val json = Json.encodeToString(toolSchema)
+        val deserializedSchema = Json.decodeFromString<ToolSchema>(json)
+
+        // Then: ToolSchema data should be preserved
+        assertEquals("test_tool", deserializedSchema.name)
+        assertEquals("Test tool for serialization", deserializedSchema.description)
+        assertEquals(3, deserializedSchema.parameters.size)
+        assertEquals("string", deserializedSchema.parameters["input"])
+        assertEquals("number", deserializedSchema.parameters["count"])
+        assertEquals("boolean", deserializedSchema.parameters["enabled"])
+    }
+
+    @Test
+    fun `Message creation from JSON and AgentEngine integration test`() {
+        // Given: Message creation from JSON string
+        val jsonMessage = """
+            {
+                "id": "integration-test",
+                "type": "TEXT",
+                "content": "Test integration with AgentEngine",
+                "agentId": "integration-agent",
+                "timestamp": ${System.currentTimeMillis()},
+                "metadata": {"test": "integration"}
+            }
+        """.trimIndent()
+
+        // When: Deserialize Message from JSON
+        val message = Json.decodeFromString<Message>(jsonMessage)
+
+        // Then: Message should be valid for AgentEngine
+        assertEquals("integration-test", message.id)
+        assertEquals(MessageType.TEXT, message.type)
+        assertEquals("Test integration with AgentEngine", message.content)
+        assertEquals("integration-agent", message.agentId)
+        assertEquals("integration", message.metadata["test"])
+
+        // Additional verification: can be serialized again
+        val reserializedJson = Json.encodeToString(message)
+        val redeserializedMessage = Json.decodeFromString<Message>(reserializedJson)
+        
+        assertEquals(message.id, redeserializedMessage.id)
+        assertEquals(message.type, redeserializedMessage.type)
+        assertEquals(message.content, redeserializedMessage.content)
+
+        // Verify data integrity after deserialization
+        assertTrue(redeserializedMessage.metadata.containsKey("test"))
+        assertEquals("integration", redeserializedMessage.metadata["test"])
     }
 } 

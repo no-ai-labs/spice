@@ -3,48 +3,48 @@ package io.github.spice
 /**
  * 🎭 Spice Agent Persona System
  * 
- * Agent에 persona를 부여해서 스타일/행동을 다르게 만드는 시스템
+ * System that gives agents personas to make their styles and behaviors different
  */
 
 /**
- * Agent 성격 타입
+ * Agent personality types
  */
 enum class PersonalityType {
-    PROFESSIONAL,   // 전문적이고 공식적
-    FRIENDLY,       // 친근하고 따뜻함
-    SARCASTIC,      // 비꼬거나 유머러스
-    CONCISE,        // 간결하고 직설적
-    VERBOSE,        // 상세하고 설명적
-    CREATIVE,       // 창의적이고 혁신적
-    ANALYTICAL,     // 분석적이고 논리적
-    EMPATHETIC,     // 공감적이고 이해심 많음
-    ASSERTIVE,      // 단언적이고 확실함
-    HUMBLE,         // 겸손하고 조심스러움
-    PLAYFUL,        // 장난스럽고 재미있음
-    WISE,           // 현명하고 사려깊음
-    ENERGETIC,      // 활기차고 열정적
-    CALM,           // 차분하고 평온함
-    QUIRKY          // 독특하고 개성있음
+    PROFESSIONAL,   // Professional and formal
+    FRIENDLY,       // Friendly and warm
+    SARCASTIC,      // Sarcastic or humorous
+    CONCISE,        // Concise and direct
+    VERBOSE,        // Detailed and descriptive
+    CREATIVE,       // Creative and innovative
+    ANALYTICAL,     // Analytical and logical
+    EMPATHETIC,     // Empathetic and understanding
+    ASSERTIVE,      // Assertive and confident
+    HUMBLE,         // Humble and cautious
+    PLAYFUL,        // Playful and fun
+    WISE,           // Wise and thoughtful
+    ENERGETIC,      // Energetic and passionate
+    CALM,           // Calm and peaceful
+    QUIRKY          // Unique and distinctive
 }
 
 /**
- * 의사소통 스타일
+ * Communication styles
  */
 enum class CommunicationStyle {
-    FORMAL,         // 격식 있는 말투
-    CASUAL,         // 편안한 말투
-    TECHNICAL,      // 기술적/전문용어 사용
-    SIMPLE,         // 단순하고 쉬운 표현
-    POETIC,         // 시적이고 감성적
-    HUMOROUS,       // 유머러스하고 재미있음
-    DIRECT,         // 직접적이고 명확함
-    DIPLOMATIC,     // 외교적이고 완곡함
-    ENTHUSIASTIC,   // 열정적이고 에너지 넘침
-    CONTEMPLATIVE   // 사색적이고 깊이 있음
+    FORMAL,         // Formal tone
+    CASUAL,         // Casual tone
+    TECHNICAL,      // Technical/professional terminology
+    SIMPLE,         // Simple and easy expressions
+    POETIC,         // Poetic and emotional
+    HUMOROUS,       // Humorous and fun
+    DIRECT,         // Direct and clear
+    DIPLOMATIC,     // Diplomatic and tactful
+    ENTHUSIASTIC,   // Enthusiastic and energetic
+    CONTEMPLATIVE   // Contemplative and deep
 }
 
 /**
- * Agent 개성 정의
+ * Agent personality definition
  */
 data class AgentPersona(
     val name: String,
@@ -57,7 +57,7 @@ data class AgentPersona(
 ) {
     
     /**
-     * 메시지에 persona 적용
+     * Apply persona to message
      */
     fun applyToMessage(originalContent: String, messageType: MessageType): String {
         val pattern = responsePatterns[messageType] ?: responsePatterns[MessageType.TEXT]!!
@@ -66,12 +66,12 @@ data class AgentPersona(
     }
     
     /**
-     * 성격 스타일 적용
+     * Apply personality style
      */
     private fun applyPersonalityStyle(content: String, pattern: ResponsePattern): String {
         var styledContent = content
         
-        // 접두사/접미사 추가
+        // Add prefix/suffix
         if (pattern.prefix.isNotBlank()) {
             styledContent = "${pattern.prefix} $styledContent"
         }
@@ -79,7 +79,7 @@ data class AgentPersona(
             styledContent = "$styledContent ${pattern.suffix}"
         }
         
-        // 성격 특성 적용
+        // Apply personality traits
         traits.forEach { trait ->
             styledContent = trait.transform(styledContent)
         }
@@ -88,12 +88,12 @@ data class AgentPersona(
     }
     
     /**
-     * 행동 수정자 가져오기
+     * Get behavior modifier
      */
     fun getBehaviorModifier(key: String): Any? = behaviorModifiers[key]
     
     /**
-     * confidence 수정
+     * Modify confidence
      */
     fun modifyConfidence(originalConfidence: Double): Double {
         val modifier = when (personalityType) {
@@ -107,20 +107,20 @@ data class AgentPersona(
 }
 
 /**
- * 성격 특성 인터페이스
+ * Personality trait interface
  */
 interface PersonalityTrait {
     val name: String
     val intensity: Double // 0.0 ~ 1.0
     
     /**
-     * 메시지 내용 변환
+     * Transform message content
      */
     fun transform(content: String): String
 }
 
 /**
- * 유머러스 특성
+ * Humorous trait
  */
 class HumorousTrait(override val intensity: Double = 0.7) : PersonalityTrait {
     override val name = "humorous"
@@ -128,7 +128,7 @@ class HumorousTrait(override val intensity: Double = 0.7) : PersonalityTrait {
     override fun transform(content: String): String {
         if (intensity < 0.3) return content
         
-        val humorousWords = listOf("ㅋㅋㅋ", "하하", "재밌네요!", "웃겨요", "😄", "🎉")
+        val humorousWords = listOf("haha", "lol", "that's funny!", "amusing", "😄", "🎉")
         val randomHumor = humorousWords.random()
         
         return when {
@@ -140,7 +140,7 @@ class HumorousTrait(override val intensity: Double = 0.7) : PersonalityTrait {
 }
 
 /**
- * 정중함 특성
+ * Polite trait
  */
 class PoliteTrait(override val intensity: Double = 0.8) : PersonalityTrait {
     override val name = "polite"
@@ -148,18 +148,18 @@ class PoliteTrait(override val intensity: Double = 0.8) : PersonalityTrait {
     override fun transform(content: String): String {
         if (intensity < 0.3) return content
         
-        val politePrefix = listOf("죄송하지만", "양해 부탁드리며", "정중히 말씀드리면")
-        val politeSuffix = listOf("입니다", "니다", "해요", "어요")
+        val politePrefix = listOf("If I may", "With respect", "Kindly note that")
+        val politeSuffix = listOf("please", "if you don't mind", "thank you")
         
         var transformed = content
         
-        if (intensity > 0.7 && !content.startsWith("죄송") && Math.random() > 0.7) {
-            transformed = "${politePrefix.random()} $transformed"
+        if (intensity > 0.7 && !content.startsWith("If") && Math.random() > 0.7) {
+            transformed = "${politePrefix.random()}, $transformed"
         }
         
-        if (intensity > 0.5 && !transformed.endsWith("다") && !transformed.endsWith("요")) {
+        if (intensity > 0.5 && Math.random() > 0.6) {
             val suffix = politeSuffix.random()
-            transformed = transformed.removeSuffix(".") + suffix + "."
+            transformed = "$transformed, $suffix"
         }
         
         return transformed
@@ -167,7 +167,7 @@ class PoliteTrait(override val intensity: Double = 0.8) : PersonalityTrait {
 }
 
 /**
- * 간결함 특성
+ * Concise trait
  */
 class ConciseTrait(override val intensity: Double = 0.8) : PersonalityTrait {
     override val name = "concise"
@@ -177,15 +177,15 @@ class ConciseTrait(override val intensity: Double = 0.8) : PersonalityTrait {
         
         var transformed = content
         
-        // 불필요한 단어 제거
-        val unnecessaryWords = listOf("그런데", "그러므로", "또한", "더불어", "게다가")
+        // Remove unnecessary words
+        val unnecessaryWords = listOf("however", "therefore", "moreover", "furthermore", "additionally")
         unnecessaryWords.forEach { word ->
             if (intensity > 0.6) {
                 transformed = transformed.replace(word, "")
             }
         }
         
-        // 문장 길이 제한
+        // Limit sentence length
         if (intensity > 0.8 && transformed.length > 100) {
             val sentences = transformed.split(".")
             transformed = sentences.take((sentences.size * 0.7).toInt()).joinToString(".")
@@ -197,7 +197,7 @@ class ConciseTrait(override val intensity: Double = 0.8) : PersonalityTrait {
 }
 
 /**
- * 창의적 특성
+ * Creative trait
  */
 class CreativeTrait(override val intensity: Double = 0.6) : PersonalityTrait {
     override val name = "creative"
@@ -206,22 +206,22 @@ class CreativeTrait(override val intensity: Double = 0.6) : PersonalityTrait {
         if (intensity < 0.3) return content
         
         val creativeWords = mapOf(
-            "좋은" to listOf("멋진", "훌륭한", "환상적인", "뛰어난"),
-            "만들다" to listOf("창조하다", "구성하다", "디자인하다", "혁신하다"),
-            "생각하다" to listOf("상상하다", "구상하다", "발상하다", "창안하다")
+            "good" to listOf("excellent", "outstanding", "fantastic", "remarkable"),
+            "make" to listOf("create", "craft", "design", "innovate"),
+            "think" to listOf("imagine", "envision", "conceive", "ideate")
         )
         
         var transformed = content
         
         if (intensity > 0.5) {
             creativeWords.forEach { (original, alternatives) ->
-                if (transformed.contains(original) && Math.random() > 0.6) {
-                    transformed = transformed.replace(original, alternatives.random())
+                if (transformed.contains(original, ignoreCase = true) && Math.random() > 0.6) {
+                    transformed = transformed.replace(original, alternatives.random(), ignoreCase = true)
                 }
             }
         }
         
-        // 창의적 이모지 추가
+        // Add creative emojis
         if (intensity > 0.8 && Math.random() > 0.7) {
             val emojis = listOf("✨", "🎨", "💡", "🚀", "⭐")
             transformed += " ${emojis.random()}"
@@ -232,35 +232,35 @@ class CreativeTrait(override val intensity: Double = 0.6) : PersonalityTrait {
 }
 
 /**
- * 응답 패턴
+ * Response pattern
  */
 data class ResponsePattern(
     val prefix: String = "",
     val suffix: String = "",
     val emotionalTone: String = "neutral",
-    val verbosity: Double = 1.0, // 1.0 = 보통, >1.0 = 더 자세히, <1.0 = 더 간결히
-    val formalityLevel: Double = 0.5 // 0.0 = 매우 캐주얼, 1.0 = 매우 격식적
+    val verbosity: Double = 1.0, // 1.0 = normal, >1.0 = more detailed, <1.0 = more concise
+    val formalityLevel: Double = 0.5 // 0.0 = very casual, 1.0 = very formal
 )
 
 /**
- * Persona 어휘집
+ * Persona vocabulary
  */
 class PersonaVocabulary {
     private val vocabularyMap = mapOf(
         PersonalityType.PROFESSIONAL to mapOf(
-            "greeting" to listOf("안녕하세요", "반갑습니다", "좋은 하루입니다"),
-            "agreement" to listOf("그렇습니다", "동의합니다", "맞습니다"),
-            "closing" to listOf("감사합니다", "좋은 하루 되세요", "도움이 되었기를 바랍니다")
+            "greeting" to listOf("Hello", "Good day", "Greetings"),
+            "agreement" to listOf("Certainly", "I agree", "That's correct"),
+            "closing" to listOf("Thank you", "Have a great day", "Hope this helps")
         ),
         PersonalityType.FRIENDLY to mapOf(
-            "greeting" to listOf("안녕!", "하이!", "반가워요!"),
-            "agreement" to listOf("맞아요!", "그래요!", "완전 동감!"),
-            "closing" to listOf("고마워요!", "좋은 하루!", "또 만나요!")
+            "greeting" to listOf("Hi there!", "Hey!", "Hello friend!"),
+            "agreement" to listOf("Absolutely!", "You got it!", "Totally agree!"),
+            "closing" to listOf("Thanks a bunch!", "Take care!", "See you around!")
         ),
         PersonalityType.SARCASTIC to mapOf(
-            "greeting" to listOf("아, 안녕하세요", "뭐 어쩌라고요", "그러게요"),
-            "agreement" to listOf("당연하죠", "뻔한 얘기네요", "그럴 줄 알았어요"),
-            "closing" to listOf("그럼 그렇게 하세요", "뭐 좋으시겠네요", "알아서 하세요")
+            "greeting" to listOf("Oh, hello there", "Well, well", "How delightful"),
+            "agreement" to listOf("Obviously", "What a surprise", "As expected"),
+            "closing" to listOf("There you go", "Hope you're satisfied", "You're welcome, I guess")
         )
     )
     
@@ -269,20 +269,20 @@ class PersonaVocabulary {
         
         var enriched = content
         
-        // 격식에 따른 문체 조정
+        // Adjust formality based on style
         when (style) {
             CommunicationStyle.FORMAL -> {
-                enriched = enriched.replace("야", "").replace("ㅋㅋ", "")
-                if (!enriched.endsWith("다") && !enriched.endsWith("요")) {
-                    enriched += "습니다"
+                enriched = enriched.replace("gonna", "going to").replace("wanna", "want to")
+                if (!enriched.endsWith(".") && !enriched.endsWith("!") && !enriched.endsWith("?")) {
+                    enriched += "."
                 }
             }
             CommunicationStyle.CASUAL -> {
-                enriched = enriched.replace("습니다", "어요").replace("입니다", "이에요")
+                enriched = enriched.replace("going to", "gonna").replace("want to", "wanna")
             }
             CommunicationStyle.HUMOROUS -> {
                 if (Math.random() > 0.6) {
-                    enriched += " ㅋㅋ"
+                    enriched += " 😄"
                 }
             }
             else -> {}
@@ -293,7 +293,7 @@ class PersonaVocabulary {
 }
 
 /**
- * 사전 정의된 Persona들
+ * Pre-defined personas
  */
 object PersonaLibrary {
     
@@ -304,13 +304,13 @@ object PersonaLibrary {
         traits = setOf(PoliteTrait(0.9), ConciseTrait(0.6)),
         responsePatterns = mapOf(
             MessageType.TEXT to ResponsePattern(
-                prefix = "안녕하세요.",
-                suffix = "도움이 되었기를 바랍니다.",
+                prefix = "Good day.",
+                suffix = "I hope this information is helpful.",
                 formalityLevel = 0.9
             ),
             MessageType.ERROR to ResponsePattern(
-                prefix = "죄송합니다.",
-                suffix = "다시 시도해 주시기 바랍니다.",
+                prefix = "I apologize for the inconvenience.",
+                suffix = "Please try again.",
                 formalityLevel = 1.0
             )
         ),
@@ -324,13 +324,13 @@ object PersonaLibrary {
         traits = setOf(HumorousTrait(0.7), PoliteTrait(0.4)),
         responsePatterns = mapOf(
             MessageType.TEXT to ResponsePattern(
-                prefix = "안녕!",
-                suffix = "도움이 되었으면 좋겠어!",
+                prefix = "Hey there!",
+                suffix = "Hope that helps!",
                 formalityLevel = 0.2
             ),
             MessageType.ERROR to ResponsePattern(
-                prefix = "앗, 미안!",
-                suffix = "다시 해보자!",
+                prefix = "Oops, my bad!",
+                suffix = "Let's try that again!",
                 formalityLevel = 0.1
             )
         ),
@@ -344,13 +344,13 @@ object PersonaLibrary {
         traits = setOf(HumorousTrait(0.9), ConciseTrait(0.8)),
         responsePatterns = mapOf(
             MessageType.TEXT to ResponsePattern(
-                prefix = "뭐, 그럼",
-                suffix = "이해하셨나요?",
+                prefix = "Well, obviously",
+                suffix = "Got it?",
                 formalityLevel = 0.3
             ),
             MessageType.ERROR to ResponsePattern(
-                prefix = "예상했던 일이네요.",
-                suffix = "다음엔 더 조심하세요.",
+                prefix = "Saw that coming.",
+                suffix = "Maybe be more careful next time.",
                 formalityLevel = 0.4
             )
         ),
@@ -364,13 +364,13 @@ object PersonaLibrary {
         traits = setOf(CreativeTrait(0.9), HumorousTrait(0.5)),
         responsePatterns = mapOf(
             MessageType.TEXT to ResponsePattern(
-                prefix = "아이디어가 떠오르네요! ✨",
-                suffix = "창의적으로 접근해보죠! 🎨",
+                prefix = "Here's a brilliant idea! ✨",
+                suffix = "Let's approach this creatively! 🎨",
                 formalityLevel = 0.4
             ),
             MessageType.ERROR to ResponsePattern(
-                prefix = "실패는 성공의 어머니라고 하죠 💡",
-                suffix = "새로운 방법을 시도해봅시다! 🚀",
+                prefix = "Every failure is a stepping stone to success 💡",
+                suffix = "Let's try a new approach! 🚀",
                 formalityLevel = 0.3
             )
         ),
@@ -388,14 +388,14 @@ object PersonaLibrary {
         traits = setOf(PoliteTrait(0.8), ConciseTrait(0.3)),
         responsePatterns = mapOf(
             MessageType.TEXT to ResponsePattern(
-                prefix = "생각해보니,",
-                suffix = "이런 관점은 어떠신가요?",
+                prefix = "Let me share some wisdom:",
+                suffix = "What do you think about this perspective?",
                 formalityLevel = 0.7,
                 verbosity = 1.3
             ),
             MessageType.ERROR to ResponsePattern(
-                prefix = "실수는 배움의 기회입니다.",
-                suffix = "천천히 다시 접근해보시죠.",
+                prefix = "Mistakes are learning opportunities.",
+                suffix = "Let's approach this thoughtfully.",
                 formalityLevel = 0.8
             )
         ),
@@ -404,7 +404,7 @@ object PersonaLibrary {
 }
 
 /**
- * Persona가 적용된 Agent
+ * Personalized agent with applied persona
  */
 abstract class PersonalizedAgent(
     override val id: String,
@@ -415,16 +415,16 @@ abstract class PersonalizedAgent(
 ) : Agent {
     
     /**
-     * Persona가 적용된 메시지 처리
+     * Process message with persona applied
      */
     override suspend fun processMessage(message: Message): Message {
-        // 원본 처리
+        // Original processing
         val originalResponse = processMessageWithPersonality(message)
         
-        // Persona 적용
+        // Apply persona
         val personalizedContent = persona.applyToMessage(originalResponse.content, originalResponse.type)
         
-        // 메타데이터에 persona 정보 추가
+        // Add persona information to metadata
         val personalizedMetadata = originalResponse.metadata + mapOf(
             "persona" to persona.name,
             "personalityType" to persona.personalityType.toString(),
@@ -438,21 +438,17 @@ abstract class PersonalizedAgent(
     }
     
     /**
-     * 하위 클래스에서 구현할 실제 메시지 처리 로직
+     * Actual message processing logic to be implemented by subclasses
      */
     abstract suspend fun processMessageWithPersonality(message: Message): Message
     
     /**
-     * Persona 정보는 persona 프로퍼티로 직접 접근 가능
-     */
-    
-    /**
-     * 성격 특성 확인
+     * Check if agent has specific trait
      */
     fun hasTrait(traitName: String): Boolean = persona.traits.any { it.name == traitName }
     
     /**
-     * 행동 수정자 적용된 confidence 계산
+     * Calculate confidence with behavior modifiers applied
      */
     protected fun calculatePersonalizedConfidence(baseConfidence: Double): Double {
         return persona.modifyConfidence(baseConfidence)
@@ -460,7 +456,7 @@ abstract class PersonalizedAgent(
 }
 
 /**
- * 확장 함수: 기존 Agent에 Persona 적용
+ * Extension function: Apply persona to existing agent
  */
 fun Agent.withPersona(persona: AgentPersona): PersonalizedAgent {
     val originalAgent = this
@@ -483,7 +479,7 @@ fun Agent.withPersona(persona: AgentPersona): PersonalizedAgent {
 }
 
 /**
- * DSL로 커스텀 Persona 생성
+ * DSL for creating custom personas
  */
 fun buildPersona(name: String, init: PersonaBuilder.() -> Unit): AgentPersona {
     val builder = PersonaBuilder(name)
@@ -492,7 +488,7 @@ fun buildPersona(name: String, init: PersonaBuilder.() -> Unit): AgentPersona {
 }
 
 /**
- * Persona 빌더
+ * Persona builder
  */
 class PersonaBuilder(private val name: String) {
     var personalityType: PersonalityType = PersonalityType.FRIENDLY
