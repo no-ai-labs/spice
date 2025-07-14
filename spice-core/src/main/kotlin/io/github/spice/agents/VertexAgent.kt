@@ -1,472 +1,265 @@
 package io.github.spice.agents
 
 import io.github.spice.*
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Duration
-import com.google.auth.oauth2.GoogleCredentials
-import com.google.auth.oauth2.ServiceAccountCredentials
-import java.io.FileInputStream
-import java.io.IOException
+import io.github.spice.model.*
+import io.github.spice.model.clients.*
 
 /**
- * 🤖 Dedicated Agent for communicating with Google Vertex AI API
- * Supports various Google models including Gemini Pro, Bison, PaLM
+ * 🤖 VertexAgent - Google Vertex AI based Agent
+ * 
+ * Agent supporting various Google Vertex AI models including Gemini, PaLM, Bison, etc.
+ * Uses ModelClient architecture to provide context management and token tracking.
  */
 class VertexAgent(
-    id: String = "vertex-agent",
-    name: String = "Google Vertex AI Agent",
-    private val projectId: String,
-    private val location: String = "us-central1",
-    private val accessToken: String = "",
-    @Deprecated("Vertex AI does not support API key authentication")
-    private val apiKey: String = "",
-    private val serviceAccountKeyPath: String = "",
-    private val useApplicationDefaultCredentials: Boolean = true,
-    private val model: String = "gemini-1.5-flash-002",
-    private val maxTokens: Int = 1000,
-    private val temperature: Double = 0.7,
-    private val timeout: Duration = Duration.ofSeconds(60)
+    /**
+     * Vertex AI ModelClient
+     */
+    private val client: VertexClient,
+    
+    /**
+     * Conversation context management
+     */
+    private val context: ModelContext = ModelContext(),
+    
+    /**
+     * Agent basic information
+     */
+    id: String = "vertex-agent-${System.currentTimeMillis()}",
+    name: String = "Vertex Agent",
+    description: String = "Google Vertex AI powered agent with context management"
 ) : BaseAgent(
     id = id,
     name = name,
-    description = "Cloud-based Agent using Google Vertex AI models",
+    description = description,
     capabilities = listOf(
         "gemini_pro",
-        "gemini_flash",
+        "gemini_flash", 
         "palm_bison",
         "large_context",
         "multimodal",
         "function_calling",
-        "code_generation"
+        "code_generation",
+        "context_aware",
+        "token_tracking"
     )
 ) {
     
-    private val httpClient = HttpClient.newBuilder()
-        .connectTimeout(timeout)
-        .build()
-    
-    private val json = Json { ignoreUnknownKeys = true }
-    
-    private val baseUrl = "https://$location-aiplatform.googleapis.com/v1/projects/$projectId/locations/$location/publishers/google/models"
-    
-    // Google Cloud 인증 정보 캐시
-    private var cachedCredentials: GoogleCredentials? = null
-    private var tokenExpiryTime: Long = 0
-    
     /**
-     * Google Cloud 인증 토큰 획득
+     * Message processing and response generation
      */
-    private suspend fun getAccessToken(): String {
-        // 기존 토큰이 유효한지 확인 (만료 5분 전에 갱신)
-        val now = System.currentTimeMillis()
-        if (cachedCredentials != null && now < tokenExpiryTime - 300000) {
-            return cachedCredentials!!.accessToken?.tokenValue ?: ""
-        }
-        
-        try {
-            val credentials = when {
-                // 1. 직접 제공된 액세스 토큰 사용
-                accessToken.isNotBlank() -> {
-                    // 직접 제공된 토큰이므로 캐싱하지 않음
-                    return accessToken
-                }
-                
-                // 2. 서비스 계정 JSON 키 파일 사용
-                serviceAccountKeyPath.isNotBlank() -> {
-                    ServiceAccountCredentials.fromStream(FileInputStream(serviceAccountKeyPath))
-                        .createScoped(listOf("https://www.googleapis.com/auth/cloud-platform"))
-                }
-                
-                // 3. Application Default Credentials 사용
-                useApplicationDefaultCredentials -> {
-                    GoogleCredentials.getApplicationDefault()
-                        .createScoped(listOf("https://www.googleapis.com/auth/cloud-platform"))
-                }
-                
-                else -> {
-                    throw IllegalStateException("No valid authentication method configured for Vertex AI")
-                }
-            }
-            
-            // 토큰 갱신
-            credentials.refreshIfExpired()
-            cachedCredentials = credentials
-            
-            // 만료 시간 설정 (일반적으로 1시간, 안전하게 50분으로 설정)
-            tokenExpiryTime = now + 3000000 // 50분
-            
-            return credentials.accessToken?.tokenValue ?: ""
-            
-        } catch (e: IOException) {
-            throw RuntimeException("Failed to obtain Google Cloud access token: ${e.message}", e)
-        } catch (e: Exception) {
-            throw RuntimeException("Authentication error: ${e.message}", e)
-        }
-    }
-    
     override suspend fun processMessage(message: Message): Message {
         return try {
-            val request = when {
-                model.contains("gemini") -> createGeminiRequest(message)
-                model.contains("bison") -> createBisonRequest(message)
-                else -> createGeminiRequest(message) // Default
-            }
+            // Add user message to context
+            context.addUser(message.content)
             
-            val response = sendGenerateRequest(request)
-            
-            message.createReply(
-                content = extractContent(response),
-                sender = id,
-                type = MessageType.TEXT,
-                metadata = mapOf<String, String>(
-                    "model" to model,
-                    "usage_input_tokens" to (response.usageMetadata?.promptTokenCount?.toString() ?: "0"),
-                    "usage_output_tokens" to (response.usageMetadata?.candidatesTokenCount?.toString() ?: "0"),
-                    "usage_total_tokens" to (response.usageMetadata?.totalTokenCount?.toString() ?: "0"),
-                    "provider" to "vertex_ai"
-                )
+            // Call model
+            val response = client.chat(
+                messages = context.getFullMessages(),
+                systemPrompt = null // Already handled in getFullMessages()
             )
             
-        } catch (e: Exception) {
-            message.createReply(
-                content = "Vertex AI processing failed: ${e.message}",
-                sender = id,
-                type = MessageType.ERROR,
-                metadata = mapOf<String, String>(
-                    "error_type" to "vertex_ai_error",
-                    "provider" to "vertex_ai",
-                    "model" to model
-                )
-            )
-        }
-    }
-    
-    /**
-     * 🔧 Function Calling support (Gemini)
-     */
-    suspend fun processWithFunctions(
-        message: Message,
-        functions: List<VertexFunction>
-    ): Message {
-        return try {
-            val request = VertexGenerateRequest(
-                contents = listOf(
-                    VertexContent(
-                        role = "user",
-                        parts = listOf(
-                            VertexPart(text = message.content)
-                        )
-                    )
-                ),
-                tools = listOf(
-                    VertexTool(
-                        function_declarations = functions
-                    )
-                ),
-                generation_config = VertexGenerationConfig(
-                    temperature = temperature,
-                    max_output_tokens = maxTokens
-                )
-            )
-            
-            val response = sendGenerateRequest(request)
-            
-            // Function call response handling
-            val functionCall = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.function_call
-            
-            if (functionCall != null) {
-                message.createReply(
-                    content = "Function call: ${functionCall.name}",
-                    sender = id,
-                    type = MessageType.TOOL_CALL,
-                    metadata = mapOf<String, String>(
-                        "function_name" to functionCall.name,
-                        "function_args" to (functionCall.args?.toString() ?: "{}"),
-                        "provider" to "vertex_ai"
+            if (response.success) {
+                // Add response to context
+                context.addAssistant(response.content)
+                
+                // Generate response message
+                Message(
+                    content = response.content,
+                    sender = name,
+                    metadata = message.metadata + mapOf(
+                        "model" to client.modelName,
+                        "agent_type" to "vertex",
+                        "context_size" to context.size().toString(),
+                        "token_usage" to (response.usage?.toString() ?: "unknown"),
+                        "response_time_ms" to response.responseTimeMs.toString()
                     )
                 )
             } else {
-                message.createReply(
-                    content = extractContent(response),
-                    sender = id,
-                    type = MessageType.TEXT,
-                    metadata = mapOf<String, String>("provider" to "vertex_ai")
+                // Error response - bilingual support
+                Message(
+                    content = "error.processing".i18nBilingual(response.error ?: "Unknown error"),
+                    sender = name,
+                    metadata = message.metadata + mapOf(
+                        "error" to "true",
+                        "error_message" to (response.error ?: "unknown")
+                    )
                 )
             }
-            
         } catch (e: Exception) {
-            message.createReply(
-                content = "Vertex AI Function processing failed: ${e.message}",
-                sender = id,
-                type = MessageType.ERROR,
-                metadata = mapOf<String, String>(
-                    "error_type" to "function_calling_error",
-                    "provider" to "vertex_ai"
+            Message(
+                content = "error.system".i18nBilingual(e.message ?: "Unknown error"),
+                sender = name,
+                metadata = message.metadata + mapOf(
+                    "error" to "true",
+                    "exception" to e.javaClass.simpleName
                 )
             )
         }
     }
     
     /**
-     * 🖼️ Multimodal support (Gemini Vision)
+     * 🧠 Context management functions
      */
-    suspend fun processWithVision(
-        message: Message,
-        imageBase64: String,
-        mimeType: String = "image/jpeg"
-    ): Message {
-        return try {
-            val request = VertexGenerateRequest(
-                contents = listOf(
-                    VertexContent(
-                        role = "user",
-                        parts = listOf(
-                            VertexPart(text = message.content),
-                            VertexPart(
-                                inline_data = VertexInlineData(
-                                    mime_type = mimeType,
-                                    data = imageBase64
-                                )
-                            )
-                        )
-                    )
-                ),
-                generation_config = VertexGenerationConfig(
-                    temperature = temperature,
-                    max_output_tokens = maxTokens
-                )
-            )
-            
-            val response = sendGenerateRequest(request)
-            
-            message.createReply(
-                content = extractContent(response),
-                sender = id,
-                type = MessageType.TEXT,
-                metadata = mapOf<String, String>(
-                    "model" to model,
-                    "vision_enabled" to "true",
-                    "provider" to "vertex_ai"
-                )
-            )
-            
-        } catch (e: Exception) {
-            message.createReply(
-                content = "Vision processing failed: ${e.message}",
-                sender = id,
-                type = MessageType.ERROR,
-                metadata = mapOf<String, String>(
-                    "error_type" to "vision_error",
-                    "provider" to "vertex_ai"
-                )
-            )
-        }
+    
+    /**
+     * Clear context
+     */
+    suspend fun clearContext() {
+        context.clear()
     }
     
     /**
-     * 📊 Get model information
+     * Set system prompt
      */
-    fun getModelInfo(): VertexModelInfo {
-        return VertexModelInfo(
-            available = isReady(),
-            model = model,
-            projectId = projectId,
-            location = location,
-            capabilities = capabilities
-        )
+    suspend fun setSystemPrompt(prompt: String) {
+        context.addSystem(prompt)
     }
     
+    /**
+     * Get context summary information
+     */
+    suspend fun getContextSummary(): ContextSummary {
+        return context.getSummary()
+    }
+    
+    /**
+     * Get conversation history
+     */
+    suspend fun getConversationHistory(): List<ModelMessage> {
+        return context.getMessages()
+    }
+    
+    /**
+     * 📊 Status and statistics information
+     */
+    
+    /**
+     * Check client status
+     */
+    suspend fun getClientStatus(): ClientStatus {
+        return client.getStatus()
+    }
+    
+    /**
+     * Check client ready state
+     */
     override fun isReady(): Boolean {
-        return projectId.isNotBlank() && (
-            accessToken.isNotBlank() || 
-            serviceAccountKeyPath.isNotBlank() || 
-            useApplicationDefaultCredentials
-        )
+        return client.isReady()
     }
     
-    private fun createGeminiRequest(message: Message): VertexGenerateRequest {
-        return VertexGenerateRequest(
-            contents = listOf(
-                VertexContent(
-                    role = "user",
-                    parts = listOf(
-                        VertexPart(text = message.content)
-                    )
-                )
-            ),
-            generation_config = VertexGenerationConfig(
-                temperature = temperature,
-                max_output_tokens = maxTokens
-            )
-        )
-    }
-    
-    private fun createBisonRequest(message: Message): VertexGenerateRequest {
-        return VertexGenerateRequest(
-            instances = listOf(
-                VertexInstance(
-                    prompt = message.content
-                )
-            ),
-            parameters = VertexParameters(
-                temperature = temperature,
-                maxOutputTokens = maxTokens
-            )
-        )
-    }
-    
-    private fun extractContent(response: VertexGenerateResponse): String {
-        return when {
-            response.candidates?.isNotEmpty() == true -> {
-                response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                    ?: "No Gemini response"
+    /**
+     * Status summary
+     */
+    suspend fun getStatusSummary(): String {
+        val status = client.getStatus()
+        val summary = context.getSummary()
+        
+        return buildString {
+            appendLine("🤖 Vertex Agent Status")
+            appendLine("Model: ${client.modelName}")
+            appendLine("Client: ${status.getSummary()}")
+            appendLine("Context: ${summary.messageCount} messages, ${summary.estimatedTokens} tokens")
+            if (summary.hasSystemPrompt) {
+                appendLine("System Prompt: Active")
             }
-            response.predictions?.isNotEmpty() == true -> {
-                response.predictions.firstOrNull()?.content ?: "No Bison response"
-            }
-            else -> "No response received from Vertex AI"
         }
     }
     
-    private suspend fun sendGenerateRequest(request: VertexGenerateRequest): VertexGenerateResponse {
-        val endpoint = when {
-            model.contains("gemini") -> "$baseUrl/$model:generateContent"
-            model.contains("bison") -> "$baseUrl/$model:predict"
-            else -> "$baseUrl/$model:generateContent"
+    /**
+     * 🔧 Advanced features
+     */
+    
+    /**
+     * Multimodal message processing (including images)
+     */
+    suspend fun processMultimodalMessage(
+        text: String,
+        imageData: ByteArray? = null,
+        imageType: String = "image/jpeg"
+    ): Message {
+        // Currently processes text only, image support to be added in the future
+        return processMessage(Message(content = text, sender = "user"))
+    }
+    
+    /**
+     * Batch processing (multiple messages simultaneously)
+     */
+    suspend fun processBatch(messages: List<String>): List<Message> {
+        return messages.map { content ->
+            processMessage(Message(content = content, sender = "user"))
         }
-        
-        val requestBody = json.encodeToString(request)
-        
-        // Google Cloud 인증 토큰 획득
-        val token = getAccessToken()
-        
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create(endpoint))
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Bearer $token")
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-            .timeout(timeout)
-            .build()
-        
-        val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-        
-        if (response.statusCode() != 200) {
-            throw RuntimeException("Vertex AI API error: ${response.statusCode()} - ${response.body()}")
-        }
-        
-        return json.decodeFromString<VertexGenerateResponse>(response.body())
+    }
+    
+    /**
+     * Adjust context size
+     */
+    suspend fun adjustContextSize(newSize: Int) {
+        // Adjust ModelContext buffer size (implementation needed)
+        // context.setBufferSize(newSize)
     }
 }
 
 /**
- * 🤖 Vertex AI API data classes
+ * 🏗️ Builder functions for VertexAgent
  */
-@Serializable
-data class VertexGenerateRequest(
-    val contents: List<VertexContent>? = null,
-    val tools: List<VertexTool>? = null,
-    val generation_config: VertexGenerationConfig? = null,
-    // For Bison models
-    val instances: List<VertexInstance>? = null,
-    val parameters: VertexParameters? = null
-)
-
-@Serializable
-data class VertexContent(
-    val role: String,
-    val parts: List<VertexPart>
-)
-
-@Serializable
-data class VertexPart(
-    val text: String? = null,
-    val inline_data: VertexInlineData? = null,
-    val function_call: VertexFunctionCall? = null
-)
-
-@Serializable
-data class VertexInlineData(
-    val mime_type: String,
-    val data: String
-)
-
-@Serializable
-data class VertexFunctionCall(
-    val name: String,
-    val args: Map<String, String>? = null
-)
-
-@Serializable
-data class VertexTool(
-    val function_declarations: List<VertexFunction>
-)
-
-@Serializable
-data class VertexFunction(
-    val name: String,
-    val description: String,
-    val parameters: Map<String, String>
-)
-
-@Serializable
-data class VertexGenerationConfig(
-    val temperature: Double,
-    val max_output_tokens: Int
-)
-
-// For Bison models
-@Serializable
-data class VertexInstance(
-    val prompt: String
-)
-
-@Serializable
-data class VertexParameters(
-    val temperature: Double,
-    val maxOutputTokens: Int
-)
-
-@Serializable
-data class VertexGenerateResponse(
-    val candidates: List<VertexCandidate>? = null,
-    val usageMetadata: VertexUsageMetadata? = null,
-    // For Bison models
-    val predictions: List<VertexPrediction>? = null
-)
-
-@Serializable
-data class VertexCandidate(
-    val content: VertexContent,
-    val finishReason: String? = null
-)
-
-@Serializable
-data class VertexUsageMetadata(
-    val promptTokenCount: Int,
-    val candidatesTokenCount: Int,
-    val totalTokenCount: Int
-)
-
-// For Bison models
-@Serializable
-data class VertexPrediction(
-    val content: String
-)
 
 /**
- * 📊 Vertex AI model information
+ * Create basic VertexAgent
  */
-data class VertexModelInfo(
-    val available: Boolean,
-    val model: String,
-    val projectId: String,
-    val location: String,
-    val capabilities: List<String>
-) 
+fun createVertexAgent(
+    projectId: String,
+    location: String = "us-central1",
+    model: String = "gemini-1.5-flash-002",
+    serviceAccountKeyPath: String = "",
+    useApplicationDefaultCredentials: Boolean = true,
+    systemPrompt: String? = null,
+    contextBufferSize: Int = 10
+): VertexAgent {
+    val client = createVertexClient(
+        projectId = projectId,
+        location = location,
+        model = model,
+        serviceAccountKeyPath = serviceAccountKeyPath,
+        useApplicationDefaultCredentials = useApplicationDefaultCredentials
+    )
+    
+    val context = ModelContext(bufferSize = contextBufferSize, systemPrompt = systemPrompt)
+    
+    return VertexAgent(
+        client = client,
+        context = context,
+        name = "Vertex Agent ($model)"
+    )
+}
+
+/**
+ * Create Gemini Pro dedicated VertexAgent
+ */
+fun createGeminiProAgent(
+    projectId: String,
+    location: String = "us-central1",
+    systemPrompt: String? = null
+): VertexAgent {
+    return createVertexAgent(
+        projectId = projectId,
+        location = location,
+        model = "gemini-1.5-pro-002",
+        systemPrompt = systemPrompt
+    )
+}
+
+/**
+ * Create Gemini Flash dedicated VertexAgent (fast and economical)
+ */
+fun createGeminiFlashAgent(
+    projectId: String,
+    location: String = "us-central1",
+    systemPrompt: String? = null
+): VertexAgent {
+    return createVertexAgent(
+        projectId = projectId,
+        location = location,
+        model = "gemini-1.5-flash-002",
+        systemPrompt = systemPrompt
+    )
+} 

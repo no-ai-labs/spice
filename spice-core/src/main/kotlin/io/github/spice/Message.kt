@@ -137,7 +137,7 @@ data class MessageRoutingRule(
 }
 
 /**
- * Message router - handles Mentat DAG node transformation logic
+ * Message router - handles Spice Framework message routing and transformation logic
  */
 class MessageRouter {
     private val rules = mutableListOf<MessageRoutingRule>()

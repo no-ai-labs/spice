@@ -5,8 +5,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * JVM-Autogen의 Tool 인터페이스
- * Agent가 사용할 수 있는 도구들을 정의합니다.
+ * Tool interface for JVM-Autogen
+ * Defines tools that agents can use.
  */
 interface Tool {
     val name: String
@@ -14,18 +14,18 @@ interface Tool {
     val schema: ToolSchema
     
     /**
-     * 도구 실행
+     * Tool execution
      */
     suspend fun execute(parameters: Map<String, Any>): ToolResult
     
     /**
-     * 도구가 특정 파라미터를 처리할 수 있는지 확인
+     * Check if tool can process specific parameters
      */
     fun canExecute(parameters: Map<String, Any>): Boolean = true
 }
 
 /**
- * 도구 스키마 정의
+ * Tool schema definition
  */
 @Serializable
 data class ToolSchema(
@@ -35,7 +35,7 @@ data class ToolSchema(
 )
 
 /**
- * 파라미터 스키마
+ * Parameter schema
  */
 @Serializable
 data class ParameterSchema(
@@ -46,7 +46,7 @@ data class ParameterSchema(
 )
 
 /**
- * 도구 실행 결과
+ * Tool execution result
  */
 @Serializable
 data class ToolResult(
@@ -67,52 +67,41 @@ data class ToolResult(
 }
 
 /**
- * 기본 Tool 구현체
+ * Basic Tool implementation
  */
-abstract class BaseTool(
-    override val name: String,
-    override val description: String,
-    override val schema: ToolSchema
-) : Tool {
-    
-    protected fun validateParameters(parameters: Map<String, Any>): Boolean {
-        return schema.parameters.all { (paramName, paramSchema) ->
-            if (paramSchema.required) {
-                parameters.containsKey(paramName)
-            } else {
-                true
-            }
-        }
-    }
-    
+abstract class BaseTool : Tool {
     override fun canExecute(parameters: Map<String, Any>): Boolean {
-        return validateParameters(parameters)
+        return true
     }
 }
 
 /**
- * 웹 검색 도구
+ * Web search tool
  */
-class WebSearchTool : BaseTool(
-    name = "web_search",
-    description = "웹에서 정보를 검색합니다",
-    schema = ToolSchema(
-        name = "web_search",
-        description = "웹 검색 도구",
-        parameters = mapOf<String, ParameterSchema>(
-            "query" to ParameterSchema("string", "검색할 키워드", required = true),
-            "limit" to ParameterSchema("number", "검색 결과 수", required = false)
+class WebSearchTool : BaseTool() {
+    override val name = "web_search"
+    override val description = "tool.web_search.description".i18n()
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
+        parameters = mapOf(
+            "query" to ParameterSchema("string", "tool.web_search.param.query".i18n(), required = true),
+            "limit" to ParameterSchema("number", "tool.web_search.param.limit".i18n(), required = false)
         )
     )
-) {
+    
     override suspend fun execute(parameters: Map<String, Any>): ToolResult {
         val query = parameters["query"] as? String
-            ?: return ToolResult.error("검색 키워드가 필요합니다")
+            ?: return ToolResult.error("tool.web_search.error.query_required".i18n())
         
         val limit = (parameters["limit"] as? Number)?.toInt() ?: 5
         
-        // 실제 웹 검색 로직 (여기서는 모의 구현)
-        val results = simulateWebSearch(query, limit)
+        // Actual web search logic (mock implementation here)
+        val results = try {
+            searchWeb(query, limit)
+        } catch (e: Exception) {
+            return ToolResult.error("tool.web_search.error.search_failed".i18n())
+        }
         
         return ToolResult.success(
             result = results.joinToString("\n") { "- $it" },
@@ -120,28 +109,28 @@ class WebSearchTool : BaseTool(
         )
     }
     
-    private fun simulateWebSearch(query: String, limit: Int): List<String> {
-        return (1..limit).map { "검색 결과 $it: $query 관련 정보" }
+    private suspend fun searchWeb(query: String, limit: Int): List<String> {
+        return (1..limit).map { "Search result $it: $query related information" }
     }
 }
 
 /**
- * 파일 읽기 도구
+ * File read tool
  */
-class FileReadTool : BaseTool(
-    name = "file_read",
-    description = "파일을 읽습니다",
-    schema = ToolSchema(
-        name = "file_read",
-        description = "파일 읽기 도구",
-        parameters = mapOf<String, ParameterSchema>(
-            "path" to ParameterSchema("string", "읽을 파일 경로", required = true)
+class FileReadTool : BaseTool() {
+    override val name = "file_read"
+    override val description = "tool.file_read.description".i18n()
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
+        parameters = mapOf(
+            "path" to ParameterSchema("string", "tool.file_read.param.path".i18n(), required = true)
         )
     )
-) {
+    
     override suspend fun execute(parameters: Map<String, Any>): ToolResult {
         val path = parameters["path"] as? String
-            ?: return ToolResult.error("파일 경로가 필요합니다")
+            ?: return ToolResult.error("tool.file_read.error.path_required".i18n())
         
         return try {
             val content = java.io.File(path).readText()
@@ -150,41 +139,41 @@ class FileReadTool : BaseTool(
                 metadata = mapOf("path" to path, "size" to content.length.toString())
             )
         } catch (e: Exception) {
-            ToolResult.error("파일 읽기 실패: ${e.message}")
+            ToolResult.error("tool.file_read.error.read_failed".i18n())
         }
     }
 }
 
 /**
- * 파일 쓰기 도구
+ * File write tool
  */
-class FileWriteTool : BaseTool(
-    name = "file_write",
-    description = "파일에 내용을 씁니다",
-    schema = ToolSchema(
-        name = "file_write",
-        description = "파일 쓰기 도구",
-        parameters = mapOf<String, ParameterSchema>(
-            "path" to ParameterSchema("string", "쓸 파일 경로", required = true),
-            "content" to ParameterSchema("string", "파일 내용", required = true)
+class FileWriteTool : BaseTool() {
+    override val name = "file_write"
+    override val description = "tool.file_write.description".i18n()
+    override val schema: ToolSchema = ToolSchema(
+        name = name,
+        description = description,
+        parameters = mapOf(
+            "path" to ParameterSchema("string", "tool.file_write.param.path".i18n(), required = true),
+            "content" to ParameterSchema("string", "tool.file_write.param.content".i18n(), required = true)
         )
     )
-) {
+    
     override suspend fun execute(parameters: Map<String, Any>): ToolResult {
         val path = parameters["path"] as? String
-            ?: return ToolResult.error("파일 경로가 필요합니다")
+            ?: return ToolResult.error("tool.file_write.error.path_required".i18n())
         
         val content = parameters["content"] as? String
-            ?: return ToolResult.error("파일 내용이 필요합니다")
+            ?: return ToolResult.error("tool.file_write.error.content_required".i18n())
         
         return try {
             java.io.File(path).writeText(content)
             ToolResult.success(
-                result = "파일 쓰기 완료",
+                result = "tool.file_write.success".i18n(),
                 metadata = mapOf("path" to path, "size" to content.length.toString())
             )
         } catch (e: Exception) {
-            ToolResult.error("파일 쓰기 실패: ${e.message}")
+            ToolResult.error("tool.file_write.error.write_failed".i18n())
         }
     }
 } 

@@ -1,387 +1,335 @@
 package io.github.spice
 
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import java.io.File
 
 /**
- * 📘 Spice Agent Documentation Generator
+ * 📝 AgentDocumentGenerator - Agent documentation generator
  * 
- * AgentEngine에 등록된 Agent들의 정보를 마크다운 형식으로 문서화합니다.
- * 각 Agent의 기본 정보, 능력, 도구, 사용 예제를 포함한 종합적인 문서를 생성합니다.
+ * Documents information about Agents registered in AgentEngine in markdown format.
+ * Generates comprehensive documentation including basic information, capabilities, tools, and usage examples for each Agent.
  */
 class AgentDocumentGenerator {
     
     /**
-     * AgentEngine의 상태를 기반으로 마크다운 문서 생성
+     * Generate markdown document based on AgentEngine status
      */
-    fun generateDocumentation(agentEngine: AgentEngine): String {
-        val engineStatus = agentEngine.getEngineStatus()
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+    fun generateAgentDocumentation(engine: AgentEngine): String {
+        val markdown = StringBuilder()
         
-        return buildString {
-            appendTitle(engineStatus, timestamp)
-            appendSummary(engineStatus)
-            appendTableOfContents(engineStatus.agentList)
-            
-            engineStatus.agentList.forEach { agentInfo ->
-                appendAgentDetails(agentInfo)
+        // Document header
+        markdown.appendLine("# 🤖 Spice Agent Documentation")
+        markdown.appendLine()
+        markdown.appendLine("This document contains information about all Agents registered in the Spice AgentEngine.")
+        markdown.appendLine("Generated at: ${java.time.LocalDateTime.now()}")
+        markdown.appendLine()
+        
+        // Agent overview
+        val agents = engine.getAllAgents()
+        markdown.appendLine("## 📊 Agent Overview")
+        markdown.appendLine()
+        markdown.appendLine("- **Total Agents**: ${agents.size}")
+        markdown.appendLine("- **Active Agents**: ${agents.count { it.isReady() }}")
+        markdown.appendLine("- **Agent Types**: ${agents.map { it.javaClass.simpleName }.distinct().size}")
+        markdown.appendLine()
+        
+        // Individual Agent documentation
+        agents.forEach { agent ->
+            markdown.appendLine(generateAgentSection(agent))
+        }
+        
+        return markdown.toString()
+    }
+    
+    /**
+     * Generate detailed documentation for specific Agent
+     */
+    private fun generateAgentSection(agent: Agent): String {
+        val section = StringBuilder()
+        
+        section.appendLine("## 🔧 ${agent.name}")
+        section.appendLine()
+        
+        // Basic information table
+        section.appendLine("### Basic Information")
+        section.appendLine()
+        section.appendLine("| Property | Value |")
+        section.appendLine("|----------|-------|")
+        section.appendLine("| **ID** | `${agent.id}` |")
+        section.appendLine("| **Name** | ${agent.name} |")
+        section.appendLine("| **Type** | ${agent.javaClass.simpleName} |")
+        section.appendLine("| **Description** | ${agent.description} |")
+        section.appendLine("| **Status** | ${if (agent.isReady()) "✅ Ready" else "❌ Not Ready"} |")
+        section.appendLine()
+        
+        // Capabilities list
+        section.appendLine("### 🎯 Capabilities")
+        section.appendLine()
+        if (agent.capabilities.isNotEmpty()) {
+            agent.capabilities.forEach { capability ->
+                section.appendLine("- ${capability.replace("_", " ").replaceFirstChar { it.uppercase() }}")
             }
-            
-            appendUsageExamples(engineStatus.agentList)
-            appendFooter(timestamp)
+        } else {
+            section.appendLine("- No specific capabilities defined")
+        }
+        section.appendLine()
+        
+        // Usage recommendations
+        section.appendLine("### 💡 Usage Recommendations")
+        section.appendLine()
+        generateUsageRecommendations(agent, section)
+        section.appendLine()
+        
+        // Message type compatibility
+        section.appendLine("### 📨 Message Type Compatibility")
+        section.appendLine()
+        val supportedTypes = getSupportedMessageTypes(agent)
+        supportedTypes.forEach { type ->
+            section.appendLine("- ✅ `${type}`")
+        }
+        section.appendLine()
+        
+        // Tools (if any)
+        val tools = agent.getTools()
+        if (tools.isNotEmpty()) {
+            section.appendLine("### 🛠️ Available Tools")
+            section.appendLine()
+            tools.forEach { tool ->
+                section.appendLine("- **${tool.name}**: ${tool.description}")
+            }
+            section.appendLine()
+        }
+        
+        // Usage examples
+        section.appendLine("### 📋 Usage Examples")
+        section.appendLine()
+        generateUsageExamples(agent, section)
+        
+        section.appendLine("---")
+        section.appendLine()
+        
+        return section.toString()
+    }
+    
+    /**
+     * Generate usage recommendations based on Agent type
+     */
+    private fun generateUsageRecommendations(agent: Agent, section: StringBuilder) {
+        when (agent.javaClass.simpleName) {
+            "PromptAgent" -> {
+                section.appendLine("- User prompt processing")
+                section.appendLine("- Text generation and transformation")
+                section.appendLine("- Interactive conversation")
+            }
+            "ActionAgent" -> {
+                section.appendLine("- Data collection and organization")
+                section.appendLine("- File processing")
+                section.appendLine("- Data transformation tasks")
+            }
+            "ResultAgent" -> {
+                section.appendLine("- Result formatting and visualization")
+                section.appendLine("- Report generation")
+                section.appendLine("- Final result processing")
+            }
+            "AgentNode" -> {
+                section.appendLine("- Conditional logic processing")
+                section.appendLine("- Workflow branching")
+                section.appendLine("- Decision automation")
+            }
+            "MultiAgentFlow" -> {
+                section.appendLine("- Multiple flow merging")
+                section.appendLine("- Result integration")
+                section.appendLine("- Synchronization tasks")
+            }
+            else -> {
+                section.appendLine("- Custom logic execution")
+                section.appendLine("- Specialized task processing")
+                section.appendLine("- Flexible message processing")
+            }
+        }
+        
+        // Capability-based recommendations
+        agent.capabilities.forEach { capability ->
+            when (capability) {
+                "text_processing" -> section.appendLine("- Text analysis and processing")
+                "api_calls" -> section.appendLine("- External API integration")
+                "data_analysis" -> section.appendLine("- Data analysis tasks")
+                "file_handling" -> section.appendLine("- File input/output processing")
+                "message_routing" -> section.appendLine("- Message routing and forwarding")
+                else -> section.appendLine("- ${capability.replace("_", " ").replaceFirstChar { it.uppercase() }}")
+            }
+        }
+        
+        if (agent.capabilities.isEmpty()) {
+            section.appendLine("- General message processing")
+            section.appendLine("- Basic Agent functionality")
         }
     }
     
     /**
-     * 특정 Agent의 상세 문서 생성
+     * Get supported message types for Agent
      */
-    fun generateAgentDocumentation(agent: Agent): String {
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+    private fun getSupportedMessageTypes(agent: Agent): List<String> {
+        // Create test messages for each type
+        val testMessages = listOf(
+            Message("test", "test", MessageType.TEXT),
+            Message("test", "test", MessageType.PROMPT),
+            Message("test", "test", MessageType.SYSTEM),
+            Message("test", "test", MessageType.ACTION),
+            Message("test", "test", MessageType.RESULT),
+            Message("test", "test", MessageType.ERROR),
+            Message("test", "test", MessageType.TOOL_CALL),
+            Message("test", "test", MessageType.TOOL_RESULT)
+        )
         
-        return buildString {
-            appendLine("# ${agent.name}")
-            appendLine()
-            appendLine("**ID:** `${agent.id}`")
-            appendLine("**Type:** ${agent::class.simpleName}")
-            appendLine("**Generated:** $timestamp")
-            appendLine()
-            
-            appendLine("## Description")
-            appendLine(agent.description)
-            appendLine()
-            
-            appendLine("## Capabilities")
-            if (agent.capabilities.isNotEmpty()) {
-                agent.capabilities.forEach { capability ->
-                    appendLine("- `$capability`")
-                }
-            } else {
-                appendLine("_No specific capabilities defined._")
-            }
-            appendLine()
-            
-            appendLine("## Tools")
-            val tools = agent.getTools()
-            if (tools.isNotEmpty()) {
-                tools.forEach { tool ->
-                    appendToolDocumentation(tool)
-                }
-            } else {
-                appendLine("_No tools available._")
-            }
-            appendLine()
-            
-            appendLine("## Status")
-            appendLine("- **Ready:** ${if (agent.isReady()) "✅ Yes" else "❌ No"}")
-            appendLine("- **Tool Count:** ${tools.size}")
-            appendLine("- **Capability Count:** ${agent.capabilities.size}")
-        }
+        return testMessages.filter { agent.canHandle(it) }.map { it.type.name }
     }
     
-    private fun StringBuilder.appendTitle(engineStatus: EngineStatus, timestamp: String) {
-        appendLine("# 🌶️ Spice Agent Documentation")
-        appendLine()
-        appendLine("**Generated:** $timestamp")
-        appendLine("**Spice Framework Version:** v1.0.0")
-        appendLine()
-        appendLine("---")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendSummary(engineStatus: EngineStatus) {
-        appendLine("## 📊 Engine Status Summary")
-        appendLine()
-        appendLine("| Metric | Value |")
-        appendLine("|--------|-------|")
-        appendLine("| Registered Agents | ${engineStatus.registeredAgents} |")
-        appendLine("| Active Contexts | ${engineStatus.activeContexts} |")
-        appendLine("| Available Tools | ${engineStatus.registeredTools} |")
-        appendLine("| Agent Types | ${engineStatus.agentList.map { it.type }.distinct().size} |")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendTableOfContents(agentList: List<AgentInfo>) {
-        appendLine("## 📋 Table of Contents")
-        appendLine()
-        agentList.forEach { agent ->
-            val anchor = agent.id.replace("-", "").lowercase()
-            appendLine("- [${agent.name}](#${anchor}) (`${agent.id}`) - ${agent.type}")
-        }
-        appendLine()
-        appendLine("---")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendAgentDetails(agentInfo: AgentInfo) {
-        val anchor = agentInfo.id.replace("-", "").lowercase()
+    /**
+     * Generate usage examples
+     */
+    private fun generateUsageExamples(agent: Agent, section: StringBuilder) {
+        section.appendLine("```kotlin")
+        section.appendLine("// Create message")
+        section.appendLine("val message = Message(")
+        section.appendLine("    sender = \"user\",")
+        section.appendLine("    content = \"Your request here\",")
+        section.appendLine("    type = MessageType.TEXT")
+        section.appendLine(")")
+        section.appendLine()
+        section.appendLine("// Send to agent")
+        section.appendLine("val response = agent.receive(message)")
+        section.appendLine()
+        section.appendLine("// Process response")
+        section.appendLine("println(\"Response: \${response.content}\")")
+        section.appendLine("```")
+        section.appendLine()
         
-        appendLine("## ${agentInfo.name} {#${anchor}}")
-        appendLine()
-        
-        // 기본 정보 테이블
-        appendLine("### Basic Information")
-        appendLine()
-        appendLine("| Property | Value |")
-        appendLine("|----------|-------|")
-        appendLine("| **ID** | `${agentInfo.id}` |")
-        appendLine("| **Type** | `${agentInfo.type}` |")
-        appendLine("| **Status** | ${if (agentInfo.isReady) "🟢 Ready" else "🔴 Not Ready"} |")
-        appendLine("| **Tool Count** | ${agentInfo.toolCount} |")
-        appendLine("| **Capability Count** | ${agentInfo.capabilities.size} |")
-        appendLine()
-        
-        // 능력 목록
-        appendLine("### Capabilities")
-        appendLine()
-        if (agentInfo.capabilities.isNotEmpty()) {
-            agentInfo.capabilities.forEach { capability ->
-                appendLine("- 🔧 `$capability`")
-            }
-        } else {
-            appendLine("_No specific capabilities defined._")
-        }
-        appendLine()
-        
-        // 사용 권장사항
-        appendLine("### Recommended Use Cases")
-        appendLine()
-        appendRecommendedUseCases(agentInfo)
-        appendLine()
-        
-        // 메시지 타입 호환성
-        appendLine("### Message Type Compatibility")
-        appendLine()
-        appendMessageTypeCompatibility(agentInfo)
-        appendLine()
-        
-        appendLine("---")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendRecommendedUseCases(agentInfo: AgentInfo) {
-        when (agentInfo.type) {
+        // Add specific examples based on agent type
+        when (agent.javaClass.simpleName) {
             "PromptAgent" -> {
-                appendLine("- 사용자 프롬프트 처리")
-                appendLine("- 텍스트 생성 및 변환")
-                appendLine("- 대화형 상호작용")
+                section.appendLine("#### Prompt Processing Example")
+                section.appendLine("```kotlin")
+                section.appendLine("val promptMessage = Message(")
+                section.appendLine("    sender = \"user\",")
+                section.appendLine("    content = \"Analyze this data and provide insights\",")
+                section.appendLine("    type = MessageType.PROMPT")
+                section.appendLine(")")
+                section.appendLine("val result = agent.receive(promptMessage)")
+                section.appendLine("```")
             }
-            "DataAgent" -> {
-                appendLine("- 데이터 수집 및 정리")
-                appendLine("- 파일 처리")
-                appendLine("- 데이터 변환 작업")
+            "ActionAgent" -> {
+                section.appendLine("#### Action Execution Example")
+                section.appendLine("```kotlin")
+                section.appendLine("val actionMessage = Message(")
+                section.appendLine("    sender = \"system\",")
+                section.appendLine("    content = \"Execute data processing pipeline\",")
+                section.appendLine("    type = MessageType.ACTION")
+                section.appendLine(")")
+                section.appendLine("val result = agent.receive(actionMessage)")
+                section.appendLine("```")
             }
-            "ResultAgent" -> {
-                appendLine("- 결과 포맷팅 및 시각화")
-                appendLine("- 보고서 생성")
-                appendLine("- 최종 결과 처리")
-            }
-            "BranchAgent" -> {
-                appendLine("- 조건부 로직 처리")
-                appendLine("- 워크플로우 분기")
-                appendLine("- 의사결정 자동화")
-            }
-            "MergeAgent" -> {
-                appendLine("- 다중 흐름 병합")
-                appendLine("- 결과 통합")
-                appendLine("- 동기화 작업")
-            }
-            "DSLAgent" -> {
-                appendLine("- 커스텀 로직 실행")
-                appendLine("- 특화된 작업 처리")
-                appendLine("- 유연한 메시지 처리")
-            }
-            else -> {
-                agentInfo.capabilities.forEach { capability ->
-                    when (capability) {
-                        "text_processing" -> appendLine("- 텍스트 분석 및 처리")
-                        "api_calls" -> appendLine("- 외부 API 연동")
-                        "data_analysis" -> appendLine("- 데이터 분석 작업")
-                        "file_handling" -> appendLine("- 파일 입출력 처리")
-                        "message_routing" -> appendLine("- 메시지 라우팅 및 전달")
-                        else -> appendLine("- ${capability.replace("_", " ").replaceFirstChar { it.uppercase() }} 관련 작업")
-                    }
-                }
-                if (agentInfo.capabilities.isEmpty()) {
-                    appendLine("- 범용 메시지 처리")
-                    appendLine("- 기본적인 Agent 기능")
-                }
-            }
+        }
+        
+        // Remove last comma for proper processing
+        if (section.isNotEmpty() && section.length > 2) {
+            section.setLength(section.length - 2) // Remove last comma and newline
         }
     }
     
-    private fun StringBuilder.appendMessageTypeCompatibility(agentInfo: AgentInfo) {
-        appendLine("| Message Type | Support | Notes |")
-        appendLine("|--------------|---------|-------|")
+    /**
+     * Generate tool documentation
+     */
+    private fun generateToolDocumentation(tool: Tool): String {
+        val toolDoc = StringBuilder()
         
-        val supportedTypes = when (agentInfo.type) {
-            "PromptAgent" -> listOf("TEXT", "PROMPT", "SYSTEM")
-            "DataAgent" -> listOf("DATA", "TEXT", "WORKFLOW_START", "WORKFLOW_END")
-            "ResultAgent" -> listOf("TEXT", "DATA", "SYSTEM", "RESULT")
-            "BranchAgent" -> listOf("TEXT", "PROMPT", "SYSTEM", "BRANCH")
-            "MergeAgent" -> listOf("TEXT", "PROMPT", "SYSTEM", "MERGE")
-            "DSLAgent" -> listOf("TEXT", "PROMPT", "SYSTEM", "DATA", "TOOL_CALL")
-            else -> listOf("TEXT", "PROMPT", "SYSTEM") // 기본값
-        }
+        toolDoc.appendLine("#### 🔧 ${tool.name}")
+        toolDoc.appendLine()
+        toolDoc.appendLine("**Description**: ${tool.description}")
+        toolDoc.appendLine()
         
-        MessageType.values().forEach { messageType ->
-            val isSupported = supportedTypes.contains(messageType.name)
-            val supportIcon = if (isSupported) "✅" else "❌"
-            val notes = when {
-                isSupported && messageType.name == "TOOL_CALL" && agentInfo.toolCount > 0 -> "Has ${agentInfo.toolCount} tools"
-                isSupported && messageType.name in listOf("WORKFLOW_START", "WORKFLOW_END") -> "Workflow control"
-                isSupported -> "Supported"
-                else -> "Not supported"
+        // Tool parameters
+        val schema = tool.getSchema()
+        if (schema.isNotEmpty()) {
+            toolDoc.appendLine("**Parameters**:")
+            toolDoc.appendLine()
+            schema.forEach { (param, description) ->
+                toolDoc.appendLine("- `$param`: $description")
             }
-            appendLine("| `${messageType.name}` | $supportIcon | $notes |")
+            toolDoc.appendLine()
         }
+        
+        // Usage example
+        toolDoc.appendLine("**Usage Example**:")
+        toolDoc.appendLine("```kotlin")
+        toolDoc.appendLine("val parameters = mapOf(")
+        schema.keys.take(3).forEach { param ->
+            toolDoc.appendLine("    \"$param\" to \"example_value\",")
+        }
+        if (schema.isNotEmpty()) {
+            toolDoc.setLength(toolDoc.length - 2) // Remove last comma
+            toolDoc.appendLine()
+        }
+        toolDoc.appendLine(")")
+        toolDoc.appendLine("val result = tool.execute(parameters)")
+        toolDoc.appendLine("```")
+        toolDoc.appendLine()
+        
+        return toolDoc.toString()
     }
     
-    private fun StringBuilder.appendToolDocumentation(tool: Tool) {
-        appendLine("### 🔧 ${tool.name}")
-        appendLine()
-        appendLine("**Description:** ${tool.description}")
-        appendLine()
+    /**
+     * Generate Agent flow diagram
+     */
+    private fun generateFlowDiagram(agents: List<Agent>): String {
+        val diagram = StringBuilder()
         
-        if (tool.schema.parameters.isNotEmpty()) {
-            appendLine("**Parameters:**")
-            appendLine()
-            appendLine("| Parameter | Type | Required | Description |")
-            appendLine("|-----------|------|----------|-------------|")
+        diagram.appendLine("```mermaid")
+        diagram.appendLine("graph TD")
+        
+        agents.forEachIndexed { index, agent ->
+            val nodeId = "A$index"
+            val nodeLabel = "${agent.name}\\n(${agent.javaClass.simpleName})"
+            diagram.appendLine("    $nodeId[\"$nodeLabel\"]")
             
-            tool.schema.parameters.forEach { (paramName, paramSchema) ->
-                val required = if (paramSchema.required) "✅ Yes" else "❌ No"
-                appendLine("| `$paramName` | `${paramSchema.type}` | $required | ${paramSchema.description} |")
+            // Add connections based on message flow
+            if (index < agents.size - 1) {
+                diagram.appendLine("    $nodeId --> A${index + 1}")
             }
-            appendLine()
         }
         
-        // 사용 예제 생성
-        appendLine("**Usage Example:**")
-        appendLine("```json")
-        appendLine("{")
-        appendLine("  \"type\": \"TOOL_CALL\",")
-        appendLine("  \"content\": \"Execute ${tool.name}\",")
-        appendLine("  \"metadata\": {")
-        appendLine("    \"toolName\": \"${tool.name}\"")
+        diagram.appendLine("```")
         
-        tool.schema.parameters.entries.take(2).forEach { (paramName, paramSchema) ->
-            val exampleValue = when (paramSchema.type) {
-                "string" -> "\"example_value\""
-                "number" -> "42"
-                "boolean" -> "true"
-                "array" -> "[\"item1\", \"item2\"]"
-                else -> "\"example\""
-            }
-            appendLine("    \"param_$paramName\": $exampleValue,")
-        }
-        
-        if (tool.schema.parameters.isNotEmpty()) {
-            // 마지막 콤마 제거를 위해 다시 처리
-            setLength(length - 2) // 마지막 쉼표와 개행 제거
-            appendLine()
-        }
-        
-        appendLine("  }")
-        appendLine("}")
-        appendLine("```")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendUsageExamples(agentList: List<AgentInfo>) {
-        appendLine("## 🚀 Usage Examples")
-        appendLine()
-        
-        appendLine("### Basic Agent Registration")
-        appendLine("```kotlin")
-        appendLine("val agentEngine = AgentEngine()")
-        appendLine()
-        agentList.take(3).forEach { agent ->
-            appendLine("// Register ${agent.name}")
-            appendLine("agentEngine.registerAgent(${agent.type}(")
-            appendLine("    id = \"${agent.id}\",")
-            appendLine("    name = \"${agent.name}\"")
-            appendLine("))")
-            appendLine()
-        }
-        appendLine("```")
-        appendLine()
-        
-        appendLine("### Message Processing Example")
-        appendLine("```kotlin")
-        appendLine("// Send a message to the agent engine")
-        appendLine("val message = Message(")
-        appendLine("    content = \"Hello, Spice agents!\",")
-        appendLine("    sender = \"user\",")
-        appendLine("    type = MessageType.TEXT")
-        appendLine(")")
-        appendLine()
-        appendLine("val result = agentEngine.receive(message)")
-        appendLine("println(\"Response: \${result.response.content}\")")
-        appendLine("println(\"Processed by: \${result.agentName}\")")
-        appendLine("```")
-        appendLine()
-        
-        appendLine("### Workflow Example")
-        appendLine("```kotlin")
-        appendLine("// Start a workflow")
-        appendLine("val workflowStart = Message(")
-        appendLine("    content = \"Start data processing workflow\",")
-        appendLine("    sender = \"user\",")
-        appendLine("    type = MessageType.WORKFLOW_START")
-        appendLine(")")
-        appendLine()
-        appendLine("agentEngine.processWorkflow(workflowStart).collect { agentMessage ->")
-        appendLine("    println(\"\${agentMessage.agentName}: \${agentMessage.response.content}\")")
-        appendLine("}")
-        appendLine("```")
-        appendLine()
-    }
-    
-    private fun StringBuilder.appendFooter(timestamp: String) {
-        appendLine("---")
-        appendLine()
-        appendLine("## 📚 Additional Resources")
-        appendLine()
-        appendLine("- [Spice Framework GitHub](https://github.com/your-org/spice-framework)")
-        appendLine("- [API Documentation](https://docs.spice-framework.io)")
-        appendLine("- [Community Discord](https://discord.gg/spice-framework)")
-        appendLine()
-        appendLine("---")
-        appendLine()
-        appendLine("*Documentation generated automatically by Spice Agent Documentation Generator at $timestamp*")
-        appendLine()
-        appendLine("🌶️ **Powered by Spice Framework** - JVM Multi-Agent System")
+        return diagram.toString()
     }
 }
 
 /**
- * AgentEngine 확장 함수 - 간편한 문서 생성
+ * AgentEngine extension function - Easy document generation
  */
 fun AgentEngine.generateDocumentation(): String {
-    return AgentDocumentGenerator().generateDocumentation(this)
+    val generator = AgentDocumentGenerator()
+    return generator.generateAgentDocumentation(this)
 }
 
 /**
- * Agent 확장 함수 - 개별 Agent 문서 생성
+ * Agent extension function - Individual Agent document generation
  */
 fun Agent.generateDocumentation(): String {
-    return AgentDocumentGenerator().generateAgentDocumentation(this)
+    val generator = AgentDocumentGenerator()
+    return generator.generateAgentSection(this)
 }
 
 /**
- * 파일로 문서 저장
+ * Save document to file
  */
-fun AgentEngine.saveDocumentationToFile(filePath: String = "AgentDoc.md") {
-    val documentation = generateDocumentation()
-    java.io.File(filePath).writeText(documentation)
-    println("📝 Agent documentation saved to: $filePath")
+fun String.saveToFile(filePath: String) {
+    File(filePath).writeText(this)
 }
 
 /**
- * 개별 Agent 문서를 파일로 저장
+ * Save individual Agent document to file
  */
-fun Agent.saveDocumentationToFile(filePath: String = "${id}-doc.md") {
-    val documentation = generateDocumentation()
-    java.io.File(filePath).writeText(documentation)
-    println("📝 Agent documentation for '$name' saved to: $filePath")
+fun Agent.saveDocumentationToFile(filePath: String) {
+    val documentation = this.generateDocumentation()
+    documentation.saveToFile(filePath)
 } 

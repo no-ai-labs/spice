@@ -6,9 +6,9 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Assertions.*
 
 /**
- * 🧪 Resume/Pause 기능 종합 테스트
+ * 🧪 Resume/Pause feature 종합 test
  * 
- * 실제 시나리오를 통해 Resume/Pause 기능의 동작을 검증합니다.
+ * 실제 시나리오through Resume/Pause feature의 동작을 validation합니다.
  */
 class AgentEngineResumePauseTest {
     

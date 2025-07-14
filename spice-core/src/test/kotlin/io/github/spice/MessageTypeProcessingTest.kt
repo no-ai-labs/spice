@@ -10,12 +10,12 @@ class MessageTypeProcessingTest {
     
     @Test
     fun `모든 MessageType별 Agent 처리 검증`() = runBlocking {
-        // Given: 모든 타입을 처리할 수 있는 UniversalAgent 생성
+        // Given: all type을 processing할 수 있는 UniversalAgent generation
         val universalAgent = UniversalAgent()
         val agentEngine = AgentEngine()
         agentEngine.registerAgent(universalAgent)
         
-        // When & Then: 각 MessageType별로 처리 검증
+        // When & Then: 각 MessageType별로 processing validation
         testMessageTypeProcessing(agentEngine, MessageType.TEXT, "일반 텍스트")
         testMessageTypeProcessing(agentEngine, MessageType.PROMPT, "프롬프트 메시지")
         testMessageTypeProcessing(agentEngine, MessageType.SYSTEM, "시스템 메시지")
@@ -30,12 +30,12 @@ class MessageTypeProcessingTest {
     
     @Test
     fun `TOOL_CALL 메시지 처리 검증`() = runBlocking {
-        // Given: Tool을 가진 ToolAgent 생성
+        // Given: Tool을 가진 ToolAgent generation
         val toolAgent = ToolAgent()
         val agentEngine = AgentEngine()
         agentEngine.registerAgent(toolAgent)
         
-        // When: TOOL_CALL 메시지 전송
+        // When: TOOL_CALL message 전송
         val toolCallMessage = Message(
             content = "test_tool을 실행해줘",
             sender = "user",
@@ -48,7 +48,7 @@ class MessageTypeProcessingTest {
         
         val result = agentEngine.receive(toolCallMessage)
         
-        // Then: Tool 결과 검증
+        // Then: Tool 결과 validation
         assertTrue(result.success, "TOOL_CALL 처리가 성공해야 합니다")
         assertEquals(MessageType.TOOL_RESULT, result.response.type, "응답 타입이 TOOL_RESULT여야 합니다")
         assertTrue(result.response.content.contains("Tool executed: test_tool"), "Tool 실행 결과가 포함되어야 합니다")
@@ -56,12 +56,12 @@ class MessageTypeProcessingTest {
     
     @Test
     fun `메타데이터 조건 분기 케이스 검증`() = runBlocking {
-        // Given: 메타데이터 기반 조건부 Agent
+        // Given: 메타data 기반 조건부 Agent
         val conditionalAgent = ConditionalAgent()
         val agentEngine = AgentEngine()
         agentEngine.registerAgent(conditionalAgent)
         
-        // Test Case 1: 우선순위 높은 메시지
+        // Test Case 1: 우선순위 높은 message
         val highPriorityMessage = Message(
             content = "중요한 메시지",
             sender = "user",
@@ -72,7 +72,7 @@ class MessageTypeProcessingTest {
         val highResult = agentEngine.receive(highPriorityMessage)
         assertTrue(highResult.response.content.contains("HIGH_PRIORITY"), "높은 우선순위 처리 확인")
         
-        // Test Case 2: 일반 메시지
+        // Test Case 2: 일반 message
         val normalMessage = Message(
             content = "일반 메시지",
             sender = "user",
@@ -97,7 +97,7 @@ class MessageTypeProcessingTest {
     
     @Test
     fun `Agent 선택 우선순위 검증`() = runBlocking {
-        // Given: 여러 Agent 등록
+        // Given: multiple Agent 등록
         val agentEngine = AgentEngine()
         agentEngine.registerAgent(PromptAgent())
         agentEngine.registerAgent(DataAgent())
@@ -105,7 +105,7 @@ class MessageTypeProcessingTest {
         agentEngine.registerAgent(BranchAgent())
         agentEngine.registerAgent(MergeAgent())
         
-        // When & Then: 각 타입별로 적절한 Agent가 선택되는지 확인
+        // When & Then: 각 type별로 적절한 Agent가 선택되는지 check
         val promptMessage = Message(content = "프롬프트", sender = "user", type = MessageType.PROMPT)
         val promptResult = agentEngine.receive(promptMessage)
         assertEquals("prompt-agent", promptResult.agentId, "PROMPT 타입은 PromptAgent가 처리해야 함")
@@ -126,7 +126,7 @@ class MessageTypeProcessingTest {
         val agentEngine = AgentEngine()
         agentEngine.registerAgent(universalAgent)
         
-        // When: 라우팅이 적용될 수 있는 메시지 전송
+        // When: 라우팅이 적용될 수 있는 message 전송
         val routingMessage = Message(
             content = "라우팅 테스트",
             sender = "user",
@@ -136,7 +136,7 @@ class MessageTypeProcessingTest {
         
         val result = agentEngine.receive(routingMessage)
         
-        // Then: 라우팅 적용 확인
+        // Then: 라우팅 적용 check
         assertTrue(result.success, "라우팅된 메시지 처리가 성공해야 합니다")
         assertNotNull(result.metadata["routingApplied"], "라우팅 적용 메타데이터가 있어야 합니다")
     }
@@ -162,7 +162,7 @@ class MessageTypeProcessingTest {
 }
 
 /**
- * 모든 MessageType을 처리할 수 있는 테스트용 Agent
+ * all MessageType을 processing할 수 있는 test용 Agent
  */
 class UniversalAgent(
     id: String = "universal-agent",
@@ -203,7 +203,7 @@ class UniversalAgent(
 }
 
 /**
- * Tool을 가진 테스트용 Agent
+ * Tool을 가진 test용 Agent
  */
 class ToolAgent(
     id: String = "tool-agent",
@@ -253,7 +253,7 @@ class ToolAgent(
 }
 
 /**
- * 메타데이터 조건부 처리 Agent
+ * 메타data 조건부 processing Agent
  */
 class ConditionalAgent(
     id: String = "conditional-agent",
@@ -285,7 +285,7 @@ class ConditionalAgent(
 }
 
 /**
- * 테스트용 간단한 Tool
+ * test용 간단한 Tool
  */
 class TestTool : BaseTool(
     name = "test_tool",

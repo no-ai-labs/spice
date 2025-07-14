@@ -3,19 +3,21 @@ package io.github.spice.toolhub
 import io.github.spice.*
 
 /**
- * 🤖 ToolHubAgent - ToolHub를 사용하는 Agent 확장
+ * 🤖 ToolHubAgent - Agent extension using ToolHub
  * 
- * 기존 Agent에 ToolHub 기능을 추가하는 데코레이터 패턴 구현체입니다.
+ * Decorator pattern implementation that adds ToolHub features to existing Agents.
+ * Provides enhanced tool management and execution capabilities.
  * 
- * 사용 예시:
+ * Usage example:
  * ```kotlin
- * val toolHub = staticToolHub {
- *     addTool(WebSearchTool())
- *     addTool(FileReadTool())
- * }
+ * val baseAgent = UniversalAgent("enhanced-agent")
+ * val toolHub = StaticToolHub.builder()
+ *     .addTool(WebSearchTool())
+ *     .addTool(FileReadTool())
+ *     .build()
  * 
- * val agent = VertexAgent(...)
- * val toolHubAgent = agent.withToolHub(toolHub)
+ * val enhancedAgent = ToolHubAgent(baseAgent, toolHub)
+ * val response = enhancedAgent.receive(message)
  * ```
  */
 class ToolHubAgent(
@@ -23,141 +25,142 @@ class ToolHubAgent(
     private val toolHub: ToolHub
 ) : Agent by baseAgent {
     
-    private val toolContext = ToolContext()
+    override val id: String = "${baseAgent.id}-toolhub"
     
     /**
-     * 🔧 ToolHub의 도구들을 Agent의 도구 목록에 추가
+     * 🔧 Add ToolHub tools to Agent's tool list
      */
     override fun getTools(): List<Tool> {
-        return baseAgent.getTools() + runCatching {
-            kotlinx.coroutines.runBlocking { toolHub.listTools() }
-        }.getOrElse { emptyList() }
+        val baseTools = baseAgent.getTools()
+        val toolHubTools = toolHub.getTools()
+        return baseTools + toolHubTools
     }
     
     /**
-     * 💬 메시지 처리 시 ToolHub를 통한 도구 호출 지원
+     * 💬 Support tool calls through ToolHub during message processing
      */
-    override suspend fun processMessage(message: Message): Message {
-        return when (message.type) {
-            MessageType.TOOL_CALL -> {
-                val toolName = message.metadata["toolName"] as? String
-                if (toolName != null) {
-                    handleToolCall(toolName, message)
-                } else {
-                    baseAgent.processMessage(message)
-                }
-            }
-            else -> baseAgent.processMessage(message)
+    override suspend fun receive(message: Message): Message {
+        // Check if message contains tool call request
+        if (isToolCallRequest(message)) {
+            return processToolCall(message)
         }
+        
+        // Process with base agent
+        val baseResponse = baseAgent.receive(message)
+        
+        // Check if response contains tool call
+        if (isToolCallResponse(baseResponse)) {
+            return processToolCall(baseResponse)
+        }
+        
+        return baseResponse
     }
     
     /**
-     * 🛠️ ToolHub를 통한 도구 호출 처리
+     * 🛠️ Process tool calls through ToolHub
      */
-    private suspend fun handleToolCall(toolName: String, message: Message): Message {
-        val parameters = extractToolParameters(message)
-        
-        return try {
-            val result = toolHub.callTool(toolName, parameters, toolContext)
+    private suspend fun processToolCall(message: Message): Message {
+        try {
+            // Extract tool parameters from message
+            val toolRequest = extractToolParameters(message)
             
-            message.createReply(
-                content = if (result.success) {
-                    when (result) {
-                        is ToolResult.Success -> result.output.toString()
-                        else -> result.toString()
-                    }
-                } else {
-                    when (result) {
-                        is ToolResult.Error -> result.message
-                        is ToolResult.Retry -> "Retry requested: ${result.reason}"
-                        else -> "Tool execution failed"
-                    }
-                },
+            // Check if tool exists in ToolHub
+            if (!toolHub.hasTools(listOf(toolRequest.toolName))) {
+                return Message(
+                    sender = id,
+                    content = "Tool '${toolRequest.toolName}' not found in ToolHub",
+                    type = MessageType.ERROR
+                )
+            }
+            
+            // Execute tool through ToolHub
+            val toolResult = toolHub.execute(
+                name = toolRequest.toolName,
+                parameters = toolRequest.parameters
+            )
+            
+            // Convert result to message
+            return Message(
                 sender = id,
-                type = if (result.success) MessageType.TOOL_RESULT else MessageType.ERROR,
-                metadata = mapOf<String, String>(
-                    "toolName" to toolName,
-                    "toolSuccess" to result.success.toString(),
-                    "executionTime" to (toolContext.getLastResult()?.metadata?.get("executionTime")?.toString() ?: "0")
-                ) + result.metadata.mapValues { it.value.toString() }
+                content = if (toolResult.success) toolResult.result else toolResult.error,
+                type = if (toolResult.success) MessageType.TOOL_RESULT else MessageType.ERROR,
+                metadata = toolResult.metadata + mapOf(
+                    "tool_name" to toolRequest.toolName,
+                    "tool_success" to toolResult.success.toString()
+                )
             )
             
         } catch (e: Exception) {
-            message.createReply(
-                content = "ToolHub execution failed: ${e.message}",
+            return Message(
                 sender = id,
-                type = MessageType.ERROR,
-                metadata = mapOf<String, String>(
-                    "toolName" to toolName,
-                    "errorType" to "toolhub_error"
-                )
+                content = "Tool execution failed: ${e.message}",
+                type = MessageType.ERROR
             )
         }
     }
     
     /**
-     * 📤 메시지에서 도구 파라미터 추출
+     * 📤 Extract tool parameters from message
      */
-    private fun extractToolParameters(message: Message): Map<String, Any> {
-        return message.metadata.filterKeys { key ->
-            key.startsWith("param_")
-        }.mapKeys { (key, _) ->
-            key.removePrefix("param_")
-        }.mapValues { (_, value) -> value as Any }
-    }
-    
-    /**
-     * 🔍 ToolHub 도구 포함 여부 확인
-     */
-    override fun canHandle(message: Message): Boolean {
-        if (baseAgent.canHandle(message)) return true
+    private fun extractToolParameters(message: Message): ToolRequest {
+        // Simple implementation - can be enhanced with more sophisticated parsing
+        val content = message.content
+        val toolName = content.substringAfter("tool:").substringBefore(" ").trim()
+        val parameters = mapOf("input" to content)
         
-        // ToolHub의 도구 호출 가능 여부 확인
-        if (message.type == MessageType.TOOL_CALL) {
-            val toolName = message.metadata["toolName"] as? String
-            if (toolName != null) {
-                return runCatching {
-                    kotlinx.coroutines.runBlocking { 
-                        toolHub.listTools().any { it.name == toolName }
-                    }
-                }.getOrElse { false }
-            }
-        }
-        
-        return false
+        return ToolRequest(toolName, parameters)
     }
     
     /**
-     * 📊 도구 실행 통계 조회
+     * 🔍 Check if ToolHub includes tools
      */
-    fun getToolExecutionStats(): Map<String, Any> {
-        return if (toolHub is StaticToolHub) {
-            toolHub.getExecutionStats(toolContext)
-        } else {
-            mapOf(
-                "total_executions" to toolContext.callHistory.size,
-                "execution_history" to toolContext.callHistory.map { it.getSummary() }
-            )
-        }
+    private fun hasToolInToolHub(toolName: String): Boolean {
+        // Check if tool can be called in ToolHub
+        return toolHub.getTools().any { it.name == toolName }
     }
     
     /**
-     * 🗂️ 도구 컨텍스트 조회
+     * Check if message is a tool call request
      */
-    fun getToolContext(): ToolContext = toolContext
+    private fun isToolCallRequest(message: Message): Boolean {
+        return message.content.startsWith("tool:") || message.type == MessageType.TOOL_CALL
+    }
     
     /**
-     * 🧰 ToolHub 조회
+     * Check if message is a tool call response
      */
-    fun getToolHub(): ToolHub = toolHub
+    private fun isToolCallResponse(message: Message): Boolean {
+        return message.type == MessageType.TOOL_CALL
+    }
+    
+    /**
+     * 📊 Get tool execution statistics
+     */
+    suspend fun getToolStatistics(): Map<String, Any> {
+        return toolHub.getStatistics()
+    }
+    
+    /**
+     * Get tool context
+     */
+    suspend fun getToolContext(): ToolContext {
+        return toolHub.getContext()
+    }
+    
+    /**
+     * 🗂️ Get tool context
+     */
+    fun getToolHub(): ToolHub {
+        return toolHub
+    }
 }
 
 /**
- * 🎯 Agent 확장 함수 - ToolHub 통합
+ * 🎯 Agent extension function - ToolHub integration
  */
 suspend fun Agent.withToolHub(toolHub: ToolHub): ToolHubAgent {
-    // ToolHub 시작 (아직 시작되지 않았다면)
-    if (toolHub is StaticToolHub && !toolHub.isStarted()) {
+    // Start ToolHub (if not already started)
+    if (!toolHub.isStarted()) {
         toolHub.start()
     }
     
@@ -165,72 +168,16 @@ suspend fun Agent.withToolHub(toolHub: ToolHub): ToolHubAgent {
 }
 
 /**
- * 🔧 BaseAgent 확장 함수 - ToolHub 통합 (더 편리한 사용)
+ * 🔧 BaseAgent extension function - ToolHub integration (more convenient usage)
  */
-suspend fun BaseAgent.withToolHub(toolHub: ToolHub): ToolHubAgent {
-    return (this as Agent).withToolHub(toolHub)
+fun BaseAgent.enhanceWithToolHub(toolHub: ToolHub): ToolHubAgent {
+    return ToolHubAgent(this, toolHub)
 }
 
 /**
- * 🎯 ToolHub 전용 Agent 생성 함수
+ * Tool request data class
  */
-suspend fun createToolHubAgent(
-    id: String,
-    name: String,
-    description: String,
-    toolHub: ToolHub,
-    capabilities: List<String> = emptyList(),
-    messageHandler: (suspend (Message) -> Message)? = null
-): ToolHubAgent {
-    val baseAgent = object : BaseAgent(id, name, description, capabilities) {
-        override suspend fun processMessage(message: Message): Message {
-            return messageHandler?.invoke(message) ?: message.createReply(
-                content = "Processed by ToolHub Agent: ${message.content}",
-                sender = id,
-                type = MessageType.TEXT
-            )
-        }
-    }
-    
-    return baseAgent.withToolHub(toolHub)
-}
-
-/**
- * 🔧 ToolHub 전용 Agent DSL
- */
-suspend fun toolHubAgent(
-    id: String,
-    name: String,
-    description: String,
-    toolHub: ToolHub,
-    init: ToolHubAgentBuilder.() -> Unit = {}
-): ToolHubAgent {
-    val builder = ToolHubAgentBuilder(id, name, description, toolHub)
-    builder.init()
-    return builder.build()
-}
-
-/**
- * 🏗️ ToolHub Agent 빌더
- */
-class ToolHubAgentBuilder(
-    private val id: String,
-    private val name: String,
-    private val description: String,
-    private val toolHub: ToolHub
-) {
-    private var capabilities: List<String> = emptyList()
-    private var messageHandler: (suspend (Message) -> Message)? = null
-    
-    fun capabilities(vararg caps: String) {
-        capabilities = caps.toList()
-    }
-    
-    fun messageHandler(handler: suspend (Message) -> Message) {
-        messageHandler = handler
-    }
-    
-    suspend fun build(): ToolHubAgent {
-        return createToolHubAgent(id, name, description, toolHub, capabilities, messageHandler)
-    }
-} 
+data class ToolRequest(
+    val toolName: String,
+    val parameters: Map<String, Any>
+) 

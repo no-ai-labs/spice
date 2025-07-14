@@ -17,7 +17,7 @@ class ToolHubTest {
     
     @BeforeEach
     fun setup() {
-        // 테스트용 도구 생성
+        // test용 도구 generation
         testTool1 = object : BaseTool(
             name = "test_calculator",
             description = "Simple calculator for testing",
@@ -96,12 +96,12 @@ class ToolHubTest {
         toolHub.start()
         assertTrue(toolHub.isStarted())
         
-        // 도구 목록 확인
+        // 도구 목록 check
         val tools = toolHub.listTools()
         assertEquals(2, tools.size)
         assertEquals(setOf("test_calculator", "test_greeter"), tools.map { it.name }.toSet())
         
-        // 도구 존재 확인
+        // 도구 존재 check
         assertTrue(toolHub.hasTool("test_calculator"))
         assertTrue(toolHub.hasTool("test_greeter"))
         assertFalse(toolHub.hasTool("nonexistent_tool"))
@@ -120,7 +120,7 @@ class ToolHubTest {
         toolHub.start()
         val context = ToolContext()
         
-        // 계산기 도구 실행
+        // 계산기 도구 execution
         val calcResult = toolHub.callTool(
             name = "test_calculator",
             parameters = mapOf(
@@ -134,7 +134,7 @@ class ToolHubTest {
         assertTrue(calcResult.success)
         assertEquals("15.0", (calcResult as ToolResult.Success).output.toString())
         
-        // 인사 도구 실행
+        // 인사 도구 execution
         val greetResult = toolHub.callTool(
             name = "test_greeter",
             parameters = mapOf(
@@ -147,7 +147,7 @@ class ToolHubTest {
         assertTrue(greetResult.success)
         assertEquals("안녕하세요, Alice!", (greetResult as ToolResult.Success).output.toString())
         
-        // 실행 히스토리 확인
+        // execution history check
         assertEquals(2, context.callHistory.size)
         assertEquals("test_calculator", context.callHistory[0].toolName)
         assertEquals("test_greeter", context.callHistory[1].toolName)
@@ -160,7 +160,7 @@ class ToolHubTest {
         toolHub.start()
         val context = ToolContext()
         
-        // 존재하지 않는 도구 실행
+        // 존재하지 않는 도구 execution
         val notFoundResult = toolHub.callTool(
             name = "nonexistent_tool",
             parameters = emptyMap(),
@@ -170,7 +170,7 @@ class ToolHubTest {
         assertFalse(notFoundResult.success)
         assertTrue((notFoundResult as ToolResult.Error).message.contains("not found"))
         
-        // 0으로 나누기 오류
+        // 0으로 나누기 error
         val divisionResult = toolHub.callTool(
             name = "test_calculator",
             parameters = mapOf(
@@ -191,13 +191,13 @@ class ToolHubTest {
     fun `ToolHub 상태 저장 및 로드 테스트`() = runBlocking {
         toolHub.start()
         
-        // 상태 저장
+        // status 저장
         val savedState = toolHub.saveState()
         assertEquals("static", savedState["hub_type"])
         assertEquals(2, savedState["tool_count"])
         assertTrue(savedState["is_started"] as Boolean)
         
-        // 새로운 ToolHub 생성하고 상태 로드
+        // 새로운 ToolHub generation하고 status 로드
         val newToolHub = StaticToolHub(listOf(testTool1, testTool2))
         newToolHub.loadState(savedState)
         
@@ -213,7 +213,7 @@ class ToolHubTest {
         toolHub.start()
         val context = ToolContext()
         
-        // 여러 도구 실행
+        // multiple 도구 execution
         repeat(3) {
             toolHub.callTool(
                 name = "test_calculator",
@@ -230,7 +230,7 @@ class ToolHubTest {
             )
         }
         
-        // 통계 확인
+        // statistics check
         val stats = toolHub.getExecutionStats(context)
         assertEquals(5, stats["total_executions"])
         
@@ -264,7 +264,7 @@ class ToolHubTest {
     fun `ToolHub 시작 전 도구 실행 시 오류 테스트`() = runBlocking {
         val context = ToolContext()
         
-        // 시작하지 않은 ToolHub에서 도구 실행
+        // 시작하지 않은 ToolHubin 도구 execution
         val result = toolHub.callTool(
             name = "test_calculator",
             parameters = mapOf("operation" to "add", "a" to 1, "b" to 2),

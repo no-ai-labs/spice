@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 
 /**
- * 개선된 AgentBuilder와 ToolHub 통합 테스트
+ * improvement된 AgentBuilder와 ToolHub 통합 test
  */
 class EnhancedToolHubIntegrationTest {
     
@@ -18,7 +18,7 @@ class EnhancedToolHubIntegrationTest {
     
     @BeforeEach
     fun setup() {
-        // 개선된 ToolBuilder로 생성한 도구들
+        // improvement된 ToolBuilder로 generation한 도구들
         enhancedTools = listOf(
             createEnhancedCalculatorTool(),
             createEnhancedTextProcessorTool(),
@@ -29,7 +29,7 @@ class EnhancedToolHubIntegrationTest {
     }
     
     private fun createEnhancedCalculatorTool(): Tool {
-        // DSL을 사용하지 않고 직접 Tool 생성 (ToolBuilder 스타일)
+        // DSL을 사용하지 않고 직접 Tool generation (ToolBuilder 스타일)
         return object : BaseTool(
             name = "enhanced_calculator",
             description = "Enhanced calculator with validation",
@@ -225,7 +225,7 @@ class EnhancedToolHubIntegrationTest {
     fun `개선된 ToolBuilder와 ToolHub 통합 테스트`() = runBlocking {
         toolHub.start()
         
-        // 1. 계산기 도구 테스트
+        // 1. 계산기 도구 test
         val context = ToolContext()
         
         val calcResult = toolHub.callTool(
@@ -242,7 +242,7 @@ class EnhancedToolHubIntegrationTest {
         assertTrue(calcResult.success)
         assertEquals("256", (calcResult as ToolResult.Success).output)
         
-        // 2. 텍스트 처리기 테스트
+        // 2. 텍스트 processing기 test
         val textResult = toolHub.callTool(
             name = "enhanced_text_processor",
             parameters = mapOf(
@@ -259,7 +259,7 @@ class EnhancedToolHubIntegrationTest {
         assertTrue(textOutput.contains("capitalize: Hello world"))
         assertTrue(textOutput.contains("uppercase: HELLO WORLD"))
         
-        // 3. 데이터 검증기 테스트
+        // 3. data validation기 test
         val validationResult = toolHub.callTool(
             name = "enhanced_data_validator",
             parameters = mapOf(
@@ -275,7 +275,7 @@ class EnhancedToolHubIntegrationTest {
         assertTrue(validationOutput.contains("PASS: Data is not null"))
         assertTrue(validationOutput.contains("PASS: Data is a number"))
         
-        // 실행 통계 확인
+        // execution statistics check
         assertEquals(3, context.callHistory.size)
         assertTrue(context.callHistory.all { it.isSuccess })
         
@@ -284,13 +284,13 @@ class EnhancedToolHubIntegrationTest {
     
     @Test
     fun `Agent DSL과 ToolHub 통합 테스트`() = runBlocking {
-        // DSL로 Agent 생성 (개선된 기능 사용)
+        // DSL로 Agent generation (improvement된 feature 사용)
         val agent = agent {
             name = "Enhanced ToolHub Agent"
             description = "Agent using enhanced DSL features with ToolHub"
             capabilities("calculation", "text-processing", "data-validation")
             
-            // Agent 자체 도구 정의 (개선된 parameter() 함수 사용)
+            // Agent 자체 도구 정의 (improvement된 parameter() function 사용)
             tool("agent_formatter") {
                 description = "Agent's own formatting tool"
                 
@@ -332,7 +332,7 @@ class EnhancedToolHubIntegrationTest {
             messageHandler { message ->
                 when (message.type) {
                     MessageType.TEXT -> {
-                        // 텍스트 메시지를 자동으로 포맷팅
+                        // 텍스트 message를 자동으로 포맷팅
                         val formattedMessage = Message(
                             id = "auto-format-${message.id}",
                             type = MessageType.TOOL_CALL,
@@ -362,7 +362,7 @@ class EnhancedToolHubIntegrationTest {
         val toolHubAgent = agent.withToolHub(toolHub)
         toolHub.start()
         
-        // 1. Agent 자체 도구 테스트
+        // 1. Agent 자체 도구 test
         val agentToolMessage = Message(
             id = "agent-tool-test",
             type = MessageType.TOOL_CALL,
@@ -380,7 +380,7 @@ class EnhancedToolHubIntegrationTest {
         assertEquals(MessageType.TOOL_RESULT, agentToolResponse.type)
         assertEquals(">> ***Hello World***", agentToolResponse.content)
         
-        // 2. ToolHub 도구 테스트
+        // 2. ToolHub 도구 test
         val hubToolMessage = Message(
             id = "hub-tool-test",
             type = MessageType.TOOL_CALL,
@@ -399,7 +399,7 @@ class EnhancedToolHubIntegrationTest {
         assertEquals(MessageType.TOOL_RESULT, hubToolResponse.type)
         assertEquals("4.0", hubToolResponse.content)
         
-        // 3. 자동 포맷팅 테스트 (텍스트 메시지)
+        // 3. 자동 포맷팅 test (텍스트 message)
         val textMessage = Message(
             id = "text-test",
             type = MessageType.TEXT,
@@ -411,7 +411,7 @@ class EnhancedToolHubIntegrationTest {
         assertEquals(MessageType.TOOL_RESULT, textResponse.type)
         assertEquals("Agent: [Hello from user]", textResponse.content)
         
-        // 도구 개수 확인 (Agent 도구 + ToolHub 도구)
+        // 도구 개수 check (Agent 도구 + ToolHub 도구)
         val allTools = toolHubAgent.getTools()
         assertEquals(4, allTools.size) // 1개 Agent 도구 + 3개 ToolHub 도구
         
@@ -428,13 +428,13 @@ class EnhancedToolHubIntegrationTest {
     fun `ToolChain과 개선된 도구들 통합 테스트`() = runBlocking {
         toolHub.start()
         
-        // 복합 데이터 처리 체인 실행
+        // 복합 data processing 체인 execution
         val result = executeToolChain(
             toolHub = toolHub,
             chainName = "enhanced_data_processing",
             initialParameters = mapOf("raw_input" to "  Hello World 123  ")
         ) {
-            // 1단계: 데이터 검증
+            // 1단계: data validation
             step(
                 name = "validate_input",
                 toolName = "enhanced_data_validator",
@@ -445,7 +445,7 @@ class EnhancedToolHubIntegrationTest {
                 )
             )
             
-            // 2단계: 텍스트 처리
+            // 2단계: 텍스트 processing
             step(
                 name = "process_text",
                 toolName = "enhanced_text_processor",
@@ -467,7 +467,7 @@ class EnhancedToolHubIntegrationTest {
                     "precision" to 0
                 ),
                 condition = { context ->
-                    // 이전 단계가 성공한 경우에만 실행
+                    // 이전 단계가 성공한 경우에만 execution
                     context.executionHistory.isNotEmpty() && 
                     context.executionHistory.all { it.result.success }
                 }
@@ -479,13 +479,13 @@ class EnhancedToolHubIntegrationTest {
         assertEquals(3, result.successfulSteps)
         assertEquals(100.0, result.successRate)
         
-        // 각 단계 결과 확인
+        // 각 단계 결과 check
         val logs = result.executionLogs
         assertEquals("validate_input", logs[0].stepName)
         assertEquals("process_text", logs[1].stepName)
         assertEquals("calculate_stats", logs[2].stepName)
         
-        // 최종 계산 결과 확인
+        // 최종 계산 결과 check
         val finalResult = logs[2].result
         assertTrue(finalResult.success)
         assertEquals("30", (finalResult as ToolResult.Success).output)
@@ -517,7 +517,7 @@ class EnhancedToolHubIntegrationTest {
         assertFalse(invalidCalcResult.success)
         assertTrue((invalidCalcResult as ToolResult.Error).message.contains("not found"))
         
-        // 빈 텍스트로 텍스트 처리기 호출
+        // 빈 텍스트로 텍스트 processing기 호출
         val invalidTextResult = toolHub.callTool(
             name = "enhanced_text_processor",
             parameters = mapOf(
@@ -530,7 +530,7 @@ class EnhancedToolHubIntegrationTest {
         assertFalse(invalidTextResult.success)
         assertTrue((invalidTextResult as ToolResult.Error).message.contains("cannot execute"))
         
-        // 실행 통계에서 실패 확인
+        // execution statisticsin 실패 check
         val stats = (toolHub as StaticToolHub).getExecutionStats(context)
         assertEquals(2, stats["total_executions"])
         assertEquals(0.0, stats["success_rate"])

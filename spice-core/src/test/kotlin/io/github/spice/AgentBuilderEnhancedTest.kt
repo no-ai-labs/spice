@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 
 /**
- * 개선된 AgentBuilder와 ToolBuilder 기능 테스트
+ * improvement된 AgentBuilder와 ToolBuilder feature test
  */
 class AgentBuilderEnhancedTest {
     
@@ -21,13 +21,13 @@ class AgentBuilderEnhancedTest {
             tool("advanced_calculator") {
                 description = "Advanced calculator with parameter validation"
                 
-                // 새로운 parameter() 함수 사용
+                // 새로운 parameter() function 사용
                 parameter("operation", "string", "Mathematical operation", required = true)
                 parameter("a", "number", "First operand", required = true)
                 parameter("b", "number", "Second operand", required = true)
                 parameter("precision", "number", "Decimal precision", required = false)
                 
-                // canExecute 검증 함수
+                // canExecute validation function
                 canExecute { params ->
                     val operation = params["operation"] as? String
                     val validOperations = setOf("add", "subtract", "multiply", "divide", "power")
@@ -76,7 +76,7 @@ class AgentBuilderEnhancedTest {
             }
         }
         
-        // Tool 스키마 확인
+        // Tool 스키마 check
         val tool = agent.getTools().first()
         assertEquals("advanced_calculator", tool.name)
         assertEquals("Advanced calculator with parameter validation", tool.description)
@@ -84,7 +84,7 @@ class AgentBuilderEnhancedTest {
         val schema = tool.schema
         assertEquals(4, schema.parameters.size)
         
-        // 파라미터 스키마 확인
+        // 파라미터 스키마 check
         val operationParam = schema.parameters["operation"]!!
         assertEquals("string", operationParam.type)
         assertEquals("Mathematical operation", operationParam.description)
@@ -95,11 +95,11 @@ class AgentBuilderEnhancedTest {
         assertEquals("Decimal precision", precisionParam.description)
         assertFalse(precisionParam.required)
         
-        // canExecute 테스트
+        // canExecute test
         assertTrue(tool.canExecute(mapOf("operation" to "add", "a" to 1, "b" to 2)))
         assertFalse(tool.canExecute(mapOf("operation" to "invalid", "a" to 1, "b" to 2)))
         
-        // 실행 테스트
+        // execution test
         val validResult = tool.execute(mapOf(
             "operation" to "multiply",
             "a" to 3.14159,
@@ -109,7 +109,7 @@ class AgentBuilderEnhancedTest {
         assertTrue(validResult.success)
         assertEquals("6.283", validResult.result)
         
-        // 잘못된 연산 테스트
+        // 잘못된 연산 test
         val invalidResult = tool.execute(mapOf(
             "operation" to "invalid",
             "a" to 1,
@@ -131,13 +131,13 @@ class AgentBuilderEnhancedTest {
             description = "Second test agent"
         }
         
-        // ID가 자동 생성되었는지 확인
+        // ID가 자동 generation되었는지 check
         assertTrue(agent1.id.isNotBlank())
         assertTrue(agent2.id.isNotBlank())
         assertTrue(agent1.id.startsWith("agent-"))
         assertTrue(agent2.id.startsWith("agent-"))
         
-        // 두 Agent의 ID가 다른지 확인
+        // 두 Agent의 ID가 다른지 check
         assertTrue(agent1.id != agent2.id)
         
         println("Agent 1 ID: ${agent1.id}")
@@ -151,7 +151,7 @@ class AgentBuilderEnhancedTest {
             name = "Deprecated Test Agent"
             description = "Testing deprecated messageProcessor"
             
-            // deprecated 함수 사용 (경고가 나와야 함)
+            // deprecated function 사용 (warning가 나와야 함)
             @Suppress("DEPRECATION")
             messageProcessor { message ->
                 message.createReply(
@@ -181,7 +181,7 @@ class AgentBuilderEnhancedTest {
             name = "Complex Tool Agent"
             description = "Agent with multiple complex tools"
             
-            // 첫 번째 도구: 문자열 처리기
+            // 첫 번째 도구: 문자열 processing기
             tool("string_processor") {
                 description = "Advanced string processing tool"
                 
@@ -234,7 +234,7 @@ class AgentBuilderEnhancedTest {
                 }
             }
             
-            // 두 번째 도구: 데이터 검증기
+            // 두 번째 도구: data validation기
             tool("data_validator") {
                 description = "Data validation tool"
                 
@@ -308,10 +308,10 @@ class AgentBuilderEnhancedTest {
             }
         }
         
-        // 도구 개수 확인
+        // 도구 개수 check
         assertEquals(2, agent.getTools().size)
         
-        // 문자열 처리기 테스트
+        // 문자열 processing기 test
         val stringProcessor = agent.getTools().find { it.name == "string_processor" }!!
         
         val stringResult = stringProcessor.execute(mapOf(
@@ -324,7 +324,7 @@ class AgentBuilderEnhancedTest {
         assertEquals("dlroW ol...", stringResult.result)
         assertEquals("true", stringResult.metadata["truncated"])
         
-        // 데이터 검증기 테스트
+        // data validation기 test
         val dataValidator = agent.getTools().find { it.name == "data_validator" }!!
         
         val validationResult = dataValidator.execute(mapOf(
@@ -336,7 +336,7 @@ class AgentBuilderEnhancedTest {
         assertTrue(validationResult.success)
         assertTrue(validationResult.result.contains("All validations passed"))
         
-        // 검증 실패 테스트
+        // validation 실패 test
         val failedValidation = dataValidator.execute(mapOf(
             "data" to "not_a_number",
             "rules" to listOf("is_number"),
@@ -391,13 +391,13 @@ class AgentBuilderEnhancedTest {
         val tool = agent.getTools().first()
         assertEquals("legacy_tool", tool.name)
         
-        // 스키마 확인 (레거시 방식으로 생성된 파라미터들)
+        // 스키마 check (레거시 방식으로 generation된 파라미터들)
         val schema = tool.schema
         assertEquals(3, schema.parameters.size)
         assertTrue(schema.parameters.all { it.value.required }) // 레거시 방식은 모두 required=true
         assertTrue(schema.parameters.all { it.value.description.isEmpty() }) // 레거시 방식은 description 없음
         
-        // 실행 테스트
+        // execution test
         val result = tool.execute(mapOf(
             "input" to "Hi",
             "count" to 3,

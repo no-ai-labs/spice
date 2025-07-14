@@ -16,7 +16,7 @@ class ToolHubAgentTest {
     
     @BeforeEach
     fun setup() {
-        // 테스트용 도구 생성
+        // test용 도구 generation
         testTool = object : BaseTool(
             name = "test_formatter",
             description = "Text formatter for testing",
@@ -51,7 +51,7 @@ class ToolHubAgentTest {
             }
         }
         
-        // 기본 Agent 생성
+        // basic Agent generation
         baseAgent = object : BaseAgent(
             id = "test-agent",
             name = "Test Agent",
@@ -67,7 +67,7 @@ class ToolHubAgentTest {
             }
         }
         
-        // ToolHub 생성
+        // ToolHub generation
         toolHub = StaticToolHub(listOf(testTool))
     }
     
@@ -75,18 +75,18 @@ class ToolHubAgentTest {
     fun `ToolHubAgent 기본 기능 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // Agent 기본 정보 확인
+        // Agent basic information check
         assertEquals("test-agent", toolHubAgent.id)
         assertEquals("Test Agent", toolHubAgent.name)
         assertEquals("Agent for testing ToolHub integration", toolHubAgent.description)
         assertEquals(listOf("text-processing"), toolHubAgent.capabilities)
         
-        // 도구 목록 확인 (기본 Agent 도구 + ToolHub 도구)
+        // 도구 목록 check (basic Agent 도구 + ToolHub 도구)
         val tools = toolHubAgent.getTools()
         assertEquals(1, tools.size) // ToolHub의 도구 1개
         assertEquals("test_formatter", tools[0].name)
         
-        // ToolHub 접근 확인
+        // ToolHub 접근 check
         assertTrue(toolHubAgent.getToolHub() is StaticToolHub)
         assertEquals(1, toolHubAgent.getToolHub().listTools().size)
     }
@@ -95,7 +95,7 @@ class ToolHubAgentTest {
     fun `ToolHubAgent 도구 호출 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // 도구 호출 메시지 생성
+        // 도구 호출 message generation
         val toolCallMessage = Message(
             id = "tool-call-1",
             type = MessageType.TOOL_CALL,
@@ -108,7 +108,7 @@ class ToolHubAgentTest {
             )
         )
         
-        // 도구 호출 처리
+        // 도구 호출 processing
         val response = toolHubAgent.processMessage(toolCallMessage)
         
         assertEquals(MessageType.TOOL_RESULT, response.type)
@@ -116,7 +116,7 @@ class ToolHubAgentTest {
         assertEquals("test-agent", response.sender)
         assertEquals("tool-call-1", response.parentId)
         
-        // 메타데이터 확인
+        // 메타data check
         assertEquals("test_formatter", response.metadata["toolName"])
         assertEquals("true", response.metadata["toolSuccess"])
     }
@@ -125,7 +125,7 @@ class ToolHubAgentTest {
     fun `ToolHubAgent 일반 메시지 처리 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // 일반 텍스트 메시지
+        // 일반 텍스트 message
         val textMessage = Message(
             id = "text-1",
             type = MessageType.TEXT,
@@ -133,7 +133,7 @@ class ToolHubAgentTest {
             sender = "user"
         )
         
-        // 기본 Agent의 processMessage가 호출되어야 함
+        // basic Agent의 processMessage가 호출되어야 함
         val response = toolHubAgent.processMessage(textMessage)
         
         assertEquals(MessageType.TEXT, response.type)
@@ -145,7 +145,7 @@ class ToolHubAgentTest {
     fun `ToolHubAgent canHandle 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // 기본 Agent가 처리할 수 있는 메시지
+        // basic Agent가 processing할 수 있는 message
         val textMessage = Message(
             id = "text-1",
             type = MessageType.TEXT,
@@ -154,7 +154,7 @@ class ToolHubAgentTest {
         )
         assertTrue(toolHubAgent.canHandle(textMessage))
         
-        // ToolHub 도구 호출 메시지
+        // ToolHub 도구 호출 message
         val toolCallMessage = Message(
             id = "tool-call-1",
             type = MessageType.TOOL_CALL,
@@ -164,7 +164,7 @@ class ToolHubAgentTest {
         )
         assertTrue(toolHubAgent.canHandle(toolCallMessage))
         
-        // 존재하지 않는 도구 호출 메시지
+        // 존재하지 않는 도구 호출 message
         val unknownToolMessage = Message(
             id = "tool-call-2",
             type = MessageType.TOOL_CALL,
@@ -179,7 +179,7 @@ class ToolHubAgentTest {
     fun `ToolHubAgent 도구 실행 통계 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // 여러 번 도구 실행
+        // multiple 번 도구 execution
         repeat(3) { i ->
             val toolCallMessage = Message(
                 id = "tool-call-$i",
@@ -196,7 +196,7 @@ class ToolHubAgentTest {
             toolHubAgent.processMessage(toolCallMessage)
         }
         
-        // 실행 통계 확인
+        // execution statistics check
         val stats = toolHubAgent.getToolExecutionStats()
         assertEquals(3, stats["total_executions"])
         
@@ -249,7 +249,7 @@ class ToolHubAgentTest {
         assertEquals("Hub Agent", toolHubAgent.name)
         assertEquals(listOf("formatting"), toolHubAgent.capabilities)
         
-        // 커스텀 메시지 핸들러 테스트
+        // 커스텀 message 핸들러 test
         val message = Message(
             id = "test-1",
             type = MessageType.TEXT,
@@ -283,7 +283,7 @@ class ToolHubAgentTest {
         assertEquals("DSL Agent", toolHubAgent.name)
         assertEquals(listOf("formatting", "text-processing"), toolHubAgent.capabilities)
         
-        // DSL 메시지 핸들러 테스트
+        // DSL message 핸들러 test
         val message = Message(
             id = "test-1",
             type = MessageType.TEXT,
@@ -299,7 +299,7 @@ class ToolHubAgentTest {
     fun `ToolContext 접근 테스트`() = runBlocking {
         val toolHubAgent = baseAgent.withToolHub(toolHub)
         
-        // 도구 실행으로 컨텍스트에 데이터 추가
+        // 도구 execution으로 context에 data add
         val toolCallMessage = Message(
             id = "tool-call-1",
             type = MessageType.TOOL_CALL,
@@ -314,13 +314,13 @@ class ToolHubAgentTest {
         
         toolHubAgent.processMessage(toolCallMessage)
         
-        // 컨텍스트 확인
+        // context check
         val context = toolHubAgent.getToolContext()
         assertEquals(1, context.callHistory.size)
         assertEquals("test_formatter", context.callHistory[0].toolName)
         assertTrue(context.callHistory[0].isSuccess)
         
-        // 메타데이터 확인
+        // 메타data check
         val lastResult = context.getLastResult()
         assertTrue(lastResult?.success == true)
         assertEquals("HELLO", (lastResult as ToolResult.Success).output)

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 /**
  * 🎯 ToolHub 사용 예제
  * 
- * 이 클래스는 ToolHub 시스템의 다양한 사용법을 보여주는 예제들을 포함합니다.
+ * 이 class는 ToolHub system의 various 사용법을 보여주는 예제들을 including합니다.
  */
 class ToolHubUsageExample {
     
@@ -31,7 +31,7 @@ class ToolHubUsageExample {
                 val query = parameters["query"] as? String ?: ""
                 val limit = (parameters["limit"] as? Number)?.toInt() ?: 5
                 
-                // 실제 웹 검색 로직 (여기서는 모의 구현)
+                // 실제 웹 검색 logic (여기서는 모의 implementation)
                 val results = (1..limit).map { "검색 결과 $it: $query 관련 정보" }
                 
                 return io.github.spice.ToolResult.success(
@@ -58,7 +58,7 @@ class ToolHubUsageExample {
             override suspend fun execute(parameters: Map<String, Any>): io.github.spice.ToolResult {
                 val path = parameters["path"] as? String ?: ""
                 
-                // 실제 파일 읽기 로직 (여기서는 모의 구현)
+                // 실제 파일 읽기 logic (여기서는 모의 implementation)
                 val content = "파일 내용: $path"
                 
                 return io.github.spice.ToolResult.success(
@@ -71,7 +71,7 @@ class ToolHubUsageExample {
             }
         }
         
-        // 2. ToolHub 생성 및 시작
+        // 2. ToolHub generation 및 시작
         val toolHub = staticToolHub {
             addTool(webSearchTool)
             addTool(fileReadTool)
@@ -79,7 +79,7 @@ class ToolHubUsageExample {
         
         toolHub.start()
         
-        // 3. 도구 실행
+        // 3. 도구 execution
         val context = ToolContext()
         
         val searchResult = toolHub.callTool(
@@ -103,7 +103,7 @@ class ToolHubUsageExample {
         println("\n📄 파일 읽기 결과:")
         println(fileResult)
         
-        // 4. 실행 통계 확인
+        // 4. execution statistics check
         if (toolHub is StaticToolHub) {
             val stats = toolHub.getExecutionStats(context)
             println("\n📊 실행 통계:")
@@ -153,10 +153,10 @@ class ToolHubUsageExample {
             }
         }
         
-        // 2. ToolHub 생성
+        // 2. ToolHub generation
         val toolHub = createStaticToolHub(calculatorTool)
         
-        // 3. Agent 생성 및 ToolHub 통합
+        // 3. Agent generation 및 ToolHub 통합
         val baseAgent = object : BaseAgent(
             id = "math-agent",
             name = "Math Agent",
@@ -195,7 +195,7 @@ class ToolHubUsageExample {
         println("내용: ${response.content}")
         println("메타데이터: ${response.metadata}")
         
-        // 5. 일반 메시지 처리
+        // 5. 일반 message processing
         val textMessage = Message(
             id = "text-1",
             type = MessageType.TEXT,
@@ -207,7 +207,7 @@ class ToolHubUsageExample {
         println("\n💬 텍스트 응답:")
         println(textResponse.content)
         
-        // 6. 도구 실행 통계
+        // 6. 도구 execution statistics
         val stats = toolHubAgent.getToolExecutionStats()
         println("\n📊 도구 실행 통계:")
         println("총 실행 횟수: ${stats["total_executions"]}")
@@ -216,7 +216,7 @@ class ToolHubUsageExample {
     
     @Test
     fun `ToolChain과 ToolHub 통합 예제`() = runBlocking {
-        // 1. 데이터 처리 도구들 정의
+        // 1. data processing 도구들 정의
         val validatorTool = object : BaseTool(
             name = "validator",
             description = "데이터 유효성 검사",
@@ -303,7 +303,7 @@ class ToolHubUsageExample {
             }
         }
         
-        // 2. ToolHub 생성
+        // 2. ToolHub generation
         val toolHub = staticToolHub {
             addTool(validatorTool)
             addTool(transformerTool)
@@ -312,7 +312,7 @@ class ToolHubUsageExample {
         
         toolHub.start()
         
-        // 3. ToolChain 정의 및 실행
+        // 3. ToolChain 정의 및 execution
         val result = executeToolChain(
             toolHub = toolHub,
             chainName = "data_processing_pipeline",
@@ -386,10 +386,10 @@ class ToolHubUsageExample {
             }
         }
         
-        // 2. ToolHub 생성
+        // 2. ToolHub generation
         val toolHub = createStaticToolHub(greetingTool)
         
-        // 3. DSL을 사용한 Agent 생성
+        // 3. DSL을 사용한 Agent generation
         val agent = toolHubAgent(
             id = "greeting-agent",
             name = "Greeting Agent",
@@ -401,7 +401,7 @@ class ToolHubUsageExample {
             messageHandler { message ->
                 when (message.type) {
                     MessageType.TEXT -> {
-                        // 텍스트 메시지에서 이름 추출하여 자동 인사
+                        // 텍스트 messagein 이름 추출하여 자동 인사
                         val name = message.content.substringAfter("안녕 ").substringBefore(" ")
                         if (name.isNotBlank() && name != message.content) {
                             val greetingMessage = Message(
@@ -415,7 +415,7 @@ class ToolHubUsageExample {
                                     "param_language" to "ko"
                                 )
                             )
-                            // 재귀적으로 도구 호출 처리
+                            // 재귀적으로 도구 호출 processing
                             return@messageHandler processMessage(greetingMessage)
                         } else {
                             message.createReply(
@@ -436,7 +436,7 @@ class ToolHubUsageExample {
             }
         }
         
-        // 4. Agent 테스트
+        // 4. Agent test
         val testMessage = Message(
             id = "test-1",
             type = MessageType.TEXT,
@@ -450,7 +450,7 @@ class ToolHubUsageExample {
         println("타입: ${response.type}")
         println("내용: ${response.content}")
         
-        // 5. 직접 도구 호출 테스트
+        // 5. 직접 도구 호출 test
         val toolCallMessage = Message(
             id = "tool-test-1",
             type = MessageType.TOOL_CALL,
@@ -469,7 +469,7 @@ class ToolHubUsageExample {
         println("타입: ${toolResponse.type}")
         println("내용: ${toolResponse.content}")
         
-        // 6. 통계 확인
+        // 6. statistics check
         val stats = agent.getToolExecutionStats()
         println("\n📊 실행 통계:")
         stats.forEach { (key, value) ->

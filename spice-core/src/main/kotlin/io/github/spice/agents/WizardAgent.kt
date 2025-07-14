@@ -1,68 +1,91 @@
 package io.github.spice.agents
 
 import io.github.spice.*
+import io.github.spice.model.*
 import kotlinx.coroutines.delay
 
 /**
- * 🧙‍♂️ WizardAgent - One-Shot Model Upgrade Agent
+ * 🧙‍♂️ WizardAgent - ModelClient based One-Shot Model Upgrade Agent
  * 
- * This agent operates in two modes:
- * - Normal Mode: Uses a fast, cost-effective model for routine tasks
- * - Wizard Mode: Temporarily upgrades to a high-intelligence model for complex tasks
+ * This Agent operates in two modes:
+ * - Normal Mode: Uses fast and cost-efficient models for routine tasks
+ * - Wizard Mode: Temporarily upgrades to high-intelligence models for complex tasks
  * 
- * Think of it as a "Super Saiyan" transformation - the agent temporarily becomes
- * much more powerful for specific tasks, then reverts to normal mode.
- * 
- * Unlike multi-agent delegation, this maintains conversation context and provides
- * a seamless user experience where one AI appears to "get smarter" temporarily.
+ * Key features:
+ * - Shares a single ModelContext to maintain conversation context
+ * - Dynamic model switching for cost optimization
+ * - Appears to users as a single AI that temporarily "becomes smarter"
  */
 class WizardAgent(
-    id: String = "wizard-agent",
-    name: String = "Wizard Agent",
-    private val normalAgent: BaseAgent,
-    private val wizardAgent: BaseAgent,
+    /**
+     * ModelClient for normal mode (fast and inexpensive model)
+     */
+    private val normalClient: ModelClient,
+    
+    /**
+     * ModelClient for wizard mode (high-performance model)
+     */
+    private val wizardClient: ModelClient,
+    
+    /**
+     * Shared conversation context (maintains context between modes)
+     */
+    private val sharedContext: ModelContext = ModelContext(),
+    
+    /**
+     * Upgrade condition keywords
+     */
     private val upgradeConditions: List<String> = defaultUpgradeConditions,
-    private val complexityThreshold: Int = 50, // Message length threshold for complexity
-    private val wizardModeIndicator: String = "🧙‍♂️ *Wizard Mode Activated*",
-    private val normalModeIndicator: String = "🐂 *Back to Normal Mode*"
-) : BaseAgent(
-    id = id,
-    name = name,
-    description = "Shape-shifting agent that upgrades intelligence for complex tasks",
-    capabilities = (normalAgent.capabilities + wizardAgent.capabilities + listOf(
-        "dynamic_intelligence",
-        "one_shot_upgrade",
-        "context_preservation",
-        "cost_optimization"
-    )).distinct()
-) {
+    
+    /**
+     * Complexity threshold (based on message length)
+     */
+    private val complexityThreshold: Int = 50,
+    
+    /**
+     * Agent basic information
+     */
+    id: String = "wizard-agent-${System.currentTimeMillis()}",
+    name: String = "Wizard Agent",
+    description: String = "Shape-shifting agent that upgrades intelligence for complex tasks",
+    capabilities: List<String> = listOf(
+        "dynamic_intelligence", "one_shot_upgrade", "context_preservation", 
+        "cost_optimization", "multi_model_routing"
+    )
+) : BaseAgent(id, name, description, capabilities) {
     
     companion object {
         val defaultUpgradeConditions = listOf(
             // Visualization and Graphics
-            "시각화", "visualize", "그래프", "graph", "차트", "chart", "다이어그램", "diagram",
-            "SVG", "svg", "흐름도", "flowchart", "플로우차트", "flow chart",
+            "visualization".i18nBilingual(), "visualize", "graph".i18nBilingual(), "graph", "chart".i18nBilingual(), "chart", "diagram".i18nBilingual(), "diagram",
+"SVG", "svg", "flow / flow", "flowchart", "flow chart / flow chart", "flow chart",
             
             // Complex Analysis
-            "복잡한", "complex", "어려운", "difficult", "분석", "analyze", "analysis",
-            "설계", "design", "아키텍처", "architecture", "구조", "structure",
+"complex".i18nBilingual(), "complex", "difficult / difficult", "difficult", "analysis".i18nBilingual(), "analyze", "analysis",
+"design".i18nBilingual(), "design", "architecture / architecture", "architecture", "structure / structure", "structure",
             
             // Programming and Technical
-            "코드", "code", "프로그래밍", "programming", "알고리즘", "algorithm",
-            "데이터베이스", "database", "시스템", "system", "네트워크", "network",
+            "code".i18nBilingual(), "code", "programming".i18nBilingual(), "programming", "algorithm".i18nBilingual(), "algorithm",
+"database / database", "database", "system / system", "system", "network / network", "network",
             
             // Creative and Advanced Tasks
-            "창작", "creative", "작문", "writing", "번역", "translate", "요약", "summary",
-            "기획", "planning", "전략", "strategy", "제안", "proposal",
+"creative / creative", "creative", "writing / writing", "writing", "translate / translate", "translate", "summary / summary", "summary",
+"planning / planning", "planning", "strategy / strategy", "strategy", "suggestion".i18nBilingual(), "proposal",
             
             // Research and Documentation
-            "연구", "research", "조사", "investigation", "문서", "document", "보고서", "report",
-            "논문", "paper", "리뷰", "review", "평가", "evaluation"
+"research".i18nBilingual(), "research", "investigation".i18nBilingual(), "investigation", "document".i18nBilingual(), "document", "report / report", "report",
+"paper / paper", "paper", "review / review", "review", "evaluation / evaluation", "evaluation"
         )
     }
     
     private var isWizardMode = false
     private var wizardModeUsageCount = 0
+    private var normalModeUsageCount = 0
+    
+    /**
+     * system prompt (common to both modes)
+     */
+    var systemPrompt: String = "You are a helpful AI assistant that can dynamically adjust intelligence based on task complexity."
     
     override suspend fun processMessage(message: Message): Message {
         val shouldUpgrade = shouldUpgradeToWizardMode(message)
@@ -75,87 +98,226 @@ class WizardAgent(
     }
     
     /**
-     * 🔮 Determine if message requires wizard mode upgrade
+     * 🔮 Determine if Wizard Mode upgrade is needed
      */
     private fun shouldUpgradeToWizardMode(message: Message): Boolean {
         val content = message.content.lowercase()
         
-        // Check for upgrade trigger words
+        // Upgrade keyword check
         val hasUpgradeKeywords = upgradeConditions.any { condition ->
             content.contains(condition.lowercase())
         }
         
-        // Check message complexity (length-based heuristic)
+        // Message complexity check (based on length)
         val isComplexByLength = message.content.length > complexityThreshold
         
-        // Check for question complexity indicators
-        val hasComplexityIndicators = listOf("어떻게", "how", "왜", "why", "설명", "explain", "분석", "analyze").any {
-            content.contains(it.lowercase())
-        }
+        // Complexity indicator check
+        val hasComplexityIndicators = listOf(
+"how / how", "how", "why / why", "why", "explain / explain", "explain", "analysis".i18nBilingual(), "analyze",
+"detailed / detailed", "detail", "deep / deep", "deep", "complex / complex", "complex"
+        ).any { content.contains(it.lowercase()) }
         
         return hasUpgradeKeywords || (isComplexByLength && hasComplexityIndicators)
     }
     
     /**
-     * 🧙‍♂️ Process message in Wizard Mode (high-intelligence)
+     * 🧙‍♂️ Process message with Wizard Mode (high-intelligence model)
      */
     private suspend fun processWithWizardMode(message: Message): Message {
-        try {
-            // Activate wizard mode
+        return try {
+            // Activate Wizard Mode
             isWizardMode = true
             wizardModeUsageCount++
             
-            // Add wizard mode indicator to message
-            val wizardMessage = message.copy(
-                content = "$wizardModeIndicator\n\n${message.content}",
-                metadata = message.metadata + mapOf(
-                    "wizard_mode_requested" to "true",
+            // Add user message to shared context
+            sharedContext.addUser(message.content, mapOf(
+                "message_id" to message.id,
+                "sender" to message.sender,
+                "timestamp" to System.currentTimeMillis().toString(),
+                "processing_mode" to "wizard"
+            ))
+            
+            // Get full message history
+            val fullMessages = sharedContext.getFullMessages()
+            
+            // Add Wizard mode instruction
+            val wizardSystemPrompt = """
+                $systemPrompt
+                
+                🧙‍♂️ **WIZARD MODE ACTIVATED** - You are now operating in high-intelligence mode.
+                Apply your maximum capabilities to provide the most comprehensive, accurate, and insightful response possible.
+                Take time to think deeply and provide detailed analysis.
+            """.trimIndent()
+            
+            // Generate response with Wizard client
+            val response = wizardClient.chat(
+                messages = fullMessages,
+                systemPrompt = wizardSystemPrompt,
+                metadata = mapOf(
+                    "agent_id" to id,
+                    "conversation_id" to (message.conversationId ?: "unknown"),
+                    "processing_mode" to "wizard",
                     "upgrade_reason" to "complex_task_detected"
                 )
             )
             
-            // Process with high-intelligence agent
-            val wizardResponse = wizardAgent.processMessage(wizardMessage)
+            // Simulate conversion delay
+            delay(500)
             
-            // Add wizard mode metadata
-            val enhancedResponse = wizardResponse.copy(
-                metadata = wizardResponse.metadata + mapOf(
+            if (response.success) {
+                // Add assistant response to shared context
+                sharedContext.addAssistant(response.content, mapOf(
+                    "response_time_ms" to response.responseTimeMs.toString(),
+                    "model" to wizardClient.modelName,
+                    "processing_mode" to "wizard",
+                    "token_usage" to (response.usage?.totalTokens?.toString() ?: "unknown")
+                ))
+                
+                // Display Wizard Mode with response generation
+                val wizardContent = "🧙‍♂️ *Wizard Mode Activated*\n\n${response.content}"
+                
+                message.createReply(
+                    content = wizardContent,
+                    sender = id,
+                    type = MessageType.TEXT,
+                    metadata = mapOf(
+                        "wizard_mode" to "true",
+                        "normal_client" to normalClient.modelName,
+                        "wizard_client" to wizardClient.modelName,
+                        "upgrade_count" to wizardModeUsageCount.toString(),
+                        "processing_mode" to "wizard",
+                        "response_time_ms" to response.responseTimeMs.toString(),
+                        "token_usage" to (response.usage?.totalTokens?.toString() ?: "0"),
+                        "context_size" to sharedContext.size().toString()
+                    )
+                )
+            } else {
+                // Error response
+                message.createReply(
+                    content = "🧙‍♂️ Wizard Mode processing encountered an error: ${response.error} / 🧙‍♂️ Wizard Mode processing encountered an error: ${response.error}",
+                    sender = id,
+                    type = MessageType.ERROR,
+                    metadata = mapOf(
+                        "error" to (response.error ?: "Unknown error"),
+                        "wizard_mode" to "true",
+                        "processing_mode" to "wizard",
+                        "model" to wizardClient.modelName
+                    )
+                )
+            }
+            
+        } catch (e: Exception) {
+            message.createReply(
+                content = "🧙‍♂️ Wizard Mode processing encountered an exception: ${e.message} / 🧙‍♂️ Wizard Mode processing encountered an exception: ${e.message}",
+                sender = id,
+                type = MessageType.ERROR,
+                metadata = mapOf(
+                    "error_type" to e::class.simpleName.orEmpty(),
+                    "error_message" to (e.message ?: "Unknown error"),
                     "wizard_mode" to "true",
-                    "normal_agent" to normalAgent.id,
-                    "wizard_agent" to wizardAgent.id,
-                    "upgrade_count" to wizardModeUsageCount.toString(),
                     "processing_mode" to "wizard"
                 )
             )
-            
-            // Simulate brief "transformation" delay
-            delay(500)
-            
-            return enhancedResponse
-            
         } finally {
-            // Always revert to normal mode after processing
+            // Always return to normal mode
             isWizardMode = false
         }
     }
     
     /**
-     * 🐂 Process message in Normal Mode (standard intelligence)
+     * 🐂 Process message with Normal Mode (standard intelligence)
      */
     private suspend fun processWithNormalMode(message: Message): Message {
-        val normalResponse = normalAgent.processMessage(message)
-        
-        return normalResponse.copy(
-            metadata = normalResponse.metadata + mapOf(
-                "wizard_mode" to "false",
-                "processing_mode" to "normal",
-                "agent_used" to normalAgent.id
+        return try {
+            normalModeUsageCount++
+            
+            // Add user message to shared context
+            sharedContext.addUser(message.content, mapOf(
+                "message_id" to message.id,
+                "sender" to message.sender,
+                "timestamp" to System.currentTimeMillis().toString(),
+                "processing_mode" to "normal"
+            ))
+            
+            // Get full message history
+            val fullMessages = sharedContext.getFullMessages()
+            
+            // Generate response with normal client
+            val response = normalClient.chat(
+                messages = fullMessages,
+                systemPrompt = systemPrompt,
+                metadata = mapOf(
+                    "agent_id" to id,
+                    "conversation_id" to (message.conversationId ?: "unknown"),
+                    "processing_mode" to "normal"
+                )
             )
-        )
+            
+            if (response.success) {
+                // Add assistant response to shared context
+                sharedContext.addAssistant(response.content, mapOf(
+                    "response_time_ms" to response.responseTimeMs.toString(),
+                    "model" to normalClient.modelName,
+                    "processing_mode" to "normal",
+                    "token_usage" to (response.usage?.totalTokens?.toString() ?: "unknown")
+                ))
+                
+                message.createReply(
+                    content = response.content,
+                    sender = id,
+                    type = MessageType.TEXT,
+                    metadata = mapOf(
+                        "wizard_mode" to "false",
+                        "processing_mode" to "normal",
+                        "agent_used" to normalClient.modelName,
+                        "response_time_ms" to response.responseTimeMs.toString(),
+                        "token_usage" to (response.usage?.totalTokens?.toString() ?: "0"),
+                        "context_size" to sharedContext.size().toString()
+                    )
+                )
+            } else {
+                // Error response
+                message.createReply(
+                    content = "Normal mode processing encountered an error: ${response.error} / Normal mode processing encountered an error: ${response.error}",
+                    sender = id,
+                    type = MessageType.ERROR,
+                    metadata = mapOf(
+                        "error" to (response.error ?: "Unknown error"),
+                        "wizard_mode" to "false",
+                        "processing_mode" to "normal",
+                        "model" to normalClient.modelName
+                    )
+                )
+            }
+            
+        } catch (e: Exception) {
+            message.createReply(
+                content = "Normal mode processing encountered an exception: ${e.message} / Normal mode processing encountered an exception: ${e.message}",
+                sender = id,
+                type = MessageType.ERROR,
+                metadata = mapOf(
+                    "error_type" to e::class.simpleName.orEmpty(),
+                    "error_message" to (e.message ?: "Unknown error"),
+                    "wizard_mode" to "false",
+                    "processing_mode" to "normal"
+                )
+            )
+        }
+    }
+    
+    override fun canHandle(message: Message): Boolean {
+        return when (message.type) {
+            MessageType.TEXT, MessageType.PROMPT -> true
+            else -> super.canHandle(message)
+        }
+    }
+    
+    override fun isReady(): Boolean {
+        return normalClient.isReady() && wizardClient.isReady()
     }
     
     /**
-     * 🎯 Process with custom upgrade conditions
+     * 🎯 Process with user-defined upgrade conditions
      */
     suspend fun processWithCustomUpgrade(
         message: Message,
@@ -175,58 +337,75 @@ class WizardAgent(
     }
     
     /**
-     * 📊 Get wizard mode statistics
+     * 🧠 Context management functions
      */
-    fun getWizardStats(): Map<String, Any> {
+    
+    /**
+     * Clear shared context
+     */
+    suspend fun clearContext() {
+        sharedContext.clear()
+    }
+    
+    /**
+     * Get context summary information
+     */
+    suspend fun getContextSummary(): ContextSummary {
+        return sharedContext.getSummary()
+    }
+    
+    /**
+     * Get conversation history
+     */
+    suspend fun getConversationHistory(): List<ModelMessage> {
+        return sharedContext.getMessages()
+    }
+    
+    /**
+     * Update system prompt
+     */
+    fun updateSystemPrompt(prompt: String) {
+        systemPrompt = prompt
+    }
+    
+    /**
+     * Add system message to context
+     */
+    suspend fun addSystemMessage(content: String) {
+        sharedContext.addSystem(content)
+    }
+    
+    /**
+     * 📊 Get Wizard Mode statistics
+     */
+    suspend fun getWizardStats(): Map<String, Any> {
+        val contextSummary = getContextSummary()
+        val normalStatus = normalClient.getStatus()
+        val wizardStatus = wizardClient.getStatus()
+        
         return mapOf(
             "wizard_mode_usage_count" to wizardModeUsageCount,
+            "normal_mode_usage_count" to normalModeUsageCount,
             "current_mode" to if (isWizardMode) "wizard" else "normal",
-            "normal_agent_id" to normalAgent.id,
-            "wizard_agent_id" to wizardAgent.id,
-            "upgrade_conditions_count" to upgradeConditions.size
+            "normal_client" to normalClient.modelName,
+            "wizard_client" to wizardClient.modelName,
+            "upgrade_conditions_count" to upgradeConditions.size,
+            "context_summary" to contextSummary.getSummaryText(),
+            "normal_client_status" to normalStatus.getSummary(),
+            "wizard_client_status" to wizardStatus.getSummary(),
+            "is_ready" to isReady(),
+            "total_usage_count" to (wizardModeUsageCount + normalModeUsageCount)
         )
     }
     
     /**
-     * 🔄 Create a new WizardAgent with different agents
-     */
-    fun withAgents(newNormalAgent: BaseAgent, newWizardAgent: BaseAgent): WizardAgent {
-        return WizardAgent(
-            id = id,
-            name = name,
-            normalAgent = newNormalAgent,
-            wizardAgent = newWizardAgent,
-            upgradeConditions = upgradeConditions,
-            complexityThreshold = complexityThreshold,
-            wizardModeIndicator = wizardModeIndicator,
-            normalModeIndicator = normalModeIndicator
-        )
-    }
-    
-    /**
-     * ⚙️ Create a new WizardAgent with custom conditions
-     */
-    fun withUpgradeConditions(newConditions: List<String>): WizardAgent {
-        return WizardAgent(
-            id = id,
-            name = name,
-            normalAgent = normalAgent,
-            wizardAgent = wizardAgent,
-            upgradeConditions = newConditions,
-            complexityThreshold = complexityThreshold,
-            wizardModeIndicator = wizardModeIndicator,
-            normalModeIndicator = normalModeIndicator
-        )
-    }
-    
-    /**
-     * 🧠 Get current intelligence level description
+     * 🧠 Describe current intelligence level
      */
     fun getCurrentIntelligenceLevel(): String {
         return if (isWizardMode) {
-            "🧙‍♂️ Wizard Mode (High Intelligence) - Using ${wizardAgent.name}"
+            "🧙‍♂️ Wizard Mode (High Intelligence) - Using ${wizardClient.modelName}"
         } else {
-            "🐂 Normal Mode (Standard Intelligence) - Using ${normalAgent.name}"
+            "🐂 Normal Mode (Standard Intelligence) - Using ${normalClient.modelName}"
         }
     }
     
@@ -240,16 +419,16 @@ class WizardAgent(
             
             val categories = mapOf(
                 "🎨 Visualization" to upgradeConditions.filter { 
-                    it.lowercase() in listOf("시각화", "visualize", "그래프", "graph", "차트", "chart", "다이어그램", "diagram")
+                    it.lowercase() in listOf("visualization".i18nBilingual(), "visualize", "graph".i18nBilingual(), "graph", "chart".i18nBilingual(), "chart", "diagram".i18nBilingual(), "diagram")
                 },
                 "🔧 Technical" to upgradeConditions.filter { 
-                    it.lowercase() in listOf("코드", "code", "프로그래밍", "programming", "알고리즘", "algorithm")
+                    it.lowercase() in listOf("code".i18nBilingual(), "code", "programming".i18nBilingual(), "programming", "algorithm".i18nBilingual(), "algorithm")
                 },
                 "📊 Analysis" to upgradeConditions.filter { 
-                    it.lowercase() in listOf("복잡한", "complex", "분석", "analyze", "설계", "design")
+                    it.lowercase() in listOf("complex".i18nBilingual(), "complex", "analysis".i18nBilingual(), "analyze", "design".i18nBilingual(), "design")
                 },
                 "📚 Research" to upgradeConditions.filter { 
-                    it.lowercase() in listOf("연구", "research", "조사", "investigation", "문서", "document")
+                    it.lowercase() in listOf("research".i18nBilingual(), "research", "investigation".i18nBilingual(), "investigation", "document".i18nBilingual(), "document")
                 }
             )
             
@@ -265,95 +444,90 @@ class WizardAgent(
 }
 
 /**
- * 🏗️ Builder for creating WizardAgent instances
+ * 🏗️ WizardAgent builder functions
  */
-class WizardAgentBuilder {
-    private var id: String = "wizard-agent"
-    private var name: String = "Wizard Agent"
-    private var normalAgent: BaseAgent? = null
-    private var wizardAgent: BaseAgent? = null
-    private var upgradeConditions: List<String> = WizardAgent.defaultUpgradeConditions
-    private var complexityThreshold: Int = 50
-    private var wizardModeIndicator: String = "🧙‍♂️ *Wizard Mode Activated*"
-    private var normalModeIndicator: String = "🐂 *Back to Normal Mode*"
+
+/**
+ * Generate WizardAgent with two ModelClients
+ */
+fun createWizardAgent(
+    normalClient: ModelClient,
+    wizardClient: ModelClient,
+    systemPrompt: String = "You are a helpful AI assistant that can dynamically adjust intelligence based on task complexity.",
+    bufferSize: Int = 15,
+    upgradeConditions: List<String> = WizardAgent.defaultUpgradeConditions,
+    complexityThreshold: Int = 50,
+    id: String = "wizard-agent-${System.currentTimeMillis()}",
+    name: String = "Wizard Agent"
+): WizardAgent {
+    val sharedContext = ModelContext(bufferSize, systemPrompt)
     
-    fun id(id: String) = apply { this.id = id }
-    fun name(name: String) = apply { this.name = name }
-    fun normalAgent(agent: BaseAgent) = apply { this.normalAgent = agent }
-    fun wizardAgent(agent: BaseAgent) = apply { this.wizardAgent = agent }
-    fun upgradeConditions(conditions: List<String>) = apply { this.upgradeConditions = conditions }
-    fun complexityThreshold(threshold: Int) = apply { this.complexityThreshold = threshold }
-    fun wizardModeIndicator(indicator: String) = apply { this.wizardModeIndicator = indicator }
-    fun normalModeIndicator(indicator: String) = apply { this.normalModeIndicator = indicator }
-    
-    fun build(): WizardAgent {
-        require(normalAgent != null) { "Normal agent must be specified" }
-        require(wizardAgent != null) { "Wizard agent must be specified" }
-        
-        return WizardAgent(
-            id = id,
-            name = name,
-            normalAgent = normalAgent!!,
-            wizardAgent = wizardAgent!!,
-            upgradeConditions = upgradeConditions,
-            complexityThreshold = complexityThreshold,
-            wizardModeIndicator = wizardModeIndicator,
-            normalModeIndicator = normalModeIndicator
-        )
+    return WizardAgent(
+        normalClient = normalClient,
+        wizardClient = wizardClient,
+        sharedContext = sharedContext,
+        upgradeConditions = upgradeConditions,
+        complexityThreshold = complexityThreshold,
+        id = id,
+        name = name
+    ).apply {
+        updateSystemPrompt(systemPrompt)
     }
 }
 
 /**
- * 🎯 Factory methods for common WizardAgent configurations
+ * Generate WizardAgent with OpenAI models
  */
-object WizardAgentFactory {
+fun createOpenAIWizardAgent(
+    apiKey: String,
+    normalModel: String = "gpt-3.5-turbo",
+    wizardModel: String = "gpt-4",
+    systemPrompt: String = "You are a helpful AI assistant that can dynamically adjust intelligence based on task complexity.",
+    bufferSize: Int = 15,
+    id: String = "openai-wizard-${System.currentTimeMillis()}",
+    name: String = "OpenAI Wizard Agent"
+): WizardAgent {
+    val normalConfig = ModelClientConfig(apiKey = apiKey, defaultModel = normalModel)
+    val wizardConfig = ModelClientConfig(apiKey = apiKey, defaultModel = wizardModel)
     
-    /**
-     * Create a WizardAgent using OpenRouter models
-     */
-    fun createOpenRouterWizard(
-        apiKey: String,
-        normalModel: String = "google/bison-001",
-        wizardModel: String = "anthropic/claude-3.5-sonnet"
-    ): WizardAgent {
-        val normalAgent = OpenRouterAgent(
-            id = "normal-openrouter",
-            name = "Normal OpenRouter Agent",
-            apiKey = apiKey,
-            model = normalModel
-        )
-        
-        val wizardAgent = OpenRouterAgent(
-            id = "wizard-openrouter",
-            name = "Wizard OpenRouter Agent",
-            apiKey = apiKey,
-            model = wizardModel
-        )
-        
-        return WizardAgent(
-            normalAgent = normalAgent,
-            wizardAgent = wizardAgent
-        )
-    }
+    val normalClient = io.github.spice.model.clients.OpenAIClient(normalConfig, normalModel)
+    val wizardClient = io.github.spice.model.clients.OpenAIClient(wizardConfig, wizardModel)
     
-    /**
-     * Create a WizardAgent with mixed providers
-     */
-    fun createMixedProviderWizard(
-        normalAgent: BaseAgent,
-        wizardAgent: BaseAgent,
-        customConditions: List<String> = emptyList()
-    ): WizardAgent {
-        val conditions = if (customConditions.isNotEmpty()) {
-            customConditions
-        } else {
-            WizardAgent.defaultUpgradeConditions
-        }
-        
-        return WizardAgent(
-            normalAgent = normalAgent,
-            wizardAgent = wizardAgent,
-            upgradeConditions = conditions
-        )
-    }
+    return createWizardAgent(
+        normalClient = normalClient,
+        wizardClient = wizardClient,
+        systemPrompt = systemPrompt,
+        bufferSize = bufferSize,
+        id = id,
+        name = name
+    )
 }
+
+/**
+ * Generate WizardAgent with mixed providers (e.g., OpenAI for normal, Claude for wizard)
+ */
+fun createMixedWizardAgent(
+    normalClient: ModelClient,
+    wizardClient: ModelClient,
+    systemPrompt: String = "You are a helpful AI assistant that can dynamically adjust intelligence based on task complexity.",
+    bufferSize: Int = 15,
+    customConditions: List<String> = emptyList(),
+    id: String = "mixed-wizard-${System.currentTimeMillis()}",
+    name: String = "Mixed Wizard Agent"
+): WizardAgent {
+    val conditions = if (customConditions.isNotEmpty()) {
+        customConditions
+    } else {
+        WizardAgent.defaultUpgradeConditions
+    }
+    
+    return createWizardAgent(
+        normalClient = normalClient,
+        wizardClient = wizardClient,
+        systemPrompt = systemPrompt,
+        bufferSize = bufferSize,
+        upgradeConditions = conditions,
+        id = id,
+        name = name
+    )
+} 

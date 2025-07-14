@@ -17,7 +17,7 @@ class ToolHubChainTest {
     
     @BeforeEach
     fun setup() {
-        // 데이터 검증 도구
+        // data validation 도구
         validationTool = object : BaseTool(
             name = "data_validator",
             description = "Validates input data",
@@ -49,7 +49,7 @@ class ToolHubChainTest {
             }
         }
         
-        // 데이터 변환 도구
+        // data conversion 도구
         transformTool = object : BaseTool(
             name = "data_transformer",
             description = "Transforms data format",
@@ -85,7 +85,7 @@ class ToolHubChainTest {
             }
         }
         
-        // 데이터 분석 도구
+        // data analytical 도구
         analysisTool = object : BaseTool(
             name = "data_analyzer",
             description = "Analyzes data and provides insights",
@@ -154,7 +154,7 @@ class ToolHubChainTest {
         assertEquals(0, result.failedSteps)
         assertEquals(100.0, result.successRate)
         
-        // 각 스텝 결과 확인
+        // 각 스텝 결과 check
         assertTrue(result.stepResults.all { it.success })
         assertEquals(3, result.executionLogs.size)
         
@@ -188,7 +188,7 @@ class ToolHubChainTest {
         assertEquals(2, result.totalSteps)
         assertEquals(2, result.successfulSteps)
         
-        // 초기 파라미터가 컨텍스트에 설정되었는지 확인
+        // 초기 파라미터가 context에 setting되었는지 check
         assertEquals("test_user", result.finalContext.getMetadata("user_id"))
         
         toolHub.stop()
@@ -250,7 +250,7 @@ class ToolHubChainTest {
         assertEquals(1, result.failedSteps)
         assertEquals(0.0, result.successRate)
         
-        // 실패한 스텝 확인
+        // 실패한 스텝 check
         val failedStep = result.executionLogs.first()
         assertEquals("validate_bad_data", failedStep.stepName)
         assertEquals("data_validator", failedStep.toolName)
@@ -275,7 +275,7 @@ class ToolHubChainTest {
                 parameters = mapOf("format" to "uppercase"),
                 parameterMapping = mapOf("validate_result" to "data"),
                 condition = { context ->
-                    // 검증이 성공한 경우에만 변환 실행
+                    // validation이 성공한 경우에만 conversion execution
                     context.sharedData["validate_success"] == true
                 }
             )
@@ -292,7 +292,7 @@ class ToolHubChainTest {
         assertTrue(result.success)
         assertEquals(3, result.totalSteps)
         
-        // 모든 스텝이 실행되었는지 확인
+        // all 스텝이 execution되었는지 check
         assertEquals(3, result.executionLogs.size)
         assertEquals(listOf("validate", "conditional_transform", "always_analyze"), 
                     result.executionLogs.map { it.stepName })
@@ -326,13 +326,13 @@ class ToolHubChainTest {
         val runner = ToolHubChainRunner(toolHub)
         val result = runner.executeChain(chainDefinition)
         
-        // 요약 정보 확인
+        // summary information check
         val summary = result.getSummary()
         assertTrue(summary.contains("summary_test_chain"))
         assertTrue(summary.contains("3/3 steps succeeded"))
         assertTrue(summary.contains("100.0%"))
         
-        // 상세 로그 확인
+        // 상세 log check
         val detailedLog = result.getDetailedLog()
         assertTrue(detailedLog.contains("=== ToolChain Execution Log: summary_test_chain ==="))
         assertTrue(detailedLog.contains("Status: SUCCESS"))
@@ -341,7 +341,7 @@ class ToolHubChainTest {
         assertTrue(detailedLog.contains("✅ Step 2: transform"))
         assertTrue(detailedLog.contains("✅ Step 3: analyze"))
         
-        // 개별 스텝 로그 요약
+        // 개별 스텝 log summary
         result.executionLogs.forEach { log ->
             val stepSummary = log.getSummary()
             assertTrue(stepSummary.contains("SUCCESS"))
@@ -373,15 +373,15 @@ class ToolHubChainTest {
         val runner = ToolHubChainRunner(toolHub)
         val result = runner.executeChain(chainDefinition)
         
-        // 실행 시간 확인
+        // execution 시간 check
         assertTrue(result.totalExecutionTimeMs > 0)
         
-        // 각 스텝의 실행 시간 확인
+        // 각 스텝의 execution 시간 check
         result.executionLogs.forEach { log ->
             assertTrue(log.executionTimeMs >= 0)
         }
         
-        // 총 실행 시간이 각 스텝 실행 시간의 합과 일치하는지 확인
+        // 총 execution 시간이 각 스텝 execution 시간의 합과 일치하는지 check
         val stepTotalTime = result.executionLogs.sumOf { it.executionTimeMs }
         assertEquals(stepTotalTime, result.totalExecutionTimeMs)
         
@@ -414,7 +414,7 @@ class ToolHubChainTest {
         assertEquals(1, result.failedSteps)
         assertEquals(50.0, result.successRate)
         
-        // 실패한 스텝 확인
+        // 실패한 스텝 check
         val failedStep = result.executionLogs.last()
         assertEquals("nonexistent_step", failedStep.stepName)
         assertEquals("nonexistent_tool", failedStep.toolName)

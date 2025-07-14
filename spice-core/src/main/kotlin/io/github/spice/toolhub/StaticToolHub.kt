@@ -6,14 +6,14 @@ import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 🏗️ StaticToolHub - 정적 도구 허브 구현체
+ * 🏗️ StaticToolHub - Static tool hub implementation
  * 
- * 고정된 도구 목록을 관리하는 기본 ToolHub 구현체입니다.
+ * Basic ToolHub implementation that manages a fixed set of tools.
  * 
- * 사용 시나리오:
- * - LLM 기반 Agent에 도구를 제공할 때
- * - 도구 구성이 고정되어 있고 별도의 상태를 가지지 않는 경우
- * - 예: FileTool, WebSearchTool, NotionTool 등
+ * Usage scenarios:
+ * - Providing tools for LLM-based Agents
+ * - When tool configuration is fixed and no separate state management is needed
+ * - Example: FileTool, WebSearchTool, NotionTool, etc.
  */
 class StaticToolHub(
     private val tools: List<Tool>
@@ -25,12 +25,12 @@ class StaticToolHub(
     private var isStarted = false
     
     /**
-     * 🔧 도구 목록 조회
+     * 🔧 Get tool list
      */
     override suspend fun listTools(): List<Tool> = tools
     
     /**
-     * 🚀 도구 실행
+     * 🚀 Execute tool
      */
     override suspend fun callTool(
         name: String,
@@ -48,259 +48,240 @@ class StaticToolHub(
             val startTime = System.currentTimeMillis()
             
             try {
-                // 도구 실행 전 검증
+                // Pre-execution validation
                 if (!tool.canExecute(parameters)) {
-                    return ToolResult.error("Tool '$name' cannot execute with provided parameters")
+                    return@withLock ToolResult.error("Tool '$name' cannot execute with provided parameters")
                 }
                 
-                // 도구 실행
-                val legacyResult = tool.execute(parameters)
-                val enhancedResult = legacyResult.toEnhancedResult()
-                
+                // Execute tool
+                val result = tool.execute(parameters)
                 val executionTime = System.currentTimeMillis() - startTime
                 
-                // 실행 로그 기록
+                // Record execution log
                 val executionLog = ToolExecutionLog(
                     toolName = name,
                     parameters = parameters,
-                    result = enhancedResult,
-                    timestamp = startTime,
+                    success = result.success,
+                    result = result,
                     executionTimeMs = executionTime
                 )
-                
                 context.addExecutionLog(executionLog)
                 
-                // 성공 시 결과를 컨텍스트에 저장
-                if (enhancedResult.success) {
-                    context.setMetadata("${name}_last_result", enhancedResult)
-                    context.setMetadata("${name}_last_execution_time", executionTime)
+                // Store result in context on success
+                if (result.success) {
+                    context.setMetadata("${name}_result", result)
+                    context.setMetadata("${name}_execution_time", executionTime)
                 }
                 
-                println("🔧 Tool executed: $name (${executionTime}ms) - ${if (enhancedResult.success) "SUCCESS" else "FAILED"}")
-                
-                enhancedResult
+                return@withLock result
                 
             } catch (e: Exception) {
                 val executionTime = System.currentTimeMillis() - startTime
-                val errorResult = ToolResult.error("Tool execution failed: ${e.message}", e)
+                val errorResult = ToolResult.error("Tool execution failed: ${e.message}")
                 
+                // Record execution log for error
                 val executionLog = ToolExecutionLog(
                     toolName = name,
                     parameters = parameters,
+                    success = false,
                     result = errorResult,
-                    timestamp = startTime,
                     executionTimeMs = executionTime
                 )
-                
                 context.addExecutionLog(executionLog)
                 
-                println("🔧 Tool execution failed: $name (${executionTime}ms) - ${e.message}")
-                
-                errorResult
+                return@withLock errorResult
             }
         }
     }
     
     /**
-     * 🏁 ToolHub 시작
+     * 🏁 Start ToolHub
      */
     override suspend fun start() {
         if (isStarted) {
-            println("🧰 ToolHub already started")
             return
         }
         
-        println("🧰 Starting StaticToolHub with ${tools.size} tools...")
-        
-        // 도구 검증
-        val duplicateNames = tools.groupBy { it.name }.filter { it.value.size > 1 }
-        if (duplicateNames.isNotEmpty()) {
-            throw IllegalStateException("Duplicate tool names found: ${duplicateNames.keys}")
-        }
-        
-        // 도구 준비 상태 확인
+        // Initialize tools
         tools.forEach { tool ->
-            println("   - ${tool.name}: ${tool.description}")
+            try {
+                tool.initialize()
+            } catch (e: Exception) {
+                println("Warning: Failed to initialize tool '${tool.name}': ${e.message}")
+            }
         }
         
         isStarted = true
-        println("🧰 StaticToolHub started successfully")
+        println("StaticToolHub started with ${tools.size} tools")
     }
     
     /**
-     * 🛑 ToolHub 종료
+     * 🛑 Stop ToolHub
      */
     override suspend fun stop() {
         if (!isStarted) {
-            println("🧰 ToolHub already stopped")
             return
         }
         
-        println("🧰 Stopping StaticToolHub...")
-        
-        // 상태 정리
+        // Clean up state
         globalState.clear()
-        isStarted = false
         
-        println("🧰 StaticToolHub stopped")
+        isStarted = false
+        println("StaticToolHub stopped")
     }
     
     /**
-     * 🔄 ToolHub 상태 초기화
+     * 🔄 Reset ToolHub state
      */
     override suspend fun reset() {
-        println("🧰 Resetting StaticToolHub...")
-        
         globalState.clear()
-        
-        println("🧰 StaticToolHub reset completed")
+        println("StaticToolHub state reset")
     }
     
     /**
-     * 💾 현재 상태 저장
+     * 💾 Save current state
      */
     override suspend fun saveState(): Map<String, Any> {
         return mapOf(
-            "hub_type" to "static",
-            "tool_count" to tools.size,
-            "tool_names" to tools.map { it.name },
-            "is_started" to isStarted,
-            "global_state" to globalState.toMap(),
-            "saved_at" to System.currentTimeMillis()
+            "started" to isStarted,
+            "tools" to tools.map { it.name },
+            "globalState" to globalState.toMap()
         )
     }
     
     /**
-     * 📂 저장된 상태 로드
+     * 📂 Load saved state
      */
     override suspend fun loadState(state: Map<String, Any>) {
-        println("🧰 Loading StaticToolHub state...")
-        
-        // 글로벌 상태 복원
-        val savedGlobalState = state["global_state"] as? Map<String, Any> ?: emptyMap()
+        // Restore global state
         globalState.clear()
-        globalState.putAll(savedGlobalState)
-        
-        // 시작 상태 복원
-        val wasStarted = state["is_started"] as? Boolean ?: false
-        if (wasStarted && !isStarted) {
-            start()
+        (state["globalState"] as? Map<String, Any>)?.let { savedState ->
+            globalState.putAll(savedState)
         }
         
-        val savedAt = state["saved_at"] as? Long ?: 0
-        println("🧰 StaticToolHub state loaded (saved at: ${java.time.Instant.ofEpochMilli(savedAt)})")
+        // Restore started state
+        isStarted = state["started"] as? Boolean ?: false
+        
+        println("StaticToolHub state loaded")
     }
     
     /**
-     * 📊 도구 실행 통계 조회
+     * 📊 Get tool execution statistics
      */
     fun getExecutionStats(context: ToolContext): Map<String, Any> {
-        val stats = mutableMapOf<String, Any>()
+        val executionHistory = context.executionHistory
         
-        // 전체 실행 횟수
-        stats["total_executions"] = context.callHistory.size
+        // Total execution count
+        val totalExecutions = executionHistory.size
         
-        // 도구별 실행 횟수
-        val toolExecutionCounts = context.callHistory.groupBy { it.toolName }
-            .mapValues { it.value.size }
-        stats["tool_execution_counts"] = toolExecutionCounts
+        // Per-tool execution count
+        val toolExecutionCount = executionHistory.groupingBy { it.toolName }.eachCount()
         
-        // 도구별 평균 실행 시간
-        val toolAvgExecutionTimes = context.callHistory.groupBy { it.toolName }
-            .mapValues { entries ->
-                entries.value.map { it.executionTimeMs }.average()
+        // Per-tool average execution time
+        val toolAverageTime = executionHistory
+            .groupBy { it.toolName }
+            .mapValues { (_, logs) ->
+                logs.map { it.executionTimeMs }.average()
             }
-        stats["tool_avg_execution_times"] = toolAvgExecutionTimes
         
-        // 성공률
-        val successRate = if (context.callHistory.isNotEmpty()) {
-            context.callHistory.count { it.isSuccess }.toDouble() / context.callHistory.size * 100
+        // Success rate
+        val successfulExecutions = executionHistory.count { it.success }
+        val successRate = if (totalExecutions > 0) {
+            (successfulExecutions.toDouble() / totalExecutions) * 100
         } else {
             0.0
         }
-        stats["success_rate"] = successRate
         
-        return stats
+        return mapOf(
+            "totalExecutions" to totalExecutions,
+            "successfulExecutions" to successfulExecutions,
+            "successRate" to successRate,
+            "toolExecutionCount" to toolExecutionCount,
+            "toolAverageTime" to toolAverageTime
+        )
     }
     
     /**
-     * 🔍 도구 검색
+     * 🔍 Search for tools
      */
-    fun findTool(name: String): Tool? = toolMap[name]
+    fun findTools(query: String): List<Tool> {
+        return tools.filter { it.name.contains(query, ignoreCase = true) }
+    }
     
     /**
-     * 📋 도구 이름 목록
+     * 📋 Get tool names list
      */
-    fun getToolNames(): List<String> = toolMap.keys.toList()
+    fun getToolNames(): List<String> = tools.map { it.name }
     
     /**
-     * ✅ 도구 존재 여부 확인
+     * ✅ Check if tool exists
      */
-    fun hasTool(name: String): Boolean = toolMap.containsKey(name)
+    fun hasTools(toolNames: List<String>): Boolean {
+        return toolNames.all { toolName -> toolMap.containsKey(toolName) }
+    }
     
     /**
-     * 🏃 ToolHub 상태 확인
+     * 🗂️ Get tool by name
+     */
+    fun getTool(name: String): Tool? = toolMap[name]
+    
+    /**
+     * 📈 Get ToolHub status
+     */
+    fun getStatus(): Map<String, Any> {
+        return mapOf(
+            "started" to isStarted,
+            "toolCount" to tools.size,
+            "toolNames" to getToolNames(),
+            "globalStateSize" to globalState.size
+        )
+    }
+    
+    /**
+     * 🔧 Check if ToolHub is started
      */
     fun isStarted(): Boolean = isStarted
-}
-
-/**
- * 🏗️ StaticToolHub 빌더
- */
-class StaticToolHubBuilder {
-    private val tools = mutableListOf<Tool>()
     
     /**
-     * 도구 추가
+     * StaticToolHub builder
      */
-    fun addTool(tool: Tool): StaticToolHubBuilder {
-        tools.add(tool)
-        return this
+    class Builder {
+        private val tools = mutableListOf<Tool>()
+        
+        /**
+         * Add tool to list
+         */
+        fun addTool(tool: Tool): Builder {
+            tools.add(tool)
+            return this
+        }
+        
+        /**
+         * Build StaticToolHub
+         */
+        fun build(): StaticToolHub {
+            return StaticToolHub(tools.toList())
+        }
     }
     
-    /**
-     * 여러 도구 추가
-     */
-    fun addTools(vararg tools: Tool): StaticToolHubBuilder {
-        this.tools.addAll(tools)
-        return this
-    }
-    
-    /**
-     * 도구 목록 추가
-     */
-    fun addTools(tools: List<Tool>): StaticToolHubBuilder {
-        this.tools.addAll(tools)
-        return this
-    }
-    
-    /**
-     * StaticToolHub 빌드
-     */
-    fun build(): StaticToolHub {
-        return StaticToolHub(tools.toList())
+    companion object {
+        /**
+         * Create builder
+         */
+        fun builder(): Builder = Builder()
     }
 }
 
 /**
- * 🎯 StaticToolHub 생성을 위한 DSL 함수
+ * 🔧 Convenience function - Create StaticToolHub with tool list
  */
-fun staticToolHub(init: StaticToolHubBuilder.() -> Unit): StaticToolHub {
-    val builder = StaticToolHubBuilder()
-    builder.init()
-    return builder.build()
-}
-
-/**
- * 🔧 편의 함수 - 도구 목록으로 StaticToolHub 생성
- */
-fun createStaticToolHub(tools: List<Tool>): StaticToolHub {
+fun staticToolHub(tools: List<Tool>): StaticToolHub {
     return StaticToolHub(tools)
 }
 
 /**
- * 🔧 편의 함수 - 가변 인자로 StaticToolHub 생성
+ * 🔧 Convenience function - Create StaticToolHub with variable arguments
  */
-fun createStaticToolHub(vararg tools: Tool): StaticToolHub {
+fun staticToolHub(vararg tools: Tool): StaticToolHub {
     return StaticToolHub(tools.toList())
 } 
