@@ -22,12 +22,45 @@ class CoreAgentBuilder {
     var description: String = ""
     private var handler: (suspend (Message) -> Message)? = null
     private val tools = mutableListOf<String>()
+    private var debugEnabled: Boolean = false
+    private var debugPrefix: String = "[DEBUG]"
+    
+    /**
+     * Enable debug mode with automatic logging
+     */
+    fun debugMode(enabled: Boolean = true, prefix: String = "[DEBUG]") {
+        this.debugEnabled = enabled
+        this.debugPrefix = prefix
+    }
     
     /**
      * Set message handler
      */
     fun handle(handler: suspend (Message) -> Message) {
-        this.handler = handler
+        if (debugEnabled) {
+            // Wrap handler with debug logging
+            this.handler = { message ->
+                println("$debugPrefix Agent '$name' ($id) received message:")
+                println("$debugPrefix   From: ${message.sender}")
+                println("$debugPrefix   Content: ${message.content}")
+                println("$debugPrefix   Metadata: ${message.metadata}")
+                
+                val startTime = System.currentTimeMillis()
+                val result = handler(message)
+                val endTime = System.currentTimeMillis()
+                
+                println("$debugPrefix Agent '$name' ($id) response:")
+                println("$debugPrefix   To: ${result.receiver}")
+                println("$debugPrefix   Content: ${result.content}")
+                println("$debugPrefix   Metadata: ${result.metadata}")
+                println("$debugPrefix   Processing time: ${endTime - startTime}ms")
+                println("$debugPrefix   ---")
+                
+                result
+            }
+        } else {
+            this.handler = handler
+        }
     }
     
     /**
@@ -35,6 +68,9 @@ class CoreAgentBuilder {
      */
     fun tool(toolName: String) {
         tools.add(toolName)
+        if (debugEnabled) {
+            println("$debugPrefix Agent '$name' added tool: $toolName")
+        }
     }
     
     /**
@@ -42,21 +78,37 @@ class CoreAgentBuilder {
      */
     fun tools(vararg toolNames: String) {
         tools.addAll(toolNames)
+        if (debugEnabled) {
+            println("$debugPrefix Agent '$name' added tools: ${toolNames.joinToString(", ")}")
+        }
     }
     
     internal fun build(): Agent {
         require(name.isNotEmpty()) { "Agent name is required" }
         require(handler != null) { "Message handler is required" }
         
+        if (debugEnabled) {
+            println("$debugPrefix Building agent '$name' ($id) with ${tools.size} tools")
+        }
+        
         return CoreAgent(
             id = id,
             name = name,
             description = description,
             handler = handler!!,
-            toolNames = tools.toList()
+            toolNames = tools.toList(),
+            debugInfo = if (debugEnabled) DebugInfo(debugEnabled, debugPrefix) else null
         )
     }
 }
+
+/**
+ * Debug information for agents
+ */
+data class DebugInfo(
+    val enabled: Boolean,
+    val prefix: String
+)
 
 /**
  * Simple agent implementation
@@ -66,7 +118,8 @@ class CoreAgent(
     override val name: String,
     override val description: String,
     private val handler: suspend (Message) -> Message,
-    private val toolNames: List<String>
+    private val toolNames: List<String>,
+    private val debugInfo: DebugInfo? = null
 ) : Agent {
     
     override val capabilities: List<String> = listOf("core-processing")
@@ -78,10 +131,24 @@ class CoreAgent(
     override fun canHandle(message: Message): Boolean = true
     
     override fun getTools(): List<Tool> {
-        return toolNames.mapNotNull { ToolRegistry.getTool(it) }
+        val tools = toolNames.mapNotNull { ToolRegistry.getTool(it) }
+        if (debugInfo?.enabled == true) {
+            println("${debugInfo.prefix} Agent '$name' retrieved ${tools.size} tools: ${tools.map { it.name }}")
+        }
+        return tools
     }
     
     override fun isReady(): Boolean = true
+    
+    /**
+     * Check if this agent has debug mode enabled
+     */
+    fun isDebugEnabled(): Boolean = debugInfo?.enabled ?: false
+    
+    /**
+     * Get debug information
+     */
+    fun getDebugInfo(): DebugInfo? = debugInfo
 }
 
 // =====================================

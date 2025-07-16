@@ -26,6 +26,22 @@ From simple agent interactions to complex swarm intelligence, Spice provides the
 - **Hidden Complexity** — Plugin tools and ToolChains work transparently behind simple interfaces
 - **Progressive Disclosure** — Learn 3 concepts to start, access advanced features when needed
 
+### 🎮 **DSL Playground & Templates**
+- **spice-dsl-samples** — Interactive playground with hands-on examples
+- **Template System** — Pre-built agent, tool, and flow templates for rapid prototyping
+- **Sample Loading** — `loadSample("chatbot")` DSL for instant prototypes
+- **ScenarioRunner** — Automated demo and testing framework
+- **Debug Mode** — `debugMode(true)` for development with automatic logging
+- **Documentation Generator** — Auto-generate markdown docs from your DSL code
+
+### 🔍 **Developer Experience**
+- **Alias System** — Meaningful IDs with `alias = "my-agent-id"`
+- **Handler Separation** — Reusable handler functions for better code organization
+- **Experimental Marking** — Clear indicators for stability levels (🧪 experimental vs ✅ stable)
+- **Auto-Documentation** — `describe()` and `describeAllToMarkdown()` for living documentation
+- **Performance Benchmarks** — Built-in scenario timing and success rate measurement
+- **Health Monitoring** — `checkDSLHealth()` for system validation
+
 ### 🤖 **Intelligent Agent Swarms**
 - **SwarmAgent** — Coordinate multiple agents with dynamic strategy selection
 - **Flow Strategies** — SEQUENTIAL, PARALLEL, COMPETITION, PIPELINE execution modes
@@ -76,7 +92,52 @@ implementation("io.github.spice:spice-core:0.1.0-SNAPSHOT")
 implementation("io.github.spice:spice-springboot:0.1.0-SNAPSHOT") // For Spring Boot
 ```
 
-### 2. Core DSL - Simple Agent Creation
+### 2. Try the DSL Playground
+
+Experience Spice interactively with our comprehensive playground:
+
+```bash
+# Clone the repository
+git clone https://github.com/spice-framework/spice-framework.git
+cd spice-framework
+
+# Run basic examples
+./gradlew :spice-dsl-samples:run --args="basic"
+
+# Explore templates and samples
+./gradlew :spice-dsl-samples:run --args="templates"
+
+# Run complete workflows
+./gradlew :spice-dsl-samples:run --args="complete"
+
+# List all available scenarios
+./gradlew :spice-dsl-samples:run --args="list"
+```
+
+### 3. Quick Prototyping with Templates
+
+```kotlin
+import io.github.spice.dsl.*
+
+// Load pre-built samples instantly
+val chatbot = loadSample("chatbot") {
+    agentId = "my-customer-bot"
+    registerComponents = true
+}
+
+// Or use template functions
+val echoAgent = echoAgent("Echo Bot", alias = "prod-echo")
+val calculator = calculatorTool(alias = "math-tool")
+
+// Enable debug mode for development
+val debugAgent = buildAgent {
+    id = "debug-agent"
+    debugMode(enabled = true, prefix = "[🔍 DEV]")
+    handle { message -> /* your logic */ }
+}
+```
+
+### 4. Core DSL - Simple Agent Creation
 
 ```kotlin
 import io.github.spice.dsl.*
@@ -118,7 +179,7 @@ val result = greetingFlow.execute(message)
 println(result.content) // "Hello! World"
 ```
 
-### 3. Plugin Tools - External Service Integration
+### 5. Plugin Tools - External Service Integration
 
 ```kotlin
 // Plugin tool with input/output mapping
@@ -154,7 +215,7 @@ val weatherAgent = buildAgent {
 }
 ```
 
-### 4. Experimental DSL - Advanced Features
+### 6. Experimental DSL - Advanced Features
 
 ```kotlin
 import io.github.spice.dsl.experimental.*
@@ -204,7 +265,7 @@ experimental {
 }
 ```
 
-### 5. Legacy LLM Agents (Still Supported)
+### 7. Legacy LLM Agents (Still Supported)
 
 ```kotlin
 // OpenRouter for multi-provider access
@@ -235,7 +296,7 @@ val contentTeam = SwarmAgent(
 }
 ```
 
-### 6. Real-World Example - Customer Service Bot
+### 8. Real-World Example - Customer Service Bot
 
 ```kotlin
 // Complete customer service system with new DSL
