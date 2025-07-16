@@ -19,6 +19,13 @@ From simple agent interactions to complex swarm intelligence, Spice provides the
 
 ## 🌌 Key Features
 
+### 🔧 **Simplified DSL Architecture**
+- **Agent > Flow > Tool** — Clean 3-tier hierarchy for intuitive development
+- **Core DSL** — `buildAgent{}`, `flow{}`, `tool{}` for 90% of use cases
+- **Experimental DSL** — Advanced features in `experimental{}` wrapper for opt-in usage
+- **Hidden Complexity** — Plugin tools and ToolChains work transparently behind simple interfaces
+- **Progressive Disclosure** — Learn 3 concepts to start, access advanced features when needed
+
 ### 🤖 **Intelligent Agent Swarms**
 - **SwarmAgent** — Coordinate multiple agents with dynamic strategy selection
 - **Flow Strategies** — SEQUENTIAL, PARALLEL, COMPETITION, PIPELINE execution modes
@@ -69,218 +76,230 @@ implementation("io.github.spice:spice-core:0.1.0-SNAPSHOT")
 implementation("io.github.spice:spice-springboot:0.1.0-SNAPSHOT") // For Spring Boot
 ```
 
-### 2. Create Your First Agent
+### 2. Core DSL - Simple Agent Creation
 
 ```kotlin
-import io.github.spice.*
+import io.github.spice.dsl.*
 
-// Create an OpenAI agent
-val summarizer = OpenAIAgent(
-    id = "summarizer",
-    name = "Document Summarizer", 
-    apiKey = "your-openai-key",
-    model = "gpt-4",
-    maxTokens = 1000
-)
+// Simple agent with Core DSL
+val greetingAgent = buildAgent {
+    id = "greeter"
+    name = "Greeting Agent"
+    description = "Friendly greeting agent"
+    tools = listOf("greeting-tool")
+    
+    handle { message ->
+        Message(
+            content = "Hello! ${message.content}",
+            sender = id,
+            receiver = message.sender
+        )
+    }
+}
 
-// Process a message
-val response = summarizer.processMessage(
-    Message(
-        content = "Summarize this article about Kotlin coroutines...",
-        sender = "user"
-    )
-)
+// Simple tool definition
+val greetingTool = tool("greeting-tool") {
+    parameter("name", "string", "User's name")
+    description = "Generates personalized greetings"
+    
+    execute { params ->
+        "Hello, ${params["name"]}! Welcome to Spice!"
+    }
+}
 
-println(response.content)
+// Simple flow creation
+val greetingFlow = flow {
+    step("greeter")
+}
+
+// Execute the flow
+val message = Message(content = "World", sender = "user")
+val result = greetingFlow.execute(message)
+println(result.content) // "Hello! World"
 ```
 
-### 3. OpenRouterAgent for Multi-Provider Access
+### 3. Plugin Tools - External Service Integration
 
 ```kotlin
-// Single API key for multiple LLM providers
+// Plugin tool with input/output mapping
+val weatherTool = pluginTool("weather", "weather-service") {
+    mapInput("location") { message -> message.content }
+    mapOutput { response -> "Weather: $response" }
+    parameter("location", "string", required = true)
+}
+
+// Tool chain for complex workflows  
+val analysisChain = toolChain("sentiment-analysis") {
+    step("text-preprocessor") {
+        mapParameter("text", "input_text")
+        mapOutput("clean_text", "processed_text")
+    }
+    step("sentiment-classifier") {
+        mapParameter("text", "processed_text")
+        mapOutput("sentiment", "final_sentiment")
+    }
+}
+
+// Agent using plugin tools
+val weatherAgent = buildAgent {
+    id = "weather-bot"
+    name = "Weather Assistant"
+    tools = listOf("weather", "sentiment-analysis")
+    
+    handle { message ->
+        val weather = getToolResult("weather", mapOf("location" to message.content))
+        val sentiment = getToolResult("sentiment-analysis", mapOf("input_text" to weather))
+        Message(content = "$weather (Sentiment: $sentiment)", sender = id)
+    }
+}
+```
+
+### 4. Experimental DSL - Advanced Features
+
+```kotlin
+import io.github.spice.dsl.experimental.*
+
+// Advanced features in experimental wrapper
+experimental {
+    // Conditional flows with pattern matching
+    val smartFlow = conditional {
+        whenThen(
+            condition = { message -> message.content.contains("weather") },
+            thenAgent = "weather-agent"
+        )
+        whenThen(
+            condition = { message -> message.content.contains("help") },
+            thenAgent = "support-agent"
+        )
+        otherwise("general-agent")
+    }
+    
+    // Reactive processing
+    val reactiveAgent = reactive(weatherAgent) {
+        filter { message -> message.content.isNotEmpty() }
+        map { message -> message.copy(content = message.content.uppercase()) }
+        buffer(size = 10, timeWindow = 5000)
+    }
+    
+    // Agent composition
+    val composedAgent = composition {
+        sequential("weather-agent", "sentiment-agent")
+        parallel("translator-1", "translator-2")
+        merge { responses -> responses.joinToString("; ") }
+    }
+    
+    // Type-safe messaging
+    val typedAgent = typedAgent<TextContent, DataContent>("typed-agent") {
+        handle { input: TextContent ->
+            DataContent(mapOf("processed" to input.text.length))
+        }
+    }
+    
+    // Simple workflow
+    val workflow = workflow {
+        agent("processor") { input -> process(input) }
+        transform { result -> result.uppercase() }
+        agent("formatter") { processed -> format(processed) }
+    }
+}
+```
+
+### 5. Legacy LLM Agents (Still Supported)
+
+```kotlin
+// OpenRouter for multi-provider access
 val multiModelAgent = OpenRouterAgent(
     id = "multi-agent",
     name = "Multi-Provider Agent",
     apiKey = "your-openrouter-key",
-    model = "anthropic/claude-3.5-sonnet", // or "openai/gpt-4", "google/gemini-pro", etc.
+    model = "anthropic/claude-3.5-sonnet",
     maxTokens = 1000
 )
 
-// Process with any supported model
-val response = multiModelAgent.processMessage(
-    Message(
-        content = "Analyze this code for security issues",
-        sender = "user"
-    )
-)
-
-// Dynamic model switching
-val gptAgent = multiModelAgent.withModel("openai/gpt-4")
-val claudeAgent = multiModelAgent.withModel("anthropic/claude-3.5-sonnet")
-
-// Get available models
-val availableModels = multiModelAgent.getAvailableModels()
-println("Available models: ${availableModels.size}")
-```
-
-### 4. WizardAgent for One-Shot Intelligence Upgrade
-
-```kotlin
-// Create normal and wizard agents
-val normalAgent = OpenRouterAgent(
-    apiKey = "your-openrouter-key",
-    model = "google/bison-001" // Fast, cost-effective
-)
-
-val wizardAgent = OpenRouterAgent(
-    apiKey = "your-openrouter-key", 
-    model = "anthropic/claude-3.5-sonnet" // High-intelligence
-)
-
-// Create WizardAgent that upgrades when needed
-val wizard = WizardAgent(
+// WizardAgent for intelligence scaling
+val wizardAgent = WizardAgent(
     id = "shape-shifter",
     name = "Shape-Shifting Agent",
-    normalAgent = normalAgent,
-    wizardAgent = wizardAgent
+    normalAgent = OpenRouterAgent(apiKey, "google/bison-001"),
+    wizardAgent = OpenRouterAgent(apiKey, "anthropic/claude-3.5-sonnet")
 )
 
-// Simple question - uses normal mode
-val simpleResponse = wizard.processMessage(
-    Message(content = "What's the weather like?", sender = "user")
-)
-require(simpleResponse.metadata["wizard_mode"] == "false")
-
-// Complex request - automatically upgrades to wizard mode!
-val complexResponse = wizard.processMessage(
-    Message(content = "Create a detailed system architecture diagram for a microservices platform", sender = "user")
-)
-require(complexResponse.metadata["wizard_mode"] == "true")
-
-// Factory method for easy creation
-val easyWizard = WizardAgentFactory.createOpenRouterWizard(
-    apiKey = "your-openrouter-key",
-    normalModel = "google/bison-001",
-    wizardModel = "anthropic/claude-3.5-sonnet"
-)
-```
-
-### 5. SwarmAgent for Team Coordination
-
-```kotlin
-// Create specialized agents
-val researcher = OpenAIAgent("researcher", "Research Agent", apiKey, "gpt-4")
-val writer = OpenAIAgent("writer", "Content Writer", apiKey, "gpt-4") 
-val reviewer = AnthropicAgent("reviewer", "Content Reviewer", claudeKey, "claude-3-5-sonnet")
-
-// Create a coordinated swarm
+// SwarmAgent for team coordination
 val contentTeam = SwarmAgent(
     id = "content-team",
-    name = "Content Creation Team",
-    description = "Collaborative content creation swarm"
+    name = "Content Creation Team"
 ).apply {
-    addToPool(researcher)
-    addToPool(writer)
-    addToPool(reviewer)
-    
-    // Dynamic strategy based on content
-    setStrategyResolver { message, agents ->
-        when {
-            message.content.contains("research") -> FlowStrategy.PIPELINE
-            message.content.contains("quick") -> FlowStrategy.COMPETITION
-            else -> FlowStrategy.SEQUENTIAL
+    addToPool(OpenAIAgent("researcher", "Research Agent", apiKey, "gpt-4"))
+    addToPool(OpenAIAgent("writer", "Content Writer", apiKey, "gpt-4"))
+    addToPool(AnthropicAgent("reviewer", "Content Reviewer", claudeKey, "claude-3-5-sonnet"))
+}
+```
+
+### 6. Real-World Example - Customer Service Bot
+
+```kotlin
+// Complete customer service system with new DSL
+fun createCustomerServiceBot() {
+    // Tools
+    val sentimentTool = tool("sentiment-analysis") {
+        parameter("text", "string", "Text to analyze")
+        execute { params ->
+            val text = params["text"] as String
+            when {
+                text.contains("angry", "frustrated") -> "negative"
+                text.contains("happy", "great") -> "positive"
+                else -> "neutral"
+            }
         }
     }
-}
-
-// Execute with team coordination
-val result = contentTeam.processMessage(
-    Message(content = "Create a technical blog post about Kotlin coroutines")
-)
-```
-
-### 4. MultiAgentFlow for Advanced Orchestration
-
-```kotlin
-// High-performance multi-agent execution
-val flow = MultiAgentFlow(FlowStrategy.PARALLEL).apply {
-    addAgent(OpenAIAgent("gpt4", "GPT-4 Agent", apiKey))
-    addAgent(AnthropicAgent("claude", "Claude Agent", claudeKey))
-    addAgent(VertexAgent("gemini", "Gemini Agent", projectId, location, token))
-}
-
-// Process with parallel execution
-val message = Message(content = "Analyze this code for performance issues")
-val result = flow.process(message)
-
-// Rich metadata available
-println("Winner: ${result.metadata["winnerId"]}")
-println("Strategy: ${result.metadata["strategy"]}")
-println("Execution time: ${result.metadata["executionTimeMs"]}ms")
-```
-
-### 5. Vector Store Integration
-
-```kotlin
-// Create a vector store for RAG
-val vectorStore = VectorStoreFactory.createQdrant(
-    host = "localhost",
-    port = 6333
-)
-
-// Create collection
-vectorStore.createCollection(
-    collectionName = "documents",
-    vectorSize = 384,
-    distance = DistanceMetric.COSINE
-)
-
-// Store vectors with metadata
-val documents = listOf(
-    VectorDocument(
-        id = "doc1",
-        vector = embeddings, // Your embedding vector
-        metadata = mapOf(
-            "title" to JsonPrimitive("Kotlin Guide"),
-            "category" to JsonPrimitive("programming")
-        )
-    )
-)
-
-vectorStore.upsert("documents", documents)
-
-// Search with filtering
-val results = vectorStore.search(
-    collectionName = "documents",
-    queryVector = queryEmbedding,
-    topK = 5,
-    filter = buildFilter {
-        equals("category", "programming")
-        range("score", min = 0.8f)
-    }
-)
-```
-
-### 6. Spring Boot Integration
-
-```kotlin
-@SpringBootApplication
-@EnableSpice
-class SpiceApplication
-
-@RestController
-class AgentController(private val contentTeam: SwarmAgent) {
     
-    @PostMapping("/generate")
-    suspend fun generateContent(@RequestBody request: ContentRequest): ContentResponse {
-        val message = Message(content = request.prompt, sender = "api")
-        val result = contentTeam.processMessage(message)
+    val ticketTool = pluginTool("create-ticket", "ticketing-system") {
+        mapInput("issue") { message -> message.content }
+        mapInput("priority") { message -> 
+            when (message.metadata["sentiment"]) {
+                "negative" -> "high"
+                else -> "normal"
+            }
+        }
+        mapOutput { response -> "Ticket created: $response" }
+    }
+    
+    // Main service agent
+    val serviceAgent = buildAgent {
+        id = "customer-service"
+        name = "Customer Service Agent"
+        description = "Handles customer inquiries with sentiment analysis"
+        tools = listOf("sentiment-analysis", "create-ticket")
         
-        return ContentResponse(
-            content = result.content,
-            agent = result.metadata["processedBy"] ?: "unknown",
-            executionTime = result.metadata["executionTimeMs"]
-        )
+        handle { message ->
+            val sentiment = getToolResult("sentiment-analysis", mapOf("text" to message.content))
+            val response = when (sentiment) {
+                "negative" -> {
+                    val ticket = getToolResult("create-ticket", mapOf("issue" to message.content))
+                    "I understand your frustration. $ticket"
+                }
+                "positive" -> "Thank you for your feedback! How else can I help?"
+                else -> "I'm here to help. Could you provide more details?"
+            }
+            
+            Message(
+                content = response,
+                sender = id,
+                receiver = message.sender,
+                metadata = mapOf("sentiment" to sentiment)
+            )
+        }
+    }
+    
+    // Optional: Advanced routing with experimental DSL
+    experimental {
+        val smartRouter = conditional {
+            whenThen(
+                condition = { message -> message.metadata["priority"] == "high" },
+                thenAgent = "escalation-agent"
+            )
+            otherwise("customer-service")
+        }
     }
 }
 ```
@@ -289,72 +308,46 @@ class AgentController(private val contentTeam: SwarmAgent) {
 
 ## 📖 Core Concepts
 
-### Agents
-Agents are the core units of work in Spice. They receive messages, process them, and send responses.
+### 🏗️ **DSL Architecture**
 
-### Messages
-Structured communication between agents with typed content and metadata.
+Spice uses a **3-tier progressive disclosure design**:
 
-### Tools
-Reusable functions that agents can use to perform specific tasks.
-
-### Routing
-Intelligent message routing based on agent capabilities, content analysis, and load balancing.
-
-### Personas
-Personality and communication styles that can be applied to agents.
-
----
-
-## �� Configuration
-
-### Spring Boot Integration
-
-```yaml
-# application.yml
-spice:
-  agents:
-    openai:
-      api-key: ${OPENAI_API_KEY}
-      model: gpt-4
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
-      model: claude-3-sonnet
-  routing:
-    default-strategy: confidence
-    load-balancing: enabled
-```
-
-### Programmatic Configuration
+1. **Core DSL** (`buildAgent{}`, `flow{}`, `tool{}`) - 90% of use cases
+2. **Plugin Tools** (`pluginTool{}`, `toolChain{}`) - External service integration  
+3. **Experimental DSL** (`experimental{}`) - Advanced features for power users
 
 ```kotlin
-@Configuration
-class SpiceConfig {
-    
-    @Bean
-    fun agentEngine(): AgentEngine {
-        val engine = AgentEngine()
-        
-        // Register agents
-        engine.registerAgent(OpenAIAgent("gpt-agent", ...))
-        engine.registerAgent(AnthropicAgent("claude-agent", ...))
-        
-        return engine
-    }
-    
-    @Bean
-    fun pluginManager(engine: AgentEngine): PluginManager {
-        val manager = createPluginManager(engine)
-        
-        // Load plugins
-        manager.loadPlugin(WebhookPlugin())
-        manager.loadPlugin(LoggingPlugin())
-        manager.activateAllPlugins()
-        
-        return manager
-    }
+// Tier 1: Core DSL - Simple and intuitive
+buildAgent { id = "agent"; handle { ... } }
+flow { step("agent-id") }
+tool("name") { execute { ... } }
+
+// Tier 2: Plugin Tools - External services
+pluginTool("weather", "weather-service") { mapInput(...) }
+toolChain("pipeline") { step("tool1"); step("tool2") }
+
+// Tier 3: Experimental - Advanced features
+experimental {
+    conditional { whenThen(...) }
+    reactive(agent) { filter(...); map(...) }
+    composition { sequential(...); parallel(...) }
 }
 ```
+
+### **Agents**
+Agents are the core units of work in Spice. They receive messages, process them, and send responses.
+
+### **Messages**
+Structured communication between agents with typed content and metadata.
+
+### **Tools**
+Reusable functions that agents can use to perform specific tasks.
+
+### **Routing**
+Intelligent message routing based on agent capabilities, content analysis, and load balancing.
+
+### **Personas**
+Personality and communication styles that can be applied to agents.
 
 ---
 
@@ -412,25 +405,56 @@ val supportAgent = OpenAIAgent("support", ...)
 
 ## 🏗️ Architecture
 
+### DSL Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SPICE DSL ARCHITECTURE                       │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 1: Core DSL (90% of use cases)                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │ buildAgent{}│  │   flow{}    │  │   tool()    │             │
+│  │    Agent    │──│    Flow     │──│    Tool     │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 2: Plugin Tools (External Integration)                  │
+│  ┌─────────────┐  ┌─────────────┐                              │
+│  │pluginTool() │  │ toolChain() │                              │
+│  │  External   │──│  Pipeline   │                              │
+│  │  Services   │  │ Execution   │                              │
+│  └─────────────┘  └─────────────┘                              │
+├─────────────────────────────────────────────────────────────────┤
+│  TIER 3: Experimental DSL (Advanced Features)                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │conditional{}│  │ reactive()  │  │composition{}│             │
+│  │   Pattern   │  │  Reactive   │  │   Agent     │             │
+│  │  Matching   │  │ Processing  │  │ Composition │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### System Architecture
+
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Agent Engine  │────│  Message Router │────│  Plugin Manager │
+│   Core DSL      │────│  Agent Registry │────│ Tool Registry   │
+│   Builders      │    │   Management    │    │  Management     │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     Agents      │    │   Routing Rules │    │    Plugins      │
-│  - OpenAI       │    │  - Keyword      │    │  - Webhook      │
-│  - Anthropic    │    │  - Confidence   │    │  - Logging      │
-│  - Custom       │    │  - Load Balance │    │  - Custom       │
+│     Agents      │    │      Flows      │    │     Tools       │
+│  - Core DSL     │    │  - Sequential   │    │  - Core Tools   │
+│  - Legacy LLM   │    │  - Conditional  │    │  - Plugin Tools │
+│  - Experimental │    │  - Reactive     │    │  - Tool Chains  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     Tools       │    │    Personas     │    │   Tool Chains   │
-│  - File I/O     │    │  - Friendly     │    │  - Validation   │
-│  - Web Search   │    │  - Professional │    │  - Processing   │
-│  - Custom       │    │  - Sarcastic    │    │  - Analysis     │
+│   Message Bus   │    │   Experimental  │    │   Integration   │
+│  - Type Safety  │    │   Extensions    │    │  - Spring Boot  │
+│  - Metadata     │    │  - Conditional  │    │  - Plugin Mgmt  │
+│  - Routing      │    │  - Reactive     │    │  - External API │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
@@ -472,6 +496,11 @@ class SpiceTest {
 
 ```
 spice-core/
+├── dsl/                   # New DSL Architecture
+│   ├── CoreDSL.kt         # Core 3-tier DSL (Agent/Flow/Tool)
+│   ├── PluginTools.kt     # Plugin tool integration
+│   └── experimental/      # Advanced features
+│       └── ExperimentalDSL.kt # Conditional, reactive, composition
 ├── Agent.kt               # Base agent interface
 ├── AgentEngine.kt         # Agent orchestration engine
 ├── SwarmAgent.kt          # Multi-agent coordination
@@ -482,8 +511,61 @@ spice-core/
 │   ├── OpenAIAgent.kt     # GPT-4, GPT-3.5 support
 │   ├── AnthropicAgent.kt  # Claude-3.5-Sonnet support
 │   ├── VertexAgent.kt     # Google Gemini support
-│   └── VLLMAgent.kt       # vLLM local deployment
+│   ├── VLLMAgent.kt       # vLLM local deployment
+│   ├── WizardAgent.kt     # Intelligence scaling agent
+│   └── PlanningAgent.kt   # Planning and orchestration
 └── Tool.kt                # Function calling interface
+```
+
+---
+
+## ⚠️ Breaking Changes (v0.1.0)
+
+### DSL Architecture Refactoring
+
+The DSL has been completely restructured for better usability and maintainability:
+
+#### **What's New**
+- **Core DSL**: Simple `buildAgent{}`, `flow{}`, `tool{}` for common use cases
+- **Plugin Tools**: `pluginTool{}`, `toolChain{}` for external service integration  
+- **Experimental DSL**: Advanced features moved to `experimental{}` wrapper
+
+#### **Migration Required**
+- Complex DSL features now require `experimental { ... }` wrapper
+- Legacy agent creation patterns still work but new DSL is recommended
+- Plugin tools use new registration system with enhanced capabilities
+
+#### **Compatibility**
+- All existing agents (OpenAI, Anthropic, etc.) work unchanged
+- Legacy DSL patterns still supported but deprecated
+- Spring Boot integration remains the same
+
+#### **Example Migration**
+
+```kotlin
+// OLD (still works, but deprecated)
+val agent = OpenAIAgent("id", "name", apiKey, "gpt-4")
+
+// NEW (recommended)
+val agent = buildAgent {
+    id = "modern-agent"
+    name = "Modern Agent"
+    description = "Uses new DSL"
+    tools = listOf("my-tool")
+    
+    handle { message ->
+        // Enhanced message handling
+        Message(content = "Processed: ${message.content}", sender = id)
+    }
+}
+
+// Complex features now in experimental
+experimental {
+    val conditionalFlow = conditional {
+        whenThen(condition = { ... }, thenAgent = "agent1")
+        otherwise("default-agent")
+    }
+}
 ```
 
 ---
@@ -520,6 +602,11 @@ MIT License. Use freely. Share wildly. Build something spicy. 🌶️
 ## 🎯 Roadmap
 
 ### ✅ **Completed (v0.1.0)**
+- [x] **DSL Simplification** - Agent > Flow > Tool 3-tier architecture
+- [x] **Core DSL** - `buildAgent{}`, `flow{}`, `tool{}` for intuitive usage
+- [x] **Experimental DSL** - Advanced features in `experimental{}` wrapper
+- [x] **Plugin Tools** - External service integration with transparent complexity
+- [x] **Progressive Disclosure** - 90% of use cases with 3 simple concepts
 - [x] Multi-agent orchestration with SwarmAgent
 - [x] Production-ready MultiAgentFlow with 4 strategies
 - [x] OpenAI, Anthropic, Vertex AI, vLLM agent implementations
@@ -530,11 +617,12 @@ MIT License. Use freely. Share wildly. Build something spicy. 🌶️
 - [x] Rich metadata and observability
 
 ### 🚧 **In Progress (v0.2.0)**
-- [ ] Function calling and tool integration
-- [ ] RAG workflow templates
-- [ ] Advanced routing policies
-- [ ] Performance benchmarking suite
-- [ ] Documentation and examples
+- [ ] Enhanced tool execution engine for new DSL
+- [ ] RAG workflow templates with Core DSL
+- [ ] Advanced routing policies in experimental package
+- [ ] Performance benchmarking suite for DSL overhead
+- [ ] Migration guide from legacy to new DSL
+- [ ] Documentation and examples for all DSL tiers
 
 ### 🔮 **Future Releases**
 - [ ] Visual flow builder for agent workflows
