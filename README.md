@@ -168,13 +168,13 @@ val response = gptAgent.processComm(
 
 ## 📚 Documentation
 
-Comprehensive documentation is available in our [GitHub Wiki](https://github.com/spice-framework/spice/wiki):
+Comprehensive documentation is available in our [GitHub Wiki](https://github.com/no-ai-labs/spice/wiki):
 
-- 📖 **[Getting Started Guide](https://github.com/spice-framework/spice/wiki/Getting-Started)** - Installation and first steps
-- 🎯 **[Core Concepts](https://github.com/spice-framework/spice/wiki/Core-Concepts)** - Understanding the fundamentals
-- 🏗️ **[Architecture Overview](https://github.com/spice-framework/spice/wiki/Architecture)** - System design and patterns
-- 📚 **[Examples](https://github.com/spice-framework/spice/wiki/Examples)** - Learn by example
-- 🔧 **[API Reference](https://github.com/spice-framework/spice/wiki/API-Reference)** - Detailed API documentation
+- 📖 **[Getting Started Guide](https://github.com/no-ai-labs/spice/wiki/Getting-Started)** - Installation and first steps
+- 🎯 **[Core Concepts](https://github.com/no-ai-labs/spice/wiki/Core-Concepts)** - Understanding the fundamentals
+- 🏗️ **[Architecture Overview](https://github.com/no-ai-labs/spice/wiki/Architecture)** - System design and patterns
+- 📚 **[Examples](https://github.com/no-ai-labs/spice/wiki/Examples)** - Learn by example
+- 🔧 **[API Reference](https://github.com/no-ai-labs/spice/wiki/API-Reference)** - Detailed API documentation
 
 ## 🛠️ Advanced Usage
 
@@ -299,9 +299,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📬 Contact
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/spice-framework/spice/issues)
-- **Discussions**: [Ask questions and share ideas](https://github.com/spice-framework/spice/discussions)
-- **Wiki**: [Comprehensive documentation](https://github.com/spice-framework/spice/wiki)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/no-ai-labs/spice/issues)
+- **Discussions**: [Ask questions and share ideas](https://github.com/no-ai-labs/spice/discussions)
+- **Wiki**: [Comprehensive documentation](https://github.com/no-ai-labs/spice/wiki)
 
 ---
 
@@ -310,7 +310,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 </p>
 
 <p align="center">
-  <a href="https://github.com/spice-framework/spice/wiki/Getting-Started">Get Started</a> •
-  <a href="https://github.com/spice-framework/spice/wiki/Examples">View Examples</a> •
-  <a href="https://github.com/spice-framework/spice/wiki">Read Docs</a>
+  <a href="https://github.com/no-ai-labs/spice/wiki/Getting-Started">Get Started</a> •
+  <a href="https://github.com/no-ai-labs/spice/wiki/Examples">View Examples</a> •
+  <a href="https://github.com/no-ai-labs/spice/wiki">Read Docs</a>
 </p>
