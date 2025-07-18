@@ -51,7 +51,7 @@ data class AgentPersona(
     val personalityType: PersonalityType,
     val communicationStyle: CommunicationStyle,
     val traits: Set<PersonalityTrait>,
-    val responsePatterns: Map<MessageType, ResponsePattern>,
+    val responsePatterns: Map<CommType, ResponsePattern>,
     val vocabulary: PersonaVocabulary,
     val behaviorModifiers: Map<String, Any> = emptyMap()
 ) {
@@ -59,10 +59,26 @@ data class AgentPersona(
     /**
      * Apply persona to message
      */
-    fun applyToMessage(originalContent: String, messageType: MessageType): String {
-        val pattern = responsePatterns[messageType] ?: responsePatterns[MessageType.TEXT]!!
-        val styledContent = applyPersonalityStyle(originalContent, pattern)
-        return vocabulary.enrichResponse(styledContent, personalityType, communicationStyle)
+    fun applyToResponse(originalResponse: String, messageType: CommType = CommType.TEXT): String {
+        var response = originalResponse
+        
+        // Apply response pattern
+        responsePatterns[messageType]?.let { pattern ->
+            response = pattern.transform(response)
+        }
+        
+        // Apply vocabulary
+        response = vocabulary.apply(response)
+        
+        // Apply communication style
+        response = applyCommunicationStyle(response)
+        
+        // Apply personality traits
+        traits.forEach { trait ->
+            response = trait.apply(response)
+        }
+        
+        return response
     }
     
     /**
@@ -104,6 +120,71 @@ data class AgentPersona(
         }
         return (originalConfidence * modifier).coerceIn(0.0, 1.0)
     }
+
+    private fun applyCommunicationStyle(content: String): String {
+        return when (communicationStyle) {
+            CommunicationStyle.FORMAL -> makeFormals(content)
+            CommunicationStyle.CASUAL -> makeCasual(content)
+            CommunicationStyle.TECHNICAL -> content // Keep as-is for technical
+            CommunicationStyle.SIMPLE -> simplify(content)
+            CommunicationStyle.POETIC -> makePoetic(content)
+            CommunicationStyle.HUMOROUS -> makeHumorous(content)
+            CommunicationStyle.DIRECT -> makeDirect(content)
+            CommunicationStyle.DIPLOMATIC -> makeDiplomatic(content)
+            CommunicationStyle.ENTHUSIASTIC -> makeEnthusiastic(content)
+            CommunicationStyle.CONTEMPLATIVE -> makeContemplative(content)
+        }
+    }
+    
+    private fun makeFormals(content: String): String {
+        return content
+            .replace("can't", "cannot")
+            .replace("won't", "will not")
+            .replace("don't", "do not")
+    }
+    
+    private fun makeCasual(content: String): String {
+        return content
+            .replace("cannot", "can't")
+            .replace("will not", "won't")
+            .replace("do not", "don't")
+    }
+    
+    private fun simplify(content: String): String {
+        // Simple implementation - in real world would be more sophisticated
+        return content.replace(Regex("\\b\\w{10,}\\b")) { match ->
+            when (match.value.lowercase()) {
+                "furthermore" -> "also"
+                "additionally" -> "also"
+                "consequently" -> "so"
+                else -> match.value
+            }
+        }
+    }
+    
+    private fun makePoetic(content: String): String {
+        return content // Would add poetic elements in real implementation
+    }
+    
+    private fun makeHumorous(content: String): String {
+        return content // Would add humor in real implementation
+    }
+    
+    private fun makeDirect(content: String): String {
+        return content.replace(Regex("(In my opinion,|I think that|I believe)"), "")
+    }
+    
+    private fun makeDiplomatic(content: String): String {
+        return "Perhaps we could consider that $content"
+    }
+    
+    private fun makeEnthusiastic(content: String): String {
+        return "$content!"
+    }
+    
+    private fun makeContemplative(content: String): String {
+        return "When we reflect on this, $content"
+    }
 }
 
 /**
@@ -117,6 +198,11 @@ interface PersonalityTrait {
      * Transform message content
      */
     fun transform(content: String): String
+    
+    /**
+     * Apply trait to content (delegates to transform by default)
+     */
+    fun apply(content: String): String = transform(content)
 }
 
 /**
@@ -240,7 +326,21 @@ data class ResponsePattern(
     val emotionalTone: String = "neutral",
     val verbosity: Double = 1.0, // 1.0 = normal, >1.0 = more detailed, <1.0 = more concise
     val formalityLevel: Double = 0.5 // 0.0 = very casual, 1.0 = very formal
-)
+) {
+    fun transform(content: String): String {
+        var styledContent = content
+        
+        // Add prefix/suffix
+        if (prefix.isNotBlank()) {
+            styledContent = "$prefix $styledContent"
+        }
+        if (suffix.isNotBlank()) {
+            styledContent = "$styledContent $suffix"
+        }
+        
+        return styledContent.trim()
+    }
+}
 
 /**
  * Persona vocabulary
@@ -290,6 +390,9 @@ class PersonaVocabulary {
         
         return enriched
     }
+    
+    // Simple apply method for AgentPersona usage
+    fun apply(content: String): String = content
 }
 
 /**
@@ -303,12 +406,12 @@ object PersonaLibrary {
         communicationStyle = CommunicationStyle.FORMAL,
         traits = setOf(PoliteTrait(0.9), ConciseTrait(0.6)),
         responsePatterns = mapOf(
-            MessageType.TEXT to ResponsePattern(
+            CommType.TEXT to ResponsePattern(
                 prefix = "Good day.",
                 suffix = "I hope this information is helpful.",
                 formalityLevel = 0.9
             ),
-            MessageType.ERROR to ResponsePattern(
+            CommType.ERROR to ResponsePattern(
                 prefix = "I apologize for the inconvenience.",
                 suffix = "Please try again.",
                 formalityLevel = 1.0
@@ -323,12 +426,12 @@ object PersonaLibrary {
         communicationStyle = CommunicationStyle.CASUAL,
         traits = setOf(HumorousTrait(0.7), PoliteTrait(0.4)),
         responsePatterns = mapOf(
-            MessageType.TEXT to ResponsePattern(
+            CommType.TEXT to ResponsePattern(
                 prefix = "Hey there!",
                 suffix = "Hope that helps!",
                 formalityLevel = 0.2
             ),
-            MessageType.ERROR to ResponsePattern(
+            CommType.ERROR to ResponsePattern(
                 prefix = "Oops, my bad!",
                 suffix = "Let's try that again!",
                 formalityLevel = 0.1
@@ -343,12 +446,12 @@ object PersonaLibrary {
         communicationStyle = CommunicationStyle.DIRECT,
         traits = setOf(HumorousTrait(0.9), ConciseTrait(0.8)),
         responsePatterns = mapOf(
-            MessageType.TEXT to ResponsePattern(
+            CommType.TEXT to ResponsePattern(
                 prefix = "Well, obviously",
                 suffix = "Got it?",
                 formalityLevel = 0.3
             ),
-            MessageType.ERROR to ResponsePattern(
+            CommType.ERROR to ResponsePattern(
                 prefix = "Saw that coming.",
                 suffix = "Maybe be more careful next time.",
                 formalityLevel = 0.4
@@ -363,12 +466,12 @@ object PersonaLibrary {
         communicationStyle = CommunicationStyle.POETIC,
         traits = setOf(CreativeTrait(0.9), HumorousTrait(0.5)),
         responsePatterns = mapOf(
-            MessageType.TEXT to ResponsePattern(
+            CommType.TEXT to ResponsePattern(
                 prefix = "Here's a brilliant idea! ✨",
                 suffix = "Let's approach this creatively! 🎨",
                 formalityLevel = 0.4
             ),
-            MessageType.ERROR to ResponsePattern(
+            CommType.ERROR to ResponsePattern(
                 prefix = "Every failure is a stepping stone to success 💡",
                 suffix = "Let's try a new approach! 🚀",
                 formalityLevel = 0.3
@@ -387,13 +490,13 @@ object PersonaLibrary {
         communicationStyle = CommunicationStyle.CONTEMPLATIVE,
         traits = setOf(PoliteTrait(0.8), ConciseTrait(0.3)),
         responsePatterns = mapOf(
-            MessageType.TEXT to ResponsePattern(
+            CommType.TEXT to ResponsePattern(
                 prefix = "Let me share some wisdom:",
                 suffix = "What do you think about this perspective?",
                 formalityLevel = 0.7,
                 verbosity = 1.3
             ),
-            MessageType.ERROR to ResponsePattern(
+            CommType.ERROR to ResponsePattern(
                 prefix = "Mistakes are learning opportunities.",
                 suffix = "Let's approach this thoughtfully.",
                 formalityLevel = 0.8
@@ -404,9 +507,9 @@ object PersonaLibrary {
 }
 
 /**
- * Personalized agent with applied persona
+ * Base agent adapter that applies persona
  */
-abstract class PersonalizedAgent(
+abstract class PersonaAdapter(
     override val id: String,
     override val name: String,
     override val description: String,
@@ -415,17 +518,17 @@ abstract class PersonalizedAgent(
 ) : Agent {
     
     /**
-     * Process message with persona applied
+     * Process comm with persona applied
      */
-    override suspend fun processMessage(message: Message): Message {
+    override suspend fun processComm(comm: Comm): Comm {
         // Original processing
-        val originalResponse = processMessageWithPersonality(message)
+        val originalResponse = processCommWithPersonality(comm)
         
         // Apply persona
-        val personalizedContent = persona.applyToMessage(originalResponse.content, originalResponse.type)
+        val personalizedContent = persona.applyToResponse(originalResponse.content, originalResponse.type)
         
-        // Add persona information to metadata
-        val personalizedMetadata = originalResponse.metadata + mapOf(
+        // Add persona information to data
+        val personalizedData = originalResponse.data + mapOf(
             "persona" to persona.name,
             "personalityType" to persona.personalityType.toString(),
             "communicationStyle" to persona.communicationStyle.toString()
@@ -433,14 +536,14 @@ abstract class PersonalizedAgent(
         
         return originalResponse.copy(
             content = personalizedContent,
-            metadata = personalizedMetadata
+            data = personalizedData
         )
     }
     
     /**
-     * Actual message processing logic to be implemented by subclasses
+     * Actual comm processing logic to be implemented by subclasses
      */
-    abstract suspend fun processMessageWithPersonality(message: Message): Message
+    abstract suspend fun processCommWithPersonality(comm: Comm): Comm
     
     /**
      * Check if agent has specific trait
@@ -453,26 +556,32 @@ abstract class PersonalizedAgent(
     protected fun calculatePersonalizedConfidence(baseConfidence: Double): Double {
         return persona.modifyConfidence(baseConfidence)
     }
+    
+    override fun canHandle(comm: Comm): Boolean = true
+    
+    override fun getTools(): List<Tool> = emptyList()
+    
+    override fun isReady(): Boolean = true
 }
 
 /**
  * Extension function: Apply persona to existing agent
  */
-fun Agent.withPersona(persona: AgentPersona): PersonalizedAgent {
+fun Agent.withPersona(persona: AgentPersona): PersonaAdapter {
     val originalAgent = this
     
-    return object : PersonalizedAgent(
+    return object : PersonaAdapter(
         id = "${originalAgent.id}-personalized",
         name = "${originalAgent.name} (${persona.name})",
         description = "${originalAgent.description} with ${persona.personalityType} personality",
         capabilities = originalAgent.capabilities,
         persona = persona
     ) {
-        override suspend fun processMessageWithPersonality(message: Message): Message {
-            return originalAgent.processMessage(message)
+        override suspend fun processCommWithPersonality(comm: Comm): Comm {
+            return originalAgent.processComm(comm)
         }
         
-        override fun canHandle(message: Message): Boolean = originalAgent.canHandle(message)
+        override fun canHandle(comm: Comm): Boolean = originalAgent.canHandle(comm)
         override fun getTools(): List<Tool> = originalAgent.getTools()
         override fun isReady(): Boolean = originalAgent.isReady()
     }
@@ -494,14 +603,14 @@ class PersonaBuilder(private val name: String) {
     var personalityType: PersonalityType = PersonalityType.FRIENDLY
     var communicationStyle: CommunicationStyle = CommunicationStyle.CASUAL
     private val traits = mutableSetOf<PersonalityTrait>()
-    private val responsePatterns = mutableMapOf<MessageType, ResponsePattern>()
+    private val responsePatterns = mutableMapOf<CommType, ResponsePattern>()
     private val behaviorModifiers = mutableMapOf<String, Any>()
     
     fun trait(trait: PersonalityTrait) {
         traits.add(trait)
     }
     
-    fun responsePattern(messageType: MessageType, pattern: ResponsePattern) {
+    fun responsePattern(messageType: CommType, pattern: ResponsePattern) {
         responsePatterns[messageType] = pattern
     }
     
@@ -516,7 +625,7 @@ class PersonaBuilder(private val name: String) {
             communicationStyle = communicationStyle,
             traits = traits,
             responsePatterns = responsePatterns.ifEmpty {
-                mapOf(MessageType.TEXT to ResponsePattern())
+                mapOf(CommType.TEXT to ResponsePattern())
             },
             vocabulary = PersonaVocabulary(),
             behaviorModifiers = behaviorModifiers

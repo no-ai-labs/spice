@@ -66,22 +66,17 @@ data class GroupMetadata(
 }
 
 /**
- * 🔀 Multi-Agent Flow - High-Performance Agent Orchestration
- * 
- * Manages multiple agents with different execution strategies:
- * - SEQUENTIAL: Agents execute one after another
- * - PARALLEL: All agents execute simultaneously
- * - COMPETITION: Fastest agent wins
- * - PIPELINE: Output of one agent becomes input of next
+ * 🌊 Multi-Agent Flow - Orchestrates agent execution with various strategies
  */
 class MultiAgentFlow(
-    private val strategy: FlowStrategy = FlowStrategy.SEQUENTIAL,
-    private val timeoutMs: Long = 30_000L,
+    private val flowId: String = "flow-${System.currentTimeMillis()}",
+    private val defaultStrategy: FlowStrategy = FlowStrategy.SEQUENTIAL,
+    private val coroutineContext: CoroutineContext = Dispatchers.Default,
     private val maxRetries: Int = 3
 ) {
     
     private val agentPool = CopyOnWriteArrayList<Agent>()
-    private var strategyResolver: ((Message, List<Agent>) -> FlowStrategy)? = null
+    private var strategyResolver: ((Comm, List<Agent>) -> FlowStrategy)? = null
     
     /**
      * Add agent to the flow
@@ -102,63 +97,61 @@ class MultiAgentFlow(
     /**
      * Set custom strategy resolver for dynamic strategy selection
      */
-    fun setStrategyResolver(resolver: (Message, List<Agent>) -> FlowStrategy): MultiAgentFlow {
+    fun setStrategyResolver(resolver: (Comm, List<Agent>) -> FlowStrategy): MultiAgentFlow {
         this.strategyResolver = resolver
         return this
     }
     
     /**
-     * Process message through agent flow
+     * Process comm through agent flow
      */
-    suspend fun process(message: Message): Message {
+    suspend fun process(comm: Comm): Comm {
         if (agentPool.isEmpty()) {
-            return message.createReply(
+            return comm.reply(
                 content = "No agents available for processing",
-                sender = "multi-agent-flow",
-                type = MessageType.ERROR,
-                metadata = mapOf("error" to "empty_agent_pool")
-            )
+                from = "multi-agent-flow",
+                type = CommType.ERROR
+            ).withData("error", "empty_agent_pool")
         }
         
         val activeAgents = agentPool.filter { it.isReady() }
         if (activeAgents.isEmpty()) {
-            return message.createReply(
+            return comm.reply(
                 content = "No ready agents available",
-                sender = "multi-agent-flow", 
-                type = MessageType.ERROR,
-                metadata = mapOf("error" to "no_ready_agents")
-            )
+                from = "multi-agent-flow", 
+                type = CommType.ERROR
+            ).withData("error", "no_ready_agents")
         }
         
-        val executionStrategy = strategyResolver?.invoke(message, activeAgents) ?: strategy
+        val executionStrategy = strategyResolver?.invoke(comm, activeAgents) ?: defaultStrategy
         val startTime = System.currentTimeMillis()
         
         val result = try {
-            withTimeout(timeoutMs) {
+            withTimeout(30_000L) { // Keep original timeoutMs
                 when (executionStrategy) {
-                    FlowStrategy.SEQUENTIAL -> processSequential(message, activeAgents)
-                    FlowStrategy.PARALLEL -> processParallel(message, activeAgents)
-                    FlowStrategy.COMPETITION -> processCompetition(message, activeAgents)
-                    FlowStrategy.PIPELINE -> processPipeline(message, activeAgents)
+                    FlowStrategy.SEQUENTIAL -> processSequential(comm, activeAgents)
+                    FlowStrategy.PARALLEL -> processParallel(comm, activeAgents)
+                    FlowStrategy.COMPETITION -> processCompetition(comm, activeAgents)
+                    FlowStrategy.PIPELINE -> processPipeline(comm, activeAgents)
                 }
             }
         } catch (e: TimeoutCancellationException) {
-            message.createReply(
-                content = "Flow execution timed out after ${timeoutMs}ms",
-                sender = "multi-agent-flow",
-                type = MessageType.ERROR,
-                metadata = mapOf(
+            comm.reply(
+                content = "Flow execution timed out after 30000ms",
+                from = "multi-agent-flow",
+                type = CommType.ERROR,
+                data = mapOf(
                     "error" to "timeout",
-                    "timeoutMs" to timeoutMs.toString(),
+                    "timeoutMs" to "30000",
                     "strategy" to executionStrategy.name
                 )
             )
         } catch (e: Exception) {
-            message.createReply(
+            comm.reply(
                 content = "Flow execution failed: ${e.message}",
-                sender = "multi-agent-flow",
-                type = MessageType.ERROR,
-                metadata = mapOf(
+                from = "multi-agent-flow",
+                type = CommType.ERROR,
+                data = mapOf(
                     "error" to "execution_failed",
                     "cause" to (e::class.simpleName ?: "Unknown"),
                     "strategy" to executionStrategy.name
@@ -169,7 +162,7 @@ class MultiAgentFlow(
         val executionTime = System.currentTimeMillis() - startTime
         
         return result.copy(
-            metadata = result.metadata + mapOf(
+            data = result.data + mapOf(
                 "flow_strategy" to executionStrategy.name,
                 "execution_time_ms" to executionTime.toString(),
                 "agent_count" to activeAgents.size.toString()
@@ -180,17 +173,17 @@ class MultiAgentFlow(
     /**
      * Sequential processing: A → B → C
      */
-    private suspend fun processSequential(message: Message, agents: List<Agent>): Message {
-        var currentMessage = message
+    private suspend fun processSequential(comm: Comm, agents: List<Agent>): Comm {
+        var currentComm = comm
         val processingSteps = mutableListOf<String>()
         
         for ((index, agent) in agents.withIndex()) {
             try {
-                val stepMessage = currentMessage.withMetadata("step_index", index.toString())
-                val result = agent.processMessage(stepMessage)
+                val stepComm = currentComm.withData("step_index", index.toString())
+                val result = agent.processComm(stepComm)
                 
                 processingSteps.add("Step ${index + 1} (${agent.name}): Processed")
-                currentMessage = result
+                currentComm = result
                 
             } catch (e: Exception) {
                 processingSteps.add("Step ${index + 1} (${agent.name}): Error - ${e.message}")
@@ -198,8 +191,8 @@ class MultiAgentFlow(
             }
         }
         
-        return currentMessage.copy(
-            metadata = currentMessage.metadata + mapOf(
+        return currentComm.copy(
+            data = currentComm.data + mapOf(
                 "sequential_steps" to processingSteps.joinToString("; "),
                 "completed_steps" to processingSteps.size.toString()
             )
@@ -209,12 +202,12 @@ class MultiAgentFlow(
     /**
      * Parallel processing: A, B, C simultaneously
      */
-    private suspend fun processParallel(message: Message, agents: List<Agent>): Message = coroutineScope {
+    private suspend fun processParallel(comm: Comm, agents: List<Agent>): Comm = coroutineScope {
         val results = agents.mapIndexed { index, agent ->
             async {
                 try {
-                    val indexedMessage = message.withMetadata("parallel_index", index.toString())
-                    val result = agent.processMessage(indexedMessage)
+                    val indexedComm = comm.withData("parallel_index", index.toString())
+                    val result = agent.processComm(indexedComm)
                     "${agent.name}: ${result.content}"
                 } catch (e: Exception) {
                     "${agent.name}: Error - ${e.message}"
@@ -222,11 +215,11 @@ class MultiAgentFlow(
             }
         }.awaitAll()
         
-        return@coroutineScope message.createReply(
+        return@coroutineScope comm.reply(
             content = "Parallel processing results:\n${results.joinToString("\n")}",
-            sender = "multi-agent-flow",
-            type = MessageType.RESULT,
-            metadata = mapOf(
+            from = "multi-agent-flow",
+            type = CommType.RESULT,
+            data = mapOf(
                 "parallel_results" to results.joinToString("; "),
                 "successful_agents" to results.count { !it.contains("Error") }.toString()
             )
@@ -236,12 +229,12 @@ class MultiAgentFlow(
     /**
      * Competition processing: Fastest agent wins
      */
-    private suspend fun processCompetition(message: Message, agents: List<Agent>): Message = coroutineScope {
+    private suspend fun processCompetition(comm: Comm, agents: List<Agent>): Comm = coroutineScope {
         val competitionResults = agents.map { agent ->
             async {
                 val startTime = System.currentTimeMillis()
                 try {
-                    val result = agent.processMessage(message)
+                    val result = agent.processComm(comm)
                     val processingTime = System.currentTimeMillis() - startTime
                     AgentCompetitionResult(
                         agentId = agent.id,
@@ -290,11 +283,11 @@ class MultiAgentFlow(
             }
         }
         
-        return@coroutineScope message.createReply(
+        return@coroutineScope comm.reply(
             content = "Competition winner: ${winner.agentName} (${winner.processingTime}ms)\n${winner.content}",
-            sender = "multi-agent-flow",
-            type = MessageType.RESULT,
-            metadata = mapOf(
+            from = "multi-agent-flow",
+            type = CommType.RESULT,
+            data = mapOf(
                 "winner_id" to winner.agentId,
                 "winner_name" to winner.agentName,
                 "winner_time" to winner.processingTime.toString(),
@@ -306,20 +299,20 @@ class MultiAgentFlow(
     /**
      * Pipeline processing: A output → B input → C input
      */
-    private suspend fun processPipeline(message: Message, agents: List<Agent>): Message {
-        var currentMessage = message
+    private suspend fun processPipeline(comm: Comm, agents: List<Agent>): Comm {
+        var currentComm = comm
         val pipelineSteps = mutableListOf<String>()
         
         for ((index, agent) in agents.withIndex()) {
             try {
-                val stepMessage = currentMessage.withMetadata("pipeline_step", index.toString())
-                val result = agent.processMessage(stepMessage)
+                val stepComm = currentComm.withData("pipeline_step", index.toString())
+                val result = agent.processComm(stepComm)
                 
                 pipelineSteps.add("Step ${index + 1} (${agent.name}): Processed")
                 
                 // Next agent receives previous agent's output
-                currentMessage = result.copy(
-                    metadata = currentMessage.metadata + mapOf(
+                currentComm = result.copy(
+                    data = currentComm.data + mapOf(
                         "previous_agent" to agent.id,
                         "pipeline_step" to index.toString()
                     )
@@ -331,8 +324,8 @@ class MultiAgentFlow(
             }
         }
         
-        return currentMessage.copy(
-            metadata = currentMessage.metadata + mapOf(
+        return currentComm.copy(
+            data = currentComm.data + mapOf(
                 "pipeline_steps" to pipelineSteps.joinToString("; "),
                 "completed_steps" to pipelineSteps.size.toString()
             )
@@ -359,9 +352,7 @@ class MultiAgentFlow(
 }
 
 /**
- * 🐝 Swarm Agent - Intelligent Agent Coordination
- * 
- * Manages a dynamic pool of agents with intelligent selection and strategy resolution
+ * 🐝 Swarm Agent - Dynamically coordinates multiple agents based on context
  */
 class SwarmAgent(
     override val id: String = "swarm-agent",
@@ -371,7 +362,7 @@ class SwarmAgent(
 ) : Agent {
     
     private val agentPool = CopyOnWriteArrayList<Agent>()
-    private var strategyResolver: ((Message, List<Agent>) -> FlowStrategy)? = null
+    private var strategyResolver: ((Comm, List<Agent>) -> FlowStrategy)? = null
     private val flow = MultiAgentFlow()
     
     /**
@@ -385,54 +376,59 @@ class SwarmAgent(
     /**
      * Set custom strategy resolver
      */
-    fun setStrategyResolver(resolver: (Message, List<Agent>) -> FlowStrategy): SwarmAgent {
+    fun setStrategyResolver(resolver: (Comm, List<Agent>) -> FlowStrategy): SwarmAgent {
         this.strategyResolver = resolver
         return this
     }
     
-    override suspend fun processMessage(message: Message): Message {
+    override suspend fun processComm(comm: Comm): Comm {
         if (agentPool.isEmpty()) {
-            return message.createReply(
+            return comm.reply(
                 content = "No agents in swarm pool",
-                sender = id,
-                type = MessageType.ERROR
+                from = id,
+                type = CommType.ERROR
             )
         }
         
-        // Select optimal agents for this message
-        val selectedAgents = selectOptimalAgents(message)
+        // Select optimal agents for this comm
+        val selectedAgents = selectOptimalAgents(comm)
         
-        // Configure flow with selected agents
+        // Create new flow with selected agents
         val swarmFlow = MultiAgentFlow().apply {
             selectedAgents.forEach { addAgent(it) }
             strategyResolver?.let { setStrategyResolver(it) }
         }
         
-        // Process with swarm coordination
-        val result = swarmFlow.process(message)
+        // Determine execution strategy
+        val strategy = strategyResolver?.invoke(comm, selectedAgents) 
+            ?: determineDefaultStrategy(comm, selectedAgents)
         
-        return result.copy(
-            sender = id,
-            metadata = result.metadata + mapOf(
+        // Process through flow
+        val flowComm = comm.copy(
+            data = comm.data + mapOf(
                 "swarm_id" to id,
-                "swarm_name" to name,
-                "selected_agents" to selectedAgents.joinToString(",") { it.id },
-                "swarm_size" to selectedAgents.size.toString()
+                "swarm_agents" to selectedAgents.map { it.id }.joinToString(","),
+                "swarm_strategy" to strategy.name
             )
         )
+        
+        return swarmFlow.process(flowComm)
     }
     
     /**
-     * Select optimal agents based on message characteristics
+     * Select optimal agents based on comm content and capabilities
      */
-    private fun selectOptimalAgents(message: Message): List<Agent> {
-        val requiredCapabilities = extractRequiredCapabilities(message)
+    private fun selectOptimalAgents(comm: Comm): List<Agent> {
+        val requiredCapabilities = extractRequiredCapabilities(comm)
         
         return agentPool.filter { agent ->
-            // Check if agent has required capabilities
-            requiredCapabilities.any { capability ->
-                agent.capabilities.contains(capability)
-            } || agent.canHandle(message)
+            // Check if agent has any required capability
+            requiredCapabilities.any { required ->
+                agent.capabilities.any { capability ->
+                    capability.equals(required, ignoreCase = true) ||
+                    capability.contains(required, ignoreCase = true)
+                }
+            } || agent.canHandle(comm)
         }.ifEmpty {
             // If no agents match capabilities, use all available agents
             agentPool.toList()
@@ -440,18 +436,18 @@ class SwarmAgent(
     }
     
     /**
-     * Extract required capabilities from message
+     * Extract required capabilities from comm
      */
-    private fun extractRequiredCapabilities(message: Message): List<String> {
+    private fun extractRequiredCapabilities(comm: Comm): List<String> {
         val capabilities = mutableListOf<String>()
         
-        // Check metadata for explicit capabilities
-        message.metadata["required_capabilities"]?.let { caps ->
+        // Check data for explicit capabilities
+        comm.data["required_capabilities"]?.let { caps ->
             capabilities.addAll(caps.split(",").map { it.trim() })
         }
         
         // Analyze content for implicit capabilities
-        val content = message.content.lowercase()
+        val content = comm.content.lowercase()
         val capabilityKeywords = mapOf(
             "analysis" to listOf("analyze", "examine", "study", "investigate"),
             "generation" to listOf("create", "generate", "produce", "build"),
@@ -471,12 +467,129 @@ class SwarmAgent(
         
         return capabilities.distinct()
     }
+
+    /**
+     * Determine default strategy based on message and selected agents
+     */
+    private fun determineDefaultStrategy(comm: Comm, selectedAgents: List<Agent>): FlowStrategy {
+        // Simple strategy: if all agents can handle, use PARALLEL. Otherwise, SEQUENTIAL.
+        if (selectedAgents.all { it.canHandle(comm) }) {
+            return FlowStrategy.PARALLEL
+        }
+        return FlowStrategy.SEQUENTIAL
+    }
     
-    override fun canHandle(message: Message): Boolean = agentPool.isNotEmpty()
+    override fun canHandle(comm: Comm): Boolean = agentPool.isNotEmpty()
     
     override fun getTools(): List<Tool> = agentPool.flatMap { it.getTools() }
     
     override fun isReady(): Boolean = agentPool.any { it.isReady() }
+}
+
+/**
+ * 🔄 Flow Executor Interface
+ */
+interface FlowExecutor {
+    suspend fun execute(input: Comm): Comm
+}
+
+/**
+ * 📊 Agent Execution Result
+ */
+data class AgentExecutionResult(
+    val agentId: String,
+    val agentName: String,
+    val success: Boolean,
+    val processingTime: Long,
+    val errorMessage: String? = null
+)
+
+/**
+ * 🌐 Sequential Flow: Execute agents one by one
+ */
+class SequentialFlow(
+    private val agents: List<Agent>,
+    coroutineContext: CoroutineContext = Dispatchers.Default
+) : FlowExecutor {
+    
+    private val scope = CoroutineScope(coroutineContext + SupervisorJob())
+    
+    override suspend fun execute(input: Comm): Comm {
+        if (agents.isEmpty()) {
+            return input.reply(
+                content = "No agents available for sequential flow",
+                from = "sequential-flow",
+                type = CommType.ERROR
+            )
+        }
+        
+        var current = input
+        val executionResults = mutableListOf<AgentExecutionResult>()
+        
+        for ((index, agent) in agents.withIndex()) {
+            try {
+                val startTime = System.currentTimeMillis()
+                
+                if (!agent.canHandle(current)) {
+                    executionResults.add(
+                        AgentExecutionResult(
+                            agentId = agent.id,
+                            agentName = agent.name,
+                            success = false,
+                            processingTime = 0,
+                            errorMessage = "Agent cannot handle message"
+                        )
+                    )
+                    continue
+                }
+                
+                val result = withContext(scope.coroutineContext) {
+                    agent.processComm(current)
+                }
+                
+                val processingTime = System.currentTimeMillis() - startTime
+                
+                executionResults.add(
+                    AgentExecutionResult(
+                        agentId = agent.id,
+                        agentName = agent.name,
+                        success = true,
+                        processingTime = processingTime
+                    )
+                )
+                
+                // Use result as input for next agent
+                current = result
+                
+            } catch (e: Exception) {
+                executionResults.add(
+                    AgentExecutionResult(
+                        agentId = agent.id,
+                        agentName = agent.name,
+                        success = false,
+                        processingTime = 0,
+                        errorMessage = e.message
+                    )
+                )
+                
+                // Continue with original message if error
+                // Could also stop here depending on requirements
+            }
+        }
+        
+        // Add execution metadata  
+        return current.copy(
+            data = current.data + mapOf(
+                "flow_type" to "sequential",
+                "agents_executed" to executionResults.size.toString(),
+                "execution_results" to executionResults.joinToString { it.agentName }
+            )
+        )
+    }
+    
+    fun close() {
+        scope.cancel()
+    }
 }
 
 /**
@@ -487,7 +600,7 @@ class SwarmAgent(
  * Convert list of agents to MultiAgentFlow
  */
 fun List<Agent>.toMultiAgentFlow(strategy: FlowStrategy = FlowStrategy.SEQUENTIAL): MultiAgentFlow {
-    val flow = MultiAgentFlow(strategy)
+    val flow = MultiAgentFlow(defaultStrategy = strategy)
     forEach { flow.addAgent(it) }
     return flow
 }
@@ -495,14 +608,44 @@ fun List<Agent>.toMultiAgentFlow(strategy: FlowStrategy = FlowStrategy.SEQUENTIA
 /**
  * Convert list of agents to SwarmAgent
  */
-fun List<Agent>.toSwarm(
-    id: String = "agent-swarm",
+fun List<Agent>.toSwarmAgent(
+    id: String = "swarm-${System.currentTimeMillis()}",
     name: String = "Agent Swarm",
     description: String = "Coordinated agent swarm"
 ): SwarmAgent {
     val swarm = SwarmAgent(id, name, description)
     forEach { swarm.addToPool(it) }
     return swarm
+}
+
+/**
+ * Sequential agent chain: A → B → C
+ */
+operator fun Agent.plus(other: Agent): MultiAgentFlow {
+    return MultiAgentFlow(defaultStrategy = FlowStrategy.SEQUENTIAL).apply {
+        addAgent(this@plus)
+        addAgent(other)
+    }
+}
+
+/**
+ * Parallel agent execution: A || B
+ */
+infix fun Agent.parallelWith(other: Agent): MultiAgentFlow {
+    return MultiAgentFlow(defaultStrategy = FlowStrategy.PARALLEL).apply {
+        addAgent(this@parallelWith)
+        addAgent(other)
+    }
+}
+
+/**
+ * Competition between agents: A vs B
+ */
+infix fun Agent.competesWith(other: Agent): MultiAgentFlow {
+    return MultiAgentFlow(defaultStrategy = FlowStrategy.COMPETITION).apply {
+        addAgent(this@competesWith)
+        addAgent(other)
+    }
 }
 
 /**
@@ -513,22 +656,22 @@ fun List<Agent>.toSwarm(
  * Create a sequential flow
  */
 fun sequentialFlow(vararg agents: Agent): MultiAgentFlow = 
-    MultiAgentFlow(FlowStrategy.SEQUENTIAL).addAgents(*agents)
+    MultiAgentFlow(defaultStrategy = FlowStrategy.SEQUENTIAL).addAgents(*agents)
 
 /**
  * Create a parallel flow
  */
 fun parallelFlow(vararg agents: Agent): MultiAgentFlow = 
-    MultiAgentFlow(FlowStrategy.PARALLEL).addAgents(*agents)
+    MultiAgentFlow(defaultStrategy = FlowStrategy.PARALLEL).addAgents(*agents)
 
 /**
  * Create a competition flow
  */
 fun competitionFlow(vararg agents: Agent): MultiAgentFlow = 
-    MultiAgentFlow(FlowStrategy.COMPETITION).addAgents(*agents)
+    MultiAgentFlow(defaultStrategy = FlowStrategy.COMPETITION).addAgents(*agents)
 
 /**
  * Create a pipeline flow
  */
 fun pipelineFlow(vararg agents: Agent): MultiAgentFlow = 
-    MultiAgentFlow(FlowStrategy.PIPELINE).addAgents(*agents) 
+    MultiAgentFlow(defaultStrategy = FlowStrategy.PIPELINE).addAgents(*agents) 

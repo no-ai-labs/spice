@@ -33,9 +33,57 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 application {
-    mainClass.set("io.github.spice.samples.PlaygroundMainKt")
+    mainClass.set("io.github.spice.samples.SimpleToolRunner")
+}
+
+// Modern Components Test Task
+tasks.register<JavaExec>("testModern") {
+    group = "application"
+    description = "Run Modern Components Test"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.ModernComponentsRunnerKt")
+}
+
+// Real API Test Task
+tasks.register<JavaExec>("testRealAPI") {
+    group = "application"
+    description = "Run real API tests with actual API keys"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.RealApiTestRunnerKt")
+}
+
+// Detailed API Debug Task
+tasks.register<JavaExec>("debugAPI") {
+    group = "application"
+    description = "Run detailed API debugging with enhanced logging"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.DetailedApiTestRunnerKt")
+}
+
+// Final Integration Test Task
+tasks.register<JavaExec>("finalTest") {
+    group = "application"
+    description = "Run final integration test with production configuration"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.FinalApiTestRunnerKt")
+}
+
+// Simple DSL Test Task
+tasks.register<JavaExec>("testDSL") {
+    group = "application"
+    description = "Run simple DSL functionality test"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.SimpleDSLTestKt")
+}
+
+// Quick DSL Test Task  
+tasks.register<JavaExec>("quickTest") {
+    group = "application"
+    description = "Run quick Ultimate DSL test"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.github.spice.samples.QuickDSLTestKt")
 } 

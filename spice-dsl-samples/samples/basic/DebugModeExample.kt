@@ -1,6 +1,7 @@
 package io.github.spice.samples.basic
 
-import io.github.spice.Message
+import io.github.spice.comm.Comm
+import io.github.spice.comm.CommType
 import io.github.spice.ToolResult
 import io.github.spice.dsl.*
 import kotlinx.coroutines.runBlocking
@@ -22,18 +23,18 @@ fun main() = runBlocking {
         name = "Normal Agent"
         description = "Regular agent without debug logging"
         
-        handle { message ->
-            Message(
-                content = "Normal response: ${message.content}",
-                sender = id,
-                receiver = message.sender
+        handle { comm ->
+            Comm(
+                content = "Normal response: ${comm.content}",
+                from = id,
+                to = comm.sender
             )
         }
     }
     AgentRegistry.register(normalAgent)
     
-    val message1 = Message(content = "Hello normal agent", sender = "user")
-    val response1 = normalAgent.processMessage(message1)
+    val message1 = Comm(content = "Hello normal agent", from = "user")
+    val response1 = normalAgent.processComm(message1)
     println("Response: ${response1.content}")
     
     // 2. 디버그 모드 에이전트 (자동 로깅 포함)
@@ -46,26 +47,26 @@ fun main() = runBlocking {
         // 디버그 모드 활성화
         debugMode(enabled = true, prefix = "[🔍 DEBUG]")
         
-        handle { message ->
+        handle { comm ->
             // 일부러 처리 시간을 늘려서 디버그 정보 확인
             kotlinx.coroutines.delay(100)
             
-            Message(
-                content = "Debug response: ${message.content.uppercase()}",
-                sender = id,
-                receiver = message.sender,
+            Comm(
+                content = "Debug response: ${comm.content.uppercase()}",
+                from = id,
+                to = comm.sender,
                 metadata = mapOf("debug_processed" to "true")
             )
         }
     }
     AgentRegistry.register(debugAgent)
     
-    val message2 = Message(
+    val message2 = Comm(
         content = "Hello debug agent",
-        sender = "user",
+        from = "user",
         metadata = mapOf("test_mode" to "active")
     )
-    val response2 = debugAgent.processMessage(message2)
+    val response2 = debugAgent.processComm(message2)
     
     // 3. 도구와 함께 사용하는 디버그 모드
     println("\n=== 3. Debug Mode with Tools ===")
@@ -103,9 +104,9 @@ fun main() = runBlocking {
         debugMode(enabled = true, prefix = "[🛠️ TOOL-DEBUG]")
         tools("debug-calculator")
         
-        handle { message ->
+        handle { comm ->
             // 메시지에서 계산 추출: "5 + 3"
-            val parts = message.content.split(" ")
+            val parts = comm.content.split(" ")
             if (parts.size == 3) {
                 val a = parts[0].toDoubleOrNull() ?: 0.0
                 val operation = when (parts[1]) {
@@ -121,25 +122,25 @@ fun main() = runBlocking {
                     "operation" to operation
                 ))
                 
-                Message(
+                Comm(
                     content = if (toolResult.success) toolResult.result else "Calculation error",
-                    sender = id,
-                    receiver = message.sender,
+                    from = id,
+                    to = comm.sender,
                     metadata = mapOf("tool_used" to "debug-calculator")
                 )
             } else {
-                Message(
+                Comm(
                     content = "Please use format: '5 + 3' or '10 * 2'",
-                    sender = id,
-                    receiver = message.sender
+                    from = id,
+                    to = comm.sender
                 )
             }
         }
     }
     AgentRegistry.register(toolDebugAgent)
     
-    val mathMessage = Message(content = "15 * 4", sender = "user")
-    val mathResponse = toolDebugAgent.processMessage(mathMessage)
+    val mathMessage = Comm(content = "15 * 4", from = "user")
+    val mathResponse = toolDebugAgent.processComm(mathMessage)
     
     // 4. 커스텀 디버그 접두사 사용
     println("\n=== 4. Custom Debug Prefix ===")
@@ -150,18 +151,18 @@ fun main() = runBlocking {
         
         debugMode(enabled = true, prefix = "[⚡ CUSTOM]")
         
-        handle { message ->
-            Message(
-                content = "Custom debug: ${message.content}",
-                sender = id,
-                receiver = message.sender
+        handle { comm ->
+            Comm(
+                content = "Custom debug: ${comm.content}",
+                from = id,
+                to = comm.sender
             )
         }
     }
     AgentRegistry.register(customDebugAgent)
     
-    val customMessage = Message(content = "Test custom prefix", sender = "user")
-    val customResponse = customDebugAgent.processMessage(customMessage)
+    val customMessage = Comm(content = "Test custom prefix", from = "user")
+    val customResponse = customDebugAgent.processComm(customMessage)
     
     // 5. 디버그 정보 확인
     println("\n=== 5. Debug Information ===")
@@ -174,19 +175,19 @@ fun main() = runBlocking {
     println("\n=== 6. Performance Comparison ===")
     println("Testing response times...")
     
-    val testMessage = Message(content = "Performance test", sender = "user")
+    val testMessage = Comm(content = "Performance test", from = "user")
     
     // Normal mode timing
     val normalStart = System.currentTimeMillis()
     repeat(5) {
-        normalAgent.processMessage(testMessage)
+        normalAgent.processComm(testMessage)
     }
     val normalEnd = System.currentTimeMillis()
     
     // Debug mode timing (로그는 이미 출력됨)
     val debugStart = System.currentTimeMillis()
     repeat(5) {
-        debugAgent.processMessage(testMessage)
+        debugAgent.processComm(testMessage)
     }
     val debugEnd = System.currentTimeMillis()
     

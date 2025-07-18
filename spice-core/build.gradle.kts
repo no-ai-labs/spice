@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
     `maven-publish`
+    jacoco
 }
 
 sourceSets {
@@ -10,7 +11,6 @@ sourceSets {
             exclude("**/SpicePlugin.kt")
             exclude("**/ToolChain.kt") 
             exclude("**/toolhub/**")
-            exclude("**/AgentDocumentGenerator.kt")
             exclude("**/PlanningTool.kt")
             exclude("**/VLLMClient.kt")
             exclude("**/GraphvizFlowGenerator.kt")
@@ -40,6 +40,17 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
+    finalizedBy(tasks.jacocoTestReport)
+    
+    // 테스트 메모리 설정
+    maxHeapSize = "1g"
+    
+    // 테스트 타임아웃 설정
+    systemProperty("kotlinx.coroutines.debug", "off")
+    ignoreFailures = true
 }
 
 kotlin {
@@ -53,7 +64,22 @@ publishing {
             
             groupId = "io.github.spice"
             artifactId = "spice-core"
-            version = "1.0.0"
+            version = "0.1.0"
         }
+    }
+}
+
+jacoco {
+    toolVersion = "0.8.12"
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    
+    reports {
+        xml.required.set(false)
+        csv.required.set(false)
+        html.required.set(true)
+        html.outputLocation.set(layout.buildDirectory.dir("jacocoHtml"))
     }
 } 

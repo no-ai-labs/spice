@@ -13,16 +13,16 @@ import io.github.spice.*
  * Condition evaluator interface
  */
 interface ConditionEvaluator {
-    suspend fun evaluate(message: Message): Boolean
+    suspend fun evaluate(comm: Comm): Boolean
 }
 
 /**
  * Simple condition implementation
  */
 class SimpleCondition(
-    private val predicate: suspend (Message) -> Boolean
+    private val predicate: suspend (Comm) -> Boolean
 ) : ConditionEvaluator {
-    override suspend fun evaluate(message: Message): Boolean = predicate(message)
+    override suspend fun evaluate(comm: Comm): Boolean = predicate(comm)
 }
 
 /**
@@ -40,11 +40,11 @@ class CompoundCondition(
     private val conditions: List<ConditionEvaluator>
 ) : ConditionEvaluator {
     
-    override suspend fun evaluate(message: Message): Boolean {
+    override suspend fun evaluate(comm: Comm): Boolean {
         return when (operator) {
-            LogicalOperator.AND -> conditions.all { it.evaluate(message) }
-            LogicalOperator.OR -> conditions.any { it.evaluate(message) }
-            LogicalOperator.NOT -> conditions.none { it.evaluate(message) }
+            LogicalOperator.AND -> conditions.all { it.evaluate(comm) }
+            LogicalOperator.OR -> conditions.any { it.evaluate(comm) }
+            LogicalOperator.NOT -> conditions.none { it.evaluate(comm) }
         }
     }
 }
@@ -54,85 +54,85 @@ class CompoundCondition(
  */
 object ContentConditions {
     fun contains(text: String, ignoreCase: Boolean = true): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.contains(text, ignoreCase)
+        return SimpleCondition { comm ->
+            comm.content.contains(text, ignoreCase)
         }
     }
     
     fun startsWith(prefix: String, ignoreCase: Boolean = true): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.startsWith(prefix, ignoreCase)
+        return SimpleCondition { comm ->
+            comm.content.startsWith(prefix, ignoreCase)
         }
     }
     
     fun endsWith(suffix: String, ignoreCase: Boolean = true): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.endsWith(suffix, ignoreCase)
+        return SimpleCondition { comm ->
+            comm.content.endsWith(suffix, ignoreCase)
         }
     }
     
     fun matches(regex: Regex): ConditionEvaluator {
-        return SimpleCondition { message ->
-            regex.containsMatchIn(message.content)
+        return SimpleCondition { comm ->
+            regex.containsMatchIn(comm.content)
         }
     }
     
     fun lengthGreaterThan(length: Int): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.length > length
+        return SimpleCondition { comm ->
+            comm.content.length > length
         }
     }
     
     fun lengthLessThan(length: Int): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.length < length
+        return SimpleCondition { comm ->
+            comm.content.length < length
         }
     }
     
     fun isEmpty(): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.isBlank()
+        return SimpleCondition { comm ->
+            comm.content.isBlank()
         }
     }
     
     fun isNotEmpty(): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.content.isNotBlank()
+        return SimpleCondition { comm ->
+            comm.content.isNotBlank()
         }
     }
 }
 
 /**
- * Metadata-based conditions
+ * Data-based conditions (formerly MetadataConditions)
  */
-object MetadataConditions {
+object DataConditions {
     fun hasKey(key: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.metadata.containsKey(key)
+        return SimpleCondition { comm ->
+            comm.data.containsKey(key)
         }
     }
     
     fun keyEquals(key: String, value: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.metadata[key] == value
+        return SimpleCondition { comm ->
+            comm.data[key] == value
         }
     }
     
     fun keyContains(key: String, substring: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.metadata[key]?.contains(substring) == true
+        return SimpleCondition { comm ->
+            comm.data[key]?.contains(substring) == true
         }
     }
     
     fun hasAnyKey(vararg keys: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            keys.any { message.metadata.containsKey(it) }
+        return SimpleCondition { comm ->
+            keys.any { comm.data.containsKey(it) }
         }
     }
     
     fun hasAllKeys(vararg keys: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            keys.all { message.metadata.containsKey(it) }
+        return SimpleCondition { comm ->
+            keys.all { comm.data.containsKey(it) }
         }
     }
 }
@@ -141,21 +141,21 @@ object MetadataConditions {
  * Type-based conditions
  */
 object TypeConditions {
-    fun isType(type: MessageType): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.type == type
+    fun isType(type: CommType): ConditionEvaluator {
+        return SimpleCondition { comm ->
+            comm.type == type
         }
     }
     
-    fun isAnyType(vararg types: MessageType): ConditionEvaluator {
-        return SimpleCondition { message ->
-            types.contains(message.type)
+    fun isAnyType(vararg types: CommType): ConditionEvaluator {
+        return SimpleCondition { comm ->
+            types.contains(comm.type)
         }
     }
     
-    fun isNotType(type: MessageType): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.type != type
+    fun isNotType(type: CommType): ConditionEvaluator {
+        return SimpleCondition { comm ->
+            comm.type != type
         }
     }
 }
@@ -165,20 +165,20 @@ object TypeConditions {
  */
 object SenderConditions {
     fun fromSender(senderId: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.sender == senderId
+        return SimpleCondition { comm ->
+            comm.from == senderId
         }
     }
     
     fun fromAnySender(vararg senderIds: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            senderIds.contains(message.sender)
+        return SimpleCondition { comm ->
+            senderIds.contains(comm.from)
         }
     }
     
     fun senderContains(substring: String): ConditionEvaluator {
-        return SimpleCondition { message ->
-            message.sender.contains(substring)
+        return SimpleCondition { comm ->
+            comm.from.contains(substring)
         }
     }
 }
@@ -188,26 +188,26 @@ object SenderConditions {
  */
 object TimeConditions {
     fun withinLastMinutes(minutes: Long): ConditionEvaluator {
-        return SimpleCondition { message ->
+        return SimpleCondition { comm ->
             val now = System.currentTimeMillis()
             val cutoff = now - (minutes * 60 * 1000)
-            message.timestamp >= cutoff
+            comm.timestamp >= cutoff
         }
     }
     
     fun withinLastHours(hours: Long): ConditionEvaluator {
-        return SimpleCondition { message ->
+        return SimpleCondition { comm ->
             val now = System.currentTimeMillis()
             val cutoff = now - (hours * 60 * 60 * 1000)
-            message.timestamp >= cutoff
+            comm.timestamp >= cutoff
         }
     }
     
     fun olderThanMinutes(minutes: Long): ConditionEvaluator {
-        return SimpleCondition { message ->
+        return SimpleCondition { comm ->
             val now = System.currentTimeMillis()
             val cutoff = now - (minutes * 60 * 1000)
-            message.timestamp < cutoff
+            comm.timestamp < cutoff
         }
     }
 }
@@ -224,7 +224,7 @@ class ConditionalFlowBuilder {
      */
     fun whenThen(
         condition: ConditionEvaluator,
-        action: suspend (Message) -> Message
+        action: suspend (Comm) -> Comm
     ): ConditionalFlowBuilder {
         branches.add(ConditionalBranch(condition, action))
         return this
@@ -234,8 +234,8 @@ class ConditionalFlowBuilder {
      * Add when/then branch with simple predicate
      */
     fun whenThen(
-        predicate: suspend (Message) -> Boolean,
-        action: suspend (Message) -> Message
+        predicate: suspend (Comm) -> Boolean,
+        action: suspend (Comm) -> Comm
     ): ConditionalFlowBuilder {
         return whenThen(SimpleCondition(predicate), action)
     }
@@ -243,7 +243,7 @@ class ConditionalFlowBuilder {
     /**
      * Set else branch
      */
-    fun otherwise(action: suspend (Message) -> Message): ConditionalFlowBuilder {
+    fun otherwise(action: suspend (Comm) -> Comm): ConditionalFlowBuilder {
         elseBranch = ConditionalBranch(SimpleCondition { true }, action)
         return this
     }
@@ -261,7 +261,7 @@ class ConditionalFlowBuilder {
  */
 data class ConditionalBranch(
     val condition: ConditionEvaluator,
-    val action: suspend (Message) -> Message
+    val action: suspend (Comm) -> Comm
 )
 
 /**
@@ -275,16 +275,16 @@ class ConditionalFlow(
     /**
      * Execute conditional flow
      */
-    suspend fun execute(message: Message): Message {
+    suspend fun execute(comm: Comm): Comm {
         // Try each branch in order
         for (branch in branches) {
-            if (branch.condition.evaluate(message)) {
-                return branch.action(message)
+            if (branch.condition.evaluate(comm)) {
+                return branch.action(comm)
             }
         }
         
         // Execute else branch if no condition matched
-        return elseBranch?.action?.invoke(message) ?: message
+        return elseBranch?.action?.invoke(comm) ?: comm
     }
 }
 
@@ -311,12 +311,12 @@ class ConditionalAgent(
     private val conditionalFlow: ConditionalFlow
 ) : Agent by baseAgent {
     
-    override suspend fun processMessage(message: Message): Message {
+    override suspend fun processComm(comm: Comm): Comm {
         // First apply conditional flow
-        val processedMessage = conditionalFlow.execute(message)
+        val processedComm = conditionalFlow.execute(comm)
         
         // Then process with base agent
-        return baseAgent.processMessage(processedMessage)
+        return baseAgent.processComm(processedComm)
     }
 }
 
@@ -347,8 +347,8 @@ object ConditionalPatterns {
      * Route by content keywords
      */
     fun routeByKeywords(
-        keywordMap: Map<String, suspend (Message) -> Message>,
-        defaultAction: (suspend (Message) -> Message)? = null
+        keywordMap: Map<String, suspend (Comm) -> Comm>,
+        defaultAction: (suspend (Comm) -> Comm)? = null
     ): ConditionalFlow {
         val builder = ConditionalFlowBuilder()
         
@@ -365,8 +365,8 @@ object ConditionalPatterns {
      * Route by message type
      */
     fun routeByType(
-        typeMap: Map<MessageType, suspend (Message) -> Message>,
-        defaultAction: (suspend (Message) -> Message)? = null
+        typeMap: Map<CommType, suspend (Comm) -> Comm>,
+        defaultAction: (suspend (Comm) -> Comm)? = null
     ): ConditionalFlow {
         val builder = ConditionalFlowBuilder()
         
@@ -383,8 +383,8 @@ object ConditionalPatterns {
      * Route by sender
      */
     fun routeBySender(
-        senderMap: Map<String, suspend (Message) -> Message>,
-        defaultAction: (suspend (Message) -> Message)? = null
+        senderMap: Map<String, suspend (Comm) -> Comm>,
+        defaultAction: (suspend (Comm) -> Comm)? = null
     ): ConditionalFlow {
         val builder = ConditionalFlowBuilder()
         
@@ -401,8 +401,8 @@ object ConditionalPatterns {
      * Priority routing with fallback
      */
     fun priorityRouting(
-        priorities: List<Pair<ConditionEvaluator, suspend (Message) -> Message>>,
-        fallback: suspend (Message) -> Message
+        priorities: List<Pair<ConditionEvaluator, suspend (Comm) -> Comm>>,
+        fallback: suspend (Comm) -> Comm
     ): ConditionalFlow {
         val builder = ConditionalFlowBuilder()
         

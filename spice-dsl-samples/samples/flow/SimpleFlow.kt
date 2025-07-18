@@ -1,6 +1,7 @@
 package io.github.spice.samples.flow
 
-import io.github.spice.Message
+import io.github.spice.comm.Comm
+import io.github.spice.comm.CommType
 import io.github.spice.ToolResult
 import io.github.spice.dsl.*
 import kotlinx.coroutines.runBlocking
@@ -49,12 +50,12 @@ fun main() = runBlocking {
         description = "Generates personalized greetings"
         tools("greeting-tool")
         
-        handle { message ->
-            val greetingResult = greetingTool.execute(mapOf("name" to message.content))
-            Message(
+        handle { comm ->
+            val greetingResult = greetingTool.execute(mapOf("name" to comm.content))
+            Comm(
                 content = greetingResult.result,
-                sender = id,
-                receiver = message.sender,
+                from = id,
+                to = comm.sender,
                 metadata = mapOf("agent_type" to "greeting")
             )
         }
@@ -67,12 +68,12 @@ fun main() = runBlocking {
         description = "Analyzes message sentiment"
         tools("analysis-tool")
         
-        handle { message ->
-            val analysisResult = analysisTool.execute(mapOf("text" to message.content))
-            Message(
-                content = "${message.content} | ${analysisResult.result}",
-                sender = id,
-                receiver = message.sender,
+        handle { comm ->
+            val analysisResult = analysisTool.execute(mapOf("text" to comm.content))
+            Comm(
+                content = "${comm.content} | ${analysisResult.result}",
+                from = id,
+                to = comm.sender,
                 metadata = mapOf("agent_type" to "analysis")
             )
         }
@@ -90,10 +91,10 @@ fun main() = runBlocking {
     }
     
     // 4. Flow 실행
-    val userMessage = Message(
+    val userMessage = Comm(
         content = "Alice",
-        sender = "user",
-        receiver = "greeting-analysis-flow"
+        from = "user",
+        to = "greeting-analysis-flow"
     )
     
     println("\n=== Sequential Flow Execution ===")
@@ -110,10 +111,10 @@ fun main() = runBlocking {
         
         // Alice면 greeting agent만, 다른 이름이면 analysis agent로
         step("step1", "greeting-agent") { message ->
-            message.content.equals("Alice", ignoreCase = true)
+            comm.content.equals("Alice", ignoreCase = true)
         }
         step("step2", "analysis-agent") { message ->
-            !message.content.equals("Alice", ignoreCase = true)
+            !comm.content.equals("Alice", ignoreCase = true)
         }
     }
     
@@ -122,10 +123,10 @@ fun main() = runBlocking {
     
     val testNames = listOf("Alice", "Bob", "Charlie")
     testNames.forEach { name ->
-        val testMessage = Message(
+        val testMessage = Comm(
             content = name,
-            sender = "user",
-            receiver = "conditional-flow"
+            from = "user",
+            to = "conditional-flow"
         )
         
         val result = conditionalFlow.execute(testMessage)

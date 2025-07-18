@@ -1,6 +1,7 @@
 package io.github.spice.samples.basic
 
-import io.github.spice.Message
+import io.github.spice.comm.Comm
+import io.github.spice.comm.CommType
 import io.github.spice.dsl.buildAgent
 import io.github.spice.dsl.AgentRegistry
 import kotlinx.coroutines.runBlocking
@@ -21,11 +22,11 @@ import kotlinx.coroutines.runBlocking
 /**
  * 간단한 인사 응답 핸들러
  */
-fun createGreetingHandler(agentId: String): suspend (Message) -> Message = { message ->
-    Message(
-        content = "Hello! You said: ${message.content}",
-        sender = agentId,
-        receiver = message.sender,
+fun createGreetingHandler(agentId: String): suspend (Comm) -> Comm = { comm ->
+    Comm(
+        content = "Hello! You said: ${comm.content}",
+        from = agentId,
+        to = comm.sender,
         metadata = mapOf(
             "handler_type" to "greeting",
             "processed_at" to System.currentTimeMillis().toString()
@@ -36,28 +37,28 @@ fun createGreetingHandler(agentId: String): suspend (Message) -> Message = { mes
 /**
  * 에코 핸들러 - 메시지 타입을 분석하여 포맷팅
  */
-fun createEchoHandler(agentId: String): suspend (Message) -> Message = { message ->
+fun createEchoHandler(agentId: String): suspend (Comm) -> Comm = { comm ->
     val formattedContent = when {
-        message.content.contains("?") -> "You asked: ${message.content}"
-        message.content.contains("!") -> "You exclaimed: ${message.content}"
-        else -> "You said: ${message.content}"
+        comm.content.contains("?") -> "You asked: ${comm.content}"
+        comm.content.contains("!") -> "You exclaimed: ${comm.content}"
+        else -> "You said: ${comm.content}"
     }
     
     val messageType = when {
-        message.content.contains("?") -> "question"
-        message.content.contains("!") -> "exclamation"
+        comm.content.contains("?") -> "question"
+        comm.content.contains("!") -> "exclamation"
         else -> "statement"
     }
     
-    Message(
+    Comm(
         content = formattedContent,
-        sender = agentId,
-        receiver = message.sender,
+        from = agentId,
+        to = comm.sender,
         metadata = mapOf(
             "handler_type" to "echo",
             "processed_at" to System.currentTimeMillis().toString(),
             "message_type" to messageType,
-            "original_length" to message.content.length.toString()
+            "original_length" to comm.content.length.toString()
         )
     )
 }
@@ -65,8 +66,8 @@ fun createEchoHandler(agentId: String): suspend (Message) -> Message = { message
 /**
  * 분석 핸들러 - 메시지를 분석하고 인사이트 제공
  */
-fun createAnalysisHandler(agentId: String): suspend (Message) -> Message = { message ->
-    val text = message.content
+fun createAnalysisHandler(agentId: String): suspend (Comm) -> Comm = { comm ->
+    val text = comm.content
     val wordCount = text.split("\\s+".toRegex()).size
     val charCount = text.length
     val sentiment = when {
@@ -88,10 +89,10 @@ fun createAnalysisHandler(agentId: String): suspend (Message) -> Message = { mes
         |• Language hints: ${detectLanguageHints(text)}
     """.trimMargin()
     
-    Message(
+    Comm(
         content = analysis,
-        sender = agentId,
-        receiver = message.sender,
+        from = agentId,
+        to = comm.sender,
         metadata = mapOf(
             "handler_type" to "analysis",
             "word_count" to wordCount.toString(),
@@ -109,21 +110,21 @@ fun createTransformHandler(
     agentId: String,
     transformer: (String) -> String,
     transformType: String = "custom"
-): suspend (Message) -> Message = { message ->
+): suspend (Comm) -> Comm = { comm ->
     val transformedContent = try {
-        transformer(message.content)
+        transformer(comm.content)
     } catch (e: Exception) {
         "Transformation error: ${e.message}"
     }
     
-    Message(
+    Comm(
         content = transformedContent,
-        sender = agentId,
-        receiver = message.sender,
+        from = agentId,
+        to = comm.sender,
         metadata = mapOf(
             "handler_type" to "transform",
             "transform_type" to transformType,
-            "original_content" to message.content,
+            "original_content" to comm.content,
             "processed_at" to System.currentTimeMillis().toString()
         )
     )
@@ -132,8 +133,8 @@ fun createTransformHandler(
 /**
  * 조건부 라우팅 핸들러 - 메시지 내용에 따라 다른 응답
  */
-fun createConditionalHandler(agentId: String): suspend (Message) -> Message = { message ->
-    val content = message.content.lowercase()
+fun createConditionalHandler(agentId: String): suspend (Comm) -> Comm = { comm ->
+    val content = comm.content.lowercase()
     
     val response = when {
         content.contains("hello") || content.contains("hi") -> 
@@ -149,15 +150,15 @@ fun createConditionalHandler(agentId: String): suspend (Message) -> Message = { 
         content.length > 100 -> 
             "📝 That's quite a long message! Here's a summary: '${content.take(50)}...'"
         content.isBlank() -> 
-            "🤔 You sent an empty message. Did you mean to say something?"
+            "🤔 You sent an empty comm. Did you mean to say something?"
         else -> 
             "🤖 I received your message: '$content'. I'm a simple agent, so I don't have a specific response for that."
     }
     
-    Message(
+    Comm(
         content = response,
-        sender = agentId,
-        receiver = message.sender,
+        from = agentId,
+        to = comm.sender,
         metadata = mapOf(
             "handler_type" to "conditional",
             "condition_matched" to getMatchedCondition(content),
@@ -269,7 +270,7 @@ fun main() = runBlocking {
     AgentRegistry.register(conditionalAgent)
     
     // 테스트 메시지들
-    val testMessages = listOf(
+    val testComms = listOf(
         "Nice to meet you!" to "greeting-agent",
         "How are you?" to "echo-agent", 
         "This is an awesome framework for building agents!" to "analysis-agent",
@@ -278,11 +279,11 @@ fun main() = runBlocking {
     )
     
     println("\n=== Testing All Agents ===")
-    testMessages.forEach { (content, agentId) ->
+    testComms.forEach { (content, agentId) ->
         println("\n--- Testing $agentId ---")
         val agent = AgentRegistry.getAgent(agentId)
-        val message = Message(content = content, sender = "user", receiver = agentId)
-        val response = agent?.processMessage(message)
+        val message = Comm(content = content, from = "user", to = agentId)
+        val response = agent?.processComm(message)
         
         println("Input: $content")
         println("Output: ${response?.content}")
@@ -300,8 +301,8 @@ fun main() = runBlocking {
         handle(createGreetingHandler(id))
     }
     
-    val testMessage = Message(content = "Reusability test", sender = "user")
-    val response = anotherGreetingAgent.processMessage(testMessage)
+    val testComm = Comm(content = "Reusability test", from = "user")
+    val response = anotherGreetingAgent.processComm(testComm)
     println("Reused handler response: ${response.content}")
     
     println("\n✅ Handler separation improves:")

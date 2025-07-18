@@ -1,6 +1,7 @@
 package io.github.spice.samples.templates
 
-import io.github.spice.Message
+import io.github.spice.message.Comm
+import io.github.spice.message.CommType
 import io.github.spice.dsl.*
 import kotlinx.coroutines.runBlocking
 
@@ -46,24 +47,24 @@ private suspend fun agentTemplateExamples() {
     val myAgent = defaultAgent("My First Agent")
     AgentRegistry.register(myAgent)
     
-    val message1 = Message(content = "Hello World", sender = "user")
-    val response1 = myAgent.processMessage(message1)
+    val message1 = Comm(content = "Hello World", from = "user")
+    val response1 = myAgent.processComm(message1)
     println("Default Agent: ${response1.content}")
     
     // 2. 에코 에이전트
     val echoBot = echoAgent("Echo Bot", formatMessage = true)
     AgentRegistry.register(echoBot)
     
-    val message2 = Message(content = "Test message", sender = "user")
-    val response2 = echoBot.processMessage(message2)
+    val message2 = Comm(content = "Test message", from = "user")
+    val response2 = echoBot.processComm(message2)
     println("Echo Agent: ${response2.content}")
     
     // 3. 로깅 에이전트
     val logger = loggingAgent("Logger Agent", "[INFO]")
     AgentRegistry.register(logger)
     
-    val message3 = Message(content = "This will be logged", sender = "user")
-    val response3 = logger.processMessage(message3)
+    val message3 = Comm(content = "This will be logged", from = "user")
+    val response3 = logger.processComm(message3)
     println("Logging Agent: ${response3.content}")
     
     // 4. 변환 에이전트
@@ -72,8 +73,8 @@ private suspend fun agentTemplateExamples() {
     }
     AgentRegistry.register(transformer)
     
-    val message4 = Message(content = "transform this text", sender = "user")
-    val response4 = transformer.processMessage(message4)
+    val message4 = Comm(content = "transform this text", from = "user")
+    val response4 = transformer.processComm(message4)
     println("Transform Agent: ${response4.content}")
 }
 
@@ -126,17 +127,17 @@ private suspend fun toolTemplateExamples() {
         
         handle { message ->
             val words = processor.execute(mapOf("input" to message.content))
-            Message(
+            Comm(
                 content = "Analysis: ${words.result}",
-                sender = id,
+                from = id,
                 receiver = message.sender
             )
         }
     }
     AgentRegistry.register(toolAgent)
     
-    val toolMessage = Message(content = "The quick brown fox jumps", sender = "user")
-    val toolResponse = toolAgent.processMessage(toolMessage)
+    val toolMessage = Comm(content = "The quick brown fox jumps", from = "user")
+    val toolResponse = toolAgent.processComm(toolMessage)
     println("Tool User Agent: ${toolResponse.content}")
 }
 
@@ -157,7 +158,7 @@ private suspend fun flowTemplateExamples() {
     // 2. 파이프라인 플로우
     val pipeline = pipelineFlow("Processing Pipeline", agentIds)
     
-    val pipelineMessage = Message(content = "Pipeline test", sender = "user")
+    val pipelineMessage = Comm(content = "Pipeline test", from = "user")
     val pipelineResult = pipeline.execute(pipelineMessage)
     println("Pipeline Flow Result: ${pipelineResult.content}")
     
@@ -180,7 +181,7 @@ private suspend fun flowTemplateExamples() {
     )
     
     testMessages.forEach { content ->
-        val msg = Message(content = content, sender = "user")
+        val msg = Comm(content = content, from = "user")
         val result = conditionalFlow.execute(msg)
         println("Conditional routing '$content' -> ${result.content}")
     }
@@ -200,19 +201,19 @@ private suspend fun completeScenarioExamples() {
     
     // 실제 고객 서비스 테스트
     val customerMessages = listOf(
-        Message(
+        Comm(
             content = "I'm very frustrated with your service!",
-            sender = "customer",
+            from = "customer",
             metadata = mapOf("customer" to "angry.customer@email.com")
         ),
-        Message(
+        Comm(
             content = "Your product is excellent! Thank you!",
-            sender = "customer", 
+            from = "customer", 
             metadata = mapOf("customer" to "happy.customer@email.com")
         ),
-        Message(
+        Comm(
             content = "I have a question about my order",
-            sender = "customer",
+            from = "customer",
             metadata = mapOf("customer" to "neutral.customer@email.com")
         )
     )
@@ -241,7 +242,7 @@ private suspend fun completeScenarioExamples() {
     )
     
     dataInputs.forEach { input ->
-        val dataMessage = Message(content = input, sender = "user")
+        val dataMessage = Comm(content = input, from = "user")
         val result = dataProcessing.flow.execute(dataMessage)
         println("Data Input: '$input' -> ${result.content}")
         println("Validation: ${result.metadata["validation_result"]}")
@@ -284,9 +285,9 @@ fun quickPrototypingExample() = runBlocking {
         
         handle { message ->
             val faqResponse = faqTool.execute(mapOf("input" to message.content))
-            Message(
+            Comm(
                 content = faqResponse.result,
-                sender = id,
+                from = id,
                 receiver = message.sender,
                 metadata = mapOf("bot_response" to "true")
             )
@@ -305,8 +306,8 @@ fun quickPrototypingExample() = runBlocking {
     )
     
     testQuestions.forEach { question ->
-        val response = smartChatbot.processMessage(
-            Message(content = question, sender = "user")
+        val response = smartChatbot.processComm(
+            Comm(content = question, from = "user")
         )
         println("User: $question")
         println("Bot: ${response.content}\n")

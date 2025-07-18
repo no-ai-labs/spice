@@ -123,3 +123,30 @@ docker-compose.override.yml
 # Spring Boot
 **/application-local.properties
 **/application-local.yml
+
+# Temporary files and scripts
+*.py
+**/*.py
+*.disabled
+**/*.disabled
+
+# Documentation drafts and migration notes
+MENTAT_*.md
+MIGRATION_*.md
+*_BRIEFING.md
+
+# Test/sample directories
+**/samples/modern/
+**/samples/test/
+**/wiki/
+
+# Temporary test classes in samples
+**/samples/*Test.kt
+**/samples/*Runner.kt
+
+# Build-time generated files
+**/jacoco.exec
+**/jacocoHtml/
+**/reports/
+
+CLAUDE.md

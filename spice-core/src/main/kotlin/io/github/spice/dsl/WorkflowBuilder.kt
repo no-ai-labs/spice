@@ -32,8 +32,8 @@ data class WorkflowNode(
     val id: String,
     val name: String,
     val type: NodeType,
-    val processor: suspend (Message) -> Message,
-    val condition: (suspend (Message) -> Boolean)? = null,
+    val processor: suspend (Comm) -> Comm,
+    val condition: (suspend (Comm) -> Boolean)? = null,
     val metadata: Map<String, Any> = emptyMap()
 )
 
@@ -44,8 +44,8 @@ data class WorkflowEdge(
     val id: String,
     val from: String,
     val to: String,
-    val condition: (suspend (Message) -> Boolean)? = null,
-    val transformer: (suspend (Message) -> Message)? = null,
+    val condition: (suspend (Comm) -> Boolean)? = null,
+    val transformer: (suspend (Comm) -> Comm)? = null,
     val weight: Double = 1.0
 )
 
@@ -65,8 +65,8 @@ data class WorkflowContext(
  */
 data class WorkflowExecution(
     val nodeId: String,
-    val input: Message,
-    val output: Message,
+    val input: Comm,
+    val output: Comm,
     val executionTime: Long,
     val timestamp: Long = System.currentTimeMillis()
 )
@@ -172,7 +172,7 @@ class WorkflowBuilder(private val id: String, private val name: String) {
             id = id,
             name = name,
             type = NodeType.AGENT,
-            processor = { message -> agent.processMessage(message) }
+            processor = { comm -> agent.processComm(comm) }
         ))
     }
     
@@ -184,13 +184,13 @@ class WorkflowBuilder(private val id: String, private val name: String) {
             id = id,
             name = name,
             type = NodeType.TOOL,
-            processor = { message ->
-                val parameters = message.metadata.toMap()
+            processor = { comm ->
+                val parameters = comm.data.toMap()
                 val result = tool.execute(parameters)
-                message.createReply(
+                comm.reply(
                     content = result.result ?: result.error ?: "Tool execution completed",
-                    sender = "tool-$id",
-                    metadata = result.metadata + mapOf("tool_success" to result.success.toString())
+                    from = "tool-$id",
+                    data = result.metadata + mapOf("tool_success" to result.success.toString())
                 )
             }
         ))
@@ -202,13 +202,13 @@ class WorkflowBuilder(private val id: String, private val name: String) {
     fun condition(
         id: String, 
         name: String = "Condition $id",
-        condition: suspend (Message) -> Boolean
+        condition: suspend (Comm) -> Boolean
     ) {
         nodes.add(WorkflowNode(
             id = id,
             name = name,
             type = NodeType.CONDITION,
-            processor = { message -> message }, // Pass through
+            processor = { comm -> comm }, // Pass through
             condition = condition
         ))
     }
@@ -219,7 +219,7 @@ class WorkflowBuilder(private val id: String, private val name: String) {
     fun transform(
         id: String,
         name: String = "Transform $id",
-        transformer: suspend (Message) -> Message
+        transformer: suspend (Comm) -> Comm
     ) {
         nodes.add(WorkflowNode(
             id = id,
@@ -235,15 +235,15 @@ class WorkflowBuilder(private val id: String, private val name: String) {
     fun merge(
         id: String,
         name: String = "Merge $id",
-        merger: suspend (List<Message>) -> Message
+        merger: suspend (List<Comm>) -> Comm
     ) {
         nodes.add(WorkflowNode(
             id = id,
             name = name,
             type = NodeType.MERGE,
-            processor = { message ->
+            processor = { comm ->
                 // For now, just pass through - proper merge logic needs multiple inputs
-                message
+                comm
             }
         ))
     }
@@ -254,16 +254,16 @@ class WorkflowBuilder(private val id: String, private val name: String) {
     fun split(
         id: String,
         name: String = "Split $id",
-        splitter: suspend (Message) -> List<Message>
+        splitter: suspend (Comm) -> List<Comm>
     ) {
         nodes.add(WorkflowNode(
             id = id,
             name = name,
             type = NodeType.SPLIT,
-            processor = { message ->
+            processor = { comm ->
                 // Return first split for single-output flow
-                val splits = splitter(message)
-                splits.firstOrNull() ?: message
+                val splits = splitter(comm)
+                splits.firstOrNull() ?: comm
             }
         ))
     }
@@ -274,7 +274,7 @@ class WorkflowBuilder(private val id: String, private val name: String) {
     fun sink(
         id: String,
         name: String = "Sink $id",
-        finalizer: suspend (Message) -> Message
+        finalizer: suspend (Comm) -> Comm
     ) {
         nodes.add(WorkflowNode(
             id = id,
@@ -292,8 +292,8 @@ class WorkflowBuilder(private val id: String, private val name: String) {
         from: String,
         to: String,
         id: String = "${from}_to_${to}",
-        condition: (suspend (Message) -> Boolean)? = null,
-        transformer: (suspend (Message) -> Message)? = null,
+        condition: (suspend (Comm) -> Boolean)? = null,
+        transformer: (suspend (Comm) -> Comm)? = null,
         weight: Double = 1.0
     ) {
         edges.add(WorkflowEdge(
@@ -339,7 +339,7 @@ class WorkflowBuilder(private val id: String, private val name: String) {
      * Convenience method for conditional routing
      */
     fun whenCondition(
-        condition: suspend (Message) -> Boolean,
+        condition: suspend (Comm) -> Boolean,
         thenNode: String,
         elseNode: String? = null
     ) {
@@ -348,7 +348,7 @@ class WorkflowBuilder(private val id: String, private val name: String) {
         
         edge(conditionId, thenNode, condition = condition)
         elseNode?.let { 
-            edge(conditionId, it, condition = { msg -> !condition(msg) })
+            edge(conditionId, it, condition = { comm -> !condition(comm) })
         }
     }
     
@@ -389,8 +389,8 @@ class WorkflowExecutor {
      */
     suspend fun execute(
         workflow: WorkflowDefinition,
-        input: Message
-    ): Message {
+        input: Comm
+    ): Comm {
         val context = WorkflowContext(workflow.id, workflow.startNode)
         return executeNode(workflow, input, context)
     }
@@ -400,22 +400,22 @@ class WorkflowExecutor {
      */
     private suspend fun executeNode(
         workflow: WorkflowDefinition,
-        message: Message,
+        comm: Comm,
         context: WorkflowContext
-    ): Message {
+    ): Comm {
         val currentNode = workflow.nodes.find { it.id == context.currentNode }
-            ?: return message.createReply(
+            ?: return comm.reply(
                 content = "Node not found: ${context.currentNode}",
-                sender = "workflow-executor",
-                type = MessageType.ERROR
+                from = "workflow-executor",
+                type = CommType.ERROR
             )
         
         // Check if already visited (cycle prevention)
         if (context.visitedNodes.contains(currentNode.id)) {
-            return message.createReply(
+            return comm.reply(
                 content = "Cycle detected at node: ${currentNode.id}",
-                sender = "workflow-executor",
-                type = MessageType.ERROR
+                from = "workflow-executor",
+                type = CommType.ERROR
             )
         }
         
@@ -424,13 +424,13 @@ class WorkflowExecutor {
         // Execute node
         val startTime = System.currentTimeMillis()
         val result = try {
-            currentNode.processor(message)
+            currentNode.processor(comm)
         } catch (e: Exception) {
-            message.createReply(
+            comm.reply(
                 content = "Node execution failed: ${e.message}",
-                sender = "workflow-executor",
-                type = MessageType.ERROR,
-                metadata = mapOf(
+                from = "workflow-executor",
+                type = CommType.ERROR,
+                data = mapOf(
                     "node_id" to currentNode.id, 
                     "error" to (e::class.simpleName ?: "Unknown")
                 )
@@ -442,7 +442,7 @@ class WorkflowExecutor {
         context.executionHistory.add(
             WorkflowExecution(
                 nodeId = currentNode.id,
-                input = message,
+                input = comm,
                 output = result,
                 executionTime = executionTime
             )
@@ -451,7 +451,7 @@ class WorkflowExecutor {
         // Check if end node
         if (workflow.endNodes.contains(currentNode.id)) {
             return result.copy(
-                metadata = result.metadata + mapOf(
+                data = result.data + mapOf(
                     "workflow_id" to workflow.id,
                     "execution_path" to context.visitedNodes.joinToString(" -> "),
                     "total_execution_time" to context.executionHistory.sumOf { it.executionTime }.toString()
@@ -468,7 +468,7 @@ class WorkflowExecutor {
         
         if (nextEdge == null) {
             return result.copy(
-                metadata = result.metadata + mapOf(
+                data = result.data + mapOf(
                     "workflow_end" to "no_valid_path",
                     "current_node" to currentNode.id
                 )
@@ -476,11 +476,11 @@ class WorkflowExecutor {
         }
         
         // Transform message if needed
-        val transformedMessage = nextEdge.transformer?.invoke(result) ?: result
+        val transformedComm = nextEdge.transformer?.invoke(result) ?: result
         
         // Continue to next node
         val nextContext = context.copy(currentNode = nextEdge.to)
-        return executeNode(workflow, transformedMessage, nextContext)
+        return executeNode(workflow, transformedComm, nextContext)
     }
 }
 
@@ -501,7 +501,7 @@ fun Agent.toWorkflowNode(id: String = this.id): WorkflowNode {
         id = id,
         name = name,
         type = NodeType.AGENT,
-        processor = { message -> processMessage(message) }
+        processor = { comm -> processComm(comm) }
     )
 }
 
@@ -513,13 +513,13 @@ fun Tool.toWorkflowNode(id: String = this.name): WorkflowNode {
         id = id,
         name = name,
         type = NodeType.TOOL,
-        processor = { message ->
-            val parameters = message.metadata.toMap()
+        processor = { comm ->
+            val parameters = comm.data.toMap()
             val result = execute(parameters)
-            message.createReply(
+            comm.reply(
                 content = result.result ?: result.error ?: "Tool execution completed",
-                sender = "tool-$id",
-                metadata = result.metadata + mapOf("tool_success" to result.success.toString())
+                from = "tool-$id",
+                data = result.metadata + mapOf("tool_success" to result.success.toString())
             )
         }
     )

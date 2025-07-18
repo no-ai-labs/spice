@@ -1,6 +1,7 @@
 package io.github.spice.samples.experimental
 
-import io.github.spice.Message
+import io.github.spice.comm.Comm
+import io.github.spice.comm.CommType
 import io.github.spice.ToolResult
 import io.github.spice.dsl.*
 import io.github.spice.dsl.experimental.*
@@ -24,22 +25,22 @@ fun main() = runBlocking {
     experimental {
         val conditionalRouter = conditional {
             whenThen(
-                condition = { message -> message.content.contains("weather") },
-                action = { message ->
+                condition = { comm -> comm.content.contains("weather") },
+                action = { comm ->
                     val weatherAgent = AgentRegistry.getAgent("weather-agent")!!
-                    weatherAgent.processMessage(message)
+                    weatherAgent.processComm(comm)
                 }
             )
             whenThen(
-                condition = { message -> message.content.contains("help") },
-                action = { message ->
+                condition = { comm -> comm.content.contains("help") },
+                action = { comm ->
                     val supportAgent = AgentRegistry.getAgent("support-agent")!!
-                    supportAgent.processMessage(message)
+                    supportAgent.processComm(comm)
                 }
             )
-            otherwise { message ->
+            otherwise { comm ->
                 val generalAgent = AgentRegistry.getAgent("general-agent")!!
-                generalAgent.processMessage(message)
+                generalAgent.processComm(comm)
             }
         }
         
@@ -51,8 +52,8 @@ fun main() = runBlocking {
         )
         
         testMessages.forEach { content ->
-            val message = Message(content = content, sender = "user")
-            val result = conditionalRouter.execute(message)
+            val message = Comm(content = content, from = "user")
+            val result = conditionalRouter.execute(comm)
             println("'$content' -> ${result.content}")
         }
     }
@@ -68,9 +69,9 @@ fun main() = runBlocking {
             }
         }
         
-        val testMessage = Message(
+        val testMessage = Comm(
             content = "sunny weather",
-            sender = "user"
+            from = "user"
         )
         
         val composedResult = composedWorkflow.execute(testMessage)
@@ -156,12 +157,12 @@ private suspend fun setupBasicComponents() {
         description = "Handles weather-related queries"
         tools("weather-tool")
         
-        handle { message ->
-            val result = weatherTool.execute(mapOf("query" to message.content))
-            Message(
+        handle { comm ->
+            val result = weatherTool.execute(mapOf("query" to comm.content))
+            Comm(
                 content = result.result,
-                sender = id,
-                receiver = message.sender
+                from = id,
+                to = comm.from
             )
         }
     }
@@ -172,11 +173,11 @@ private suspend fun setupBasicComponents() {
         name = "Support Agent"
         description = "Provides customer support"
         
-        handle { message ->
-            Message(
-                content = "Support: How can I help you with '${message.content}'?",
-                sender = id,
-                receiver = message.sender
+        handle { comm ->
+            Comm(
+                content = "Support: How can I help you with '${comm.content}'?",
+                from = id,
+                to = comm.from
             )
         }
     }
@@ -187,11 +188,11 @@ private suspend fun setupBasicComponents() {
         name = "General Agent"
         description = "Handles general queries"
         
-        handle { message ->
-            Message(
-                content = "General response to: ${message.content}",
-                sender = id,
-                receiver = message.sender
+        handle { comm ->
+            Comm(
+                content = "General response to: ${comm.content}",
+                from = id,
+                to = comm.from
             )
         }
     }
@@ -203,12 +204,12 @@ private suspend fun setupBasicComponents() {
         description = "Analyzes content"
         tools("analysis-tool")
         
-        handle { message ->
-            val result = analysisTool.execute(mapOf("text" to message.content))
-            Message(
+        handle { comm ->
+            val result = analysisTool.execute(mapOf("text" to comm.content))
+            Comm(
                 content = result.result,
-                sender = id,
-                receiver = message.sender
+                from = id,
+                to = comm.from
             )
         }
     }

@@ -6,21 +6,21 @@ import kotlinx.coroutines.flow.Flow
  * 🌶️ Core Agent interface of Spice Framework
  * Defines the basic contract for all Agent implementations
  */
-interface Agent {
-    val id: String
+interface Agent : Identifiable {
+    override val id: String
     val name: String
     val description: String
     val capabilities: List<String>
     
     /**
-     * Process incoming message and return response
+     * Process incoming comm and return response
      */
-    suspend fun processMessage(message: Message): Message
+    suspend fun processComm(comm: Comm): Comm
     
     /**
-     * Check if this Agent can handle the given message
+     * Check if this Agent can handle the given comm
      */
-    fun canHandle(message: Message): Boolean
+    fun canHandle(comm: Comm): Boolean
     
     /**
      * Get Tools available to this Agent
@@ -51,11 +51,11 @@ abstract class BaseAgent(
     
     override fun getTools(): List<Tool> = _tools.toList()
     
-    override fun canHandle(message: Message): Boolean {
-        return when (message.type) {
-            MessageType.TEXT, MessageType.PROMPT, MessageType.SYSTEM, 
-            MessageType.WORKFLOW_START, MessageType.WORKFLOW_END -> true
-            MessageType.TOOL_CALL -> _tools.any { tool -> tool.name == message.metadata["toolName"] }
+    override fun canHandle(comm: Comm): Boolean {
+        return when (comm.type) {
+            CommType.TEXT, CommType.PROMPT, CommType.SYSTEM, 
+            CommType.WORKFLOW_START, CommType.WORKFLOW_END -> true
+            CommType.TOOL_CALL -> _tools.any { tool -> tool.name == comm.getToolName() }
             else -> false
         }
     }
