@@ -5,14 +5,6 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#documentation">Documentation</a> •
-  <a href="#contributing">Contributing</a>
-</p>
-
-<p align="center">
   <img src="https://img.shields.io/badge/Kotlin-1.9.0-blue.svg" alt="Kotlin">
   <img src="https://img.shields.io/badge/Coroutines-1.7.3-green.svg" alt="Coroutines">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
