@@ -44,7 +44,22 @@ data class SpiceProperties(
     /**
      * AgentEngine configuration
      */
-    val engine: EngineProperties = EngineProperties()
+    val engine: EngineProperties = EngineProperties(),
+    
+    /**
+     * Debug configuration
+     */
+    val debug: DebugProperties? = null,
+    
+    /**
+     * Mock configuration for testing
+     */
+    val mock: MockProperties = MockProperties(),
+    
+    /**
+     * Vector store configuration
+     */
+    val vectorstore: VectorStoreProperties = VectorStoreProperties()
 )
 
 /**
@@ -190,4 +205,75 @@ data class EngineProperties(
     val enableCycleDetection: Boolean = true,
     
     val enableHealthCheck: Boolean = true
+)
+
+/**
+ * Debug Configuration
+ */
+data class DebugProperties(
+    val enabled: Boolean = false,
+    val prefix: String = "[SPICE]",
+    val logLevel: String = "INFO",
+    val logHttpRequests: Boolean = false,
+    val logAgentCommunication: Boolean = false
+)
+
+/**
+ * Mock Configuration for testing
+ */
+data class MockProperties(
+    val enabled: Boolean = false
+)
+
+/**
+ * Vector Store Configuration
+ */
+data class VectorStoreProperties(
+    val enabled: Boolean = true,
+    val defaultProvider: String = "memory",
+    val qdrant: QdrantProperties? = null,
+    val pinecone: PineconeProperties? = null,
+    val weaviate: WeaviateProperties? = null
+)
+
+/**
+ * Qdrant Vector Store Properties
+ */
+data class QdrantProperties(
+    val host: String = "localhost",
+    
+    @field:Min(value = 1, message = "Port must be >= 1")
+    @field:Max(value = 65535, message = "Port must be <= 65535")
+    val port: Int = 6333,
+    
+    val apiKey: String? = null,
+    val useTls: Boolean = false
+)
+
+/**
+ * Pinecone Vector Store Properties
+ */
+data class PineconeProperties(
+    @field:NotBlank(message = "Pinecone API key is required")
+    val apiKey: String = "",
+    
+    @field:NotBlank(message = "Pinecone environment is required")
+    val environment: String = "",
+    
+    val projectName: String? = null,
+    val indexName: String = "spice-vectors"
+)
+
+/**
+ * Weaviate Vector Store Properties
+ */
+data class WeaviateProperties(
+    val host: String = "localhost",
+    
+    @field:Min(value = 1, message = "Port must be >= 1")
+    @field:Max(value = 65535, message = "Port must be <= 65535")
+    val port: Int = 8080,
+    
+    val scheme: String = "http",
+    val apiKey: String? = null
 ) 

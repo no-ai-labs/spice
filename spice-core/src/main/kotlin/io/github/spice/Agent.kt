@@ -31,6 +31,16 @@ interface Agent : Identifiable {
      * Check if Agent is ready for operation
      */
     fun isReady(): Boolean
+    
+    /**
+     * Get VectorStore by name (if configured)
+     */
+    fun getVectorStore(name: String): VectorStore? = null
+    
+    /**
+     * Get all VectorStores configured for this agent
+     */
+    fun getVectorStores(): Map<String, VectorStore> = emptyMap()
 }
 
 /**
@@ -44,12 +54,21 @@ abstract class BaseAgent(
 ) : Agent {
     
     private val _tools = mutableListOf<Tool>()
+    private val _vectorStores = mutableMapOf<String, VectorStore>()
     
     fun addTool(tool: Tool) {
         _tools.add(tool)
     }
     
+    fun addVectorStore(name: String, store: VectorStore) {
+        _vectorStores[name] = store
+    }
+    
     override fun getTools(): List<Tool> = _tools.toList()
+    
+    override fun getVectorStore(name: String): VectorStore? = _vectorStores[name]
+    
+    override fun getVectorStores(): Map<String, VectorStore> = _vectorStores.toMap()
     
     override fun canHandle(comm: Comm): Boolean {
         return when (comm.type) {

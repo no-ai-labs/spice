@@ -178,6 +178,15 @@ fun runVectorStoreDSLTests() {
     println("✅ Created RAG agent: ${ragAgent.name}")
     println("   - ID: ${ragAgent.id}")
     println("   - Tools: ${ragAgent.getTools().map { it.name }}")
+    println("   - VectorStores: ${ragAgent.getVectorStores().keys}")
+    
+    // Demonstrate accessing VectorStore instances
+    val knowledgeStore = ragAgent.getVectorStore("knowledge-base")
+    println("   - Knowledge base store: ${if (knowledgeStore != null) "Available" else "Not found"}")
+    
+    // Also available from registry
+    val memoryStore = VectorStoreRegistry.get("memory")
+    println("   - Memory store from registry: ${if (memoryStore != null) "Available" else "Not found"}")
     println()
     
     // Test 2: Multi-Store Agent

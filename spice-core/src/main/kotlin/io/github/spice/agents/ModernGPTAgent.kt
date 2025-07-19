@@ -1,6 +1,7 @@
 package io.github.spice.agents
 
 import io.github.spice.*
+import io.github.spice.config.*
 import io.github.spice.dsl.*
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
@@ -177,4 +178,29 @@ fun gpt(init: GPTAgentBuilder.() -> Unit): Agent {
     val builder = GPTAgentBuilder()
     builder.init()
     return builder.build()
+}
+
+/**
+ * Create GPT agent from SpiceConfig
+ */
+fun gptAgentFromConfig(
+    id: String = "gpt-agent-${System.currentTimeMillis()}",
+    configOverrides: (OpenAIConfig.() -> Unit)? = null
+): Agent {
+    val config = SpiceConfig.current().providers.getTyped<OpenAIConfig>("openai")
+        ?: throw IllegalStateException("OpenAI configuration not found in SpiceConfig")
+    
+    // Apply any overrides
+    configOverrides?.invoke(config)
+    
+    // Validate configuration
+    config.validate()
+    
+    return gptAgent(
+        id = id,
+        apiKey = config.apiKey,
+        model = config.model,
+        systemPrompt = config.systemPrompt,
+        debugEnabled = SpiceConfig.current().debug.enabled
+    )
 }

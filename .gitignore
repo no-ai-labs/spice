@@ -138,7 +138,6 @@ MIGRATION_*.md
 # Test/sample directories
 **/samples/modern/
 **/samples/test/
-**/wiki/
 
 # Temporary test classes in samples
 **/samples/*Test.kt
@@ -150,3 +149,5 @@ MIGRATION_*.md
 **/reports/
 
 CLAUDE.md
+
+/teaser

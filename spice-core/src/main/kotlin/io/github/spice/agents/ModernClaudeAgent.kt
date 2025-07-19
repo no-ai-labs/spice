@@ -1,6 +1,7 @@
 package io.github.spice.agents
 
 import io.github.spice.*
+import io.github.spice.config.*
 import io.github.spice.dsl.*
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
@@ -190,4 +191,29 @@ fun claude(init: ClaudeAgentBuilder.() -> Unit): Agent {
     val builder = ClaudeAgentBuilder()
     builder.init()
     return builder.build()
+}
+
+/**
+ * Create Claude agent from SpiceConfig
+ */
+fun claudeAgentFromConfig(
+    id: String = "claude-agent-${System.currentTimeMillis()}",
+    configOverrides: (AnthropicConfig.() -> Unit)? = null
+): Agent {
+    val config = SpiceConfig.current().providers.getTyped<AnthropicConfig>("anthropic")
+        ?: throw IllegalStateException("Anthropic configuration not found in SpiceConfig")
+    
+    // Apply any overrides
+    configOverrides?.invoke(config)
+    
+    // Validate configuration
+    config.validate()
+    
+    return claudeAgent(
+        id = id,
+        apiKey = config.apiKey,
+        model = config.model,
+        systemPrompt = config.systemPrompt,
+        debugEnabled = SpiceConfig.current().debug.enabled
+    )
 }

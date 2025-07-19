@@ -27,6 +27,7 @@ class CoreAgentBuilder {
     private val globalToolRefs = mutableListOf<String>()    // Level 2: Global tool references  
     private val inlineTools = mutableListOf<Tool>()         // Level 3: Inline tool definitions
     private val vectorStores = mutableMapOf<String, VectorStoreConfig>() // Level 4: VectorStore management
+    private val vectorStoreInstances = mutableMapOf<String, VectorStore>() // Actual VectorStore instances
     
     private var debugEnabled: Boolean = false
     private var debugPrefix: String = "[DEBUG]"
@@ -88,8 +89,13 @@ class CoreAgentBuilder {
         
         vectorStores[name] = storeConfig
         
+        // Create and register VectorStore instance
+        val vectorStore = VectorStoreRegistry.getOrCreate(name, storeConfig, id)
+        vectorStoreInstances[name] = vectorStore
+        
         if (debugEnabled) {
             println("$debugPrefix Configured vector store '$name' with provider '${storeConfig.provider}'")
+            println("$debugPrefix Created and registered VectorStore instance for '$name'")
         }
         
         // Auto-register vector search tool for this store
@@ -108,8 +114,13 @@ class CoreAgentBuilder {
         val config = parseConnectionString(connectionString)
         vectorStores[name] = config
         
+        // Create and register VectorStore instance
+        val vectorStore = VectorStoreRegistry.getOrCreate(name, config, id)
+        vectorStoreInstances[name] = vectorStore
+        
         if (debugEnabled) {
             println("$debugPrefix Quick-configured vector store '$name' from connection string")
+            println("$debugPrefix Created and registered VectorStore instance for '$name'")
         }
         
         // Auto-register vector search tool
@@ -138,6 +149,11 @@ class CoreAgentBuilder {
      * Get all vector stores for this agent
      */
     fun getAllVectorStores(): Map<String, VectorStoreConfig> = vectorStores.toMap()
+    
+    /**
+     * Get all vector store instances for this agent
+     */
+    fun getAllVectorStoreInstances(): Map<String, VectorStore> = vectorStoreInstances.toMap()
 
     /**
      * Set message handler
@@ -152,6 +168,7 @@ class CoreAgentBuilder {
 
         val allTools = getAllAgentTools()
         val allStores = getAllVectorStores()
+        val allStoreInstances = getAllVectorStoreInstances()
 
         if (debugEnabled) {
             println("$debugPrefix Building agent '$name' ($id) with ${allTools.size} tools and ${allStores.size} vector stores")
@@ -168,6 +185,7 @@ class CoreAgentBuilder {
             handler = handler!!,
             tools = allTools,
             vectorStores = allStores,
+            vectorStoreInstances = allStoreInstances,
             debugInfo = if (debugEnabled) DebugInfo(debugEnabled, debugPrefix) else null
         )
     }
@@ -196,8 +214,9 @@ class CoreAgentBuilder {
                     
                     val topK = (parameters["topK"] as? Number)?.toInt() ?: 5
                     
-                    // Create vector store instance
-                    val vectorStore = createVectorStoreInstance(config)
+                    // Get vector store instance from registry or create new one
+                    val vectorStore = VectorStoreRegistry.get(storeName) 
+                        ?: createVectorStoreInstance(config)
                     
                     // Perform search
                     val results = vectorStore.searchByText(
@@ -282,6 +301,7 @@ internal class CoreAgent(
     private val handler: suspend (Comm) -> Comm,
     private val tools: List<Tool> = emptyList(),
     private val vectorStores: Map<String, VectorStoreConfig> = emptyMap(),
+    private val vectorStoreInstances: Map<String, VectorStore> = emptyMap(),
     private val debugInfo: DebugInfo? = null
 ) : Agent {
     
@@ -336,6 +356,10 @@ internal class CoreAgent(
     }
     
     override fun isReady(): Boolean = true
+    
+    override fun getVectorStore(name: String): VectorStore? = vectorStoreInstances[name]
+    
+    override fun getVectorStores(): Map<String, VectorStore> = vectorStoreInstances
     
     /**
      * Check if this agent has debug mode enabled
@@ -631,18 +655,7 @@ fun buildFlow(config: CoreFlowBuilder.() -> Unit): CoreFlow {
 // VECTOR STORE DSL
 // =====================================
 
-/**
- * 🗂️ Vector Store Configuration
- */
-data class VectorStoreConfig(
-    val provider: String,
-    val host: String = "localhost",
-    val port: Int = 6333,
-    val apiKey: String? = null,
-    val collection: String = "default",
-    val vectorSize: Int = 384,
-    val config: Map<String, String> = emptyMap()
-)
+// VectorStoreConfig is now in VectorStoreRegistry.kt
 
 /**
  * 🔧 Provider Default Settings
