@@ -62,7 +62,7 @@ publishing {
         create<MavenPublication>("maven") {
             from(components["java"])
             
-            groupId = "io.github.spice"
+            groupId = "io.github.no-ai-labs"
             artifactId = "spice-core"
             version = "0.1.0"
         }

@@ -5,7 +5,7 @@ plugins {
 }
 
 allprojects {
-    group = "io.github.spice"
+    group = "io.github.no-ai-labs"
     version = "0.1.0"
     
     repositories {

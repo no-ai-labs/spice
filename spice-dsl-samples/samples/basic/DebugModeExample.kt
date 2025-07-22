@@ -1,9 +1,9 @@
-package io.github.spice.samples.basic
+package io.github.noailabs.spice.samples.basic
 
-import io.github.spice.comm.Comm
-import io.github.spice.comm.CommType
-import io.github.spice.ToolResult
-import io.github.spice.dsl.*
+import io.github.noailabs.spice.comm.Comm
+import io.github.noailabs.spice.comm.CommType
+import io.github.noailabs.spice.ToolResult
+import io.github.noailabs.spice.dsl.*
 import kotlinx.coroutines.runBlocking
 
 /**

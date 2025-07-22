@@ -1,8 +1,8 @@
-package io.github.spice.samples.templates
+package io.github.noailabs.spice.samples.templates
 
-import io.github.spice.message.Comm
-import io.github.spice.message.CommType
-import io.github.spice.dsl.*
+import io.github.noailabs.spice.message.Comm
+import io.github.noailabs.spice.message.CommType
+import io.github.noailabs.spice.dsl.*
 import kotlinx.coroutines.runBlocking
 
 /**

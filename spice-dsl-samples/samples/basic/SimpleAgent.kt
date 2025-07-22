@@ -1,9 +1,9 @@
-package io.github.spice.samples.basic
+package io.github.noailabs.spice.samples.basic
 
-import io.github.spice.comm.Comm
-import io.github.spice.comm.CommType
-import io.github.spice.dsl.buildAgent
-import io.github.spice.dsl.AgentRegistry
+import io.github.noailabs.spice.comm.Comm
+import io.github.noailabs.spice.comm.CommType
+import io.github.noailabs.spice.dsl.buildAgent
+import io.github.noailabs.spice.dsl.AgentRegistry
 import kotlinx.coroutines.runBlocking
 
 /**
