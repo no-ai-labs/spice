@@ -18,6 +18,44 @@ import java.time.Duration
  * 
  * Vector storage interface and implementations for RAG (Retrieval-Augmented Generation)
  * Supports various vector databases like Qdrant, Pinecone, Weaviate, etc.
+ * 
+ * ## Quick Start - Text Storage (90% of use cases)
+ * ```kotlin
+ * // Create a text-oriented vector store
+ * val vectorStore = VectorStoreFactory.createTextQdrant(
+ *     host = "localhost",
+ *     port = 6333,
+ *     embeddingGenerator = { text -> embeddingAgent.generateEmbedding(text) }
+ * )
+ * 
+ * // Store text documents
+ * vectorStore.storeText("my-collection", "doc1", "Today's weather is really nice")
+ * vectorStore.storeTexts("my-collection", listOf(
+ *     TextDocument("doc2", "I love programming in Kotlin"),
+ *     TextDocument("doc3", "Spice Framework makes AI development easy")
+ * ))
+ * 
+ * // Search for similar texts
+ * val results = vectorStore.searchSimilarText("my-collection", "How's the weather?", topK = 5)
+ * results.forEach { result ->
+ *     println("Found: ${result.text} (score: ${result.score})")
+ * }
+ * ```
+ * 
+ * ## Advanced Usage - Custom Metadata
+ * ```kotlin
+ * // Store with metadata
+ * vectorStore.storeText(
+ *     collectionName = "articles",
+ *     id = "article-123",
+ *     text = "Kotlin Coroutines are powerful for async programming",
+ *     metadata = mapOf(
+ *         "author" to "John Doe",
+ *         "category" to "Programming",
+ *         "date" to "2024-01-15"
+ *     )
+ * )
+ * ```
  */
 
 /**
@@ -89,6 +127,66 @@ interface VectorStore {
 }
 
 /**
+ * Simple text-oriented vector store interface for common use cases
+ */
+interface TextVectorStore : VectorStore {
+    
+    /**
+     * Store text with automatic embedding generation
+     * @param collectionName The collection to store in
+     * @param id Unique identifier for the text
+     * @param text The text content to store
+     * @param metadata Additional metadata as simple key-value pairs
+     */
+    suspend fun storeText(
+        collectionName: String,
+        id: String,
+        text: String,
+        metadata: Map<String, String> = emptyMap()
+    ): VectorOperationResult
+    
+    /**
+     * Store multiple texts with automatic embedding generation
+     */
+    suspend fun storeTexts(
+        collectionName: String,
+        texts: List<TextDocument>
+    ): VectorOperationResult
+    
+    /**
+     * Search for similar texts
+     * @param collectionName The collection to search in
+     * @param query The query text
+     * @param topK Number of results to return
+     * @return List of similar texts with scores
+     */
+    suspend fun searchSimilarText(
+        collectionName: String,
+        query: String,
+        topK: Int = 10
+    ): List<TextSearchResult>
+}
+
+/**
+ * Simple text document for easy storage
+ */
+data class TextDocument(
+    val id: String,
+    val text: String,
+    val metadata: Map<String, String> = emptyMap()
+)
+
+/**
+ * Text search result with simple metadata
+ */
+data class TextSearchResult(
+    val id: String,
+    val text: String,
+    val score: Float,
+    val metadata: Map<String, String> = emptyMap()
+)
+
+/**
  * Vector document
  */
 @Serializable
@@ -96,7 +194,27 @@ data class VectorDocument(
     val id: String,
     val vector: List<Float>,
     val metadata: Map<String, JsonElement> = emptyMap()
-)
+) {
+    companion object {
+        /**
+         * Create a VectorDocument from text
+         */
+        fun fromText(
+            id: String,
+            text: String,
+            vector: List<Float>,
+            additionalMetadata: Map<String, String> = emptyMap()
+        ): VectorDocument {
+            val metadata = mutableMapOf<String, JsonElement>(
+                "text" to JsonPrimitive(text)
+            )
+            additionalMetadata.forEach { (key, value) ->
+                metadata[key] = JsonPrimitive(value)
+            }
+            return VectorDocument(id, vector, metadata)
+        }
+    }
+}
 
 /**
  * Vector search result
@@ -168,14 +286,15 @@ data class CollectionInfo(
 )
 
 /**
- * Qdrant vector store implementation
+ * Qdrant vector store implementation with text-oriented features
  */
 class QdrantVectorStore(
     private val host: String = "localhost",
     private val port: Int = 6333,
     private val apiKey: String? = null,
-    private val timeout: Duration = Duration.ofSeconds(30)
-) : VectorStore {
+    private val timeout: Duration = Duration.ofSeconds(30),
+    private val embeddingGenerator: ((String) -> List<Float>)? = null
+) : TextVectorStore {
     
     private val httpClient = HttpClient.newBuilder()
         .connectTimeout(timeout)
@@ -197,7 +316,7 @@ class QdrantVectorStore(
             QdrantPoint(
                 id = doc.id,
                 vector = doc.vector,
-                payload = doc.metadata
+                payload = JsonObject(doc.metadata)
             )
         }
         
@@ -460,6 +579,56 @@ class QdrantVectorStore(
         }
     }
     
+    // === TextVectorStore Implementation ===
+    
+    override suspend fun storeText(
+        collectionName: String,
+        id: String,
+        text: String,
+        metadata: Map<String, String>
+    ): VectorOperationResult {
+        val embedding = embeddingGenerator?.invoke(text) ?: generateDummyEmbedding(text)
+        
+        val jsonMetadata = mutableMapOf<String, JsonElement>(
+            "text" to JsonPrimitive(text)
+        )
+        metadata.forEach { (key, value) ->
+            jsonMetadata[key] = JsonPrimitive(value)
+        }
+        
+        val doc = VectorDocument(id, embedding, jsonMetadata)
+        return upsert(collectionName, listOf(doc))
+    }
+    
+    override suspend fun storeTexts(
+        collectionName: String,
+        texts: List<TextDocument>
+    ): VectorOperationResult {
+        val docs = texts.map { textDoc ->
+            val embedding = embeddingGenerator?.invoke(textDoc.text) ?: generateDummyEmbedding(textDoc.text)
+            
+            val jsonMetadata = mutableMapOf<String, JsonElement>(
+                "text" to JsonPrimitive(textDoc.text)
+            )
+            textDoc.metadata.forEach { (key, value) ->
+                jsonMetadata[key] = JsonPrimitive(value)
+            }
+            
+            VectorDocument(textDoc.id, embedding, jsonMetadata)
+        }
+        
+        return upsert(collectionName, docs)
+    }
+    
+    override suspend fun searchSimilarText(
+        collectionName: String,
+        query: String,
+        topK: Int
+    ): List<TextSearchResult> {
+        val results = searchByText(collectionName, query, topK)
+        return results.mapNotNull { it.toTextSearchResult() }
+    }
+    
     /**
      * Generate dummy embedding (in real use, use OpenAI, Sentence Transformers, etc.)
      */
@@ -480,7 +649,7 @@ class QdrantVectorStore(
 data class QdrantPoint(
     val id: String,
     val vector: List<Float>,
-    val payload: Map<String, JsonElement>? = null
+    val payload: JsonObject? = null  // Map<String, JsonElement> 대신 JsonObject 사용
 )
 
 @Serializable
@@ -602,6 +771,13 @@ data class QdrantVectorParams(
  */
 
 /**
+ * Convert Map<String, JsonElement> to JsonObject
+ */
+fun Map<String, JsonElement>.toJsonObject(): JsonObject {
+    return JsonObject(this)
+}
+
+/**
  * Convert VectorFilter to QdrantFilter
  */
 fun VectorFilter.toQdrantFilter(): QdrantFilter {
@@ -671,6 +847,49 @@ suspend fun VectorStore.searchText(
 }
 
 /**
+ * Convert any Map to JsonElement metadata
+ * Automatically converts common types (String, Number, Boolean) to JsonPrimitive
+ */
+fun Map<String, Any>.toJsonMetadata(): Map<String, JsonElement> {
+    return this.mapValues { (_, value) ->
+        when (value) {
+            is String -> JsonPrimitive(value)
+            is Number -> JsonPrimitive(value)
+            is Boolean -> JsonPrimitive(value)
+            is List<*> -> JsonPrimitive(value.toString()) // Convert lists to string for simplicity
+            is Map<*, *> -> JsonPrimitive(value.toString()) // Convert maps to string for simplicity
+            else -> JsonPrimitive(value.toString())
+        }
+    }
+}
+
+/**
+ * Extract text content from VectorResult metadata
+ */
+fun VectorResult.getText(): String? {
+    return metadata["text"]?.let { element ->
+        when (element) {
+            is JsonPrimitive -> element.content
+            else -> element.toString()
+        }
+    }
+}
+
+/**
+ * Convert VectorResult to TextSearchResult
+ */
+fun VectorResult.toTextSearchResult(): TextSearchResult? {
+    val text = getText() ?: return null
+    val stringMetadata = metadata.mapValues { (_, value) ->
+        when (value) {
+            is JsonPrimitive -> value.content
+            else -> value.toString()
+        }
+    }
+    return TextSearchResult(id, text, score, stringMetadata)
+}
+
+/**
  * Metadata filtering DSL
  */
 fun buildFilter(init: FilterBuilder.() -> Unit): VectorFilter {
@@ -724,9 +943,22 @@ object VectorStoreFactory {
     fun createQdrant(
         host: String = "localhost",
         port: Int = 6333,
-        apiKey: String? = null
+        apiKey: String? = null,
+        embeddingGenerator: ((String) -> List<Float>)? = null
     ): VectorStore {
-        return QdrantVectorStore(host, port, apiKey)
+        return QdrantVectorStore(host, port, apiKey, Duration.ofSeconds(30), embeddingGenerator)
+    }
+    
+    /**
+     * Create a text-oriented Qdrant store with embedding generation
+     */
+    fun createTextQdrant(
+        host: String = "localhost",
+        port: Int = 6333,
+        apiKey: String? = null,
+        embeddingGenerator: (String) -> List<Float>
+    ): TextVectorStore {
+        return QdrantVectorStore(host, port, apiKey, Duration.ofSeconds(30), embeddingGenerator)
     }
     
     // Future support for other vector DBs
