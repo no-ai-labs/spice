@@ -8,7 +8,7 @@ The Spice Framework provides seamless integration with Spring Boot through auto-
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.spice:spice-springboot:0.1.0")
+    implementation("io.github.spice:spice-springboot:0.1.1")
     implementation("org.springframework.boot:spring-boot-starter-web")
 }
 ```

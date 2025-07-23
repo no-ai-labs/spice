@@ -67,6 +67,7 @@ Thumbs.db
 **/test-results/
 **/test-output/
 **/reports/
+CHANGELOG.md
 
 # Node (만약 UI 폴더 들어올 경우)
 /node_modules/

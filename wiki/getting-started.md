@@ -2,26 +2,57 @@
 
 ## Installation
 
-Add Spice Framework to your project:
+Add Spice Framework to your project using JitPack:
+
+[![](https://jitpack.io/v/no-ai-labs/spice-framework.svg)](https://jitpack.io/#no-ai-labs/spice-framework)
 
 ### Gradle (Kotlin DSL)
+
+First, add JitPack repository:
 ```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+Then add the dependencies:
+```kotlin
+// build.gradle.kts
 dependencies {
-    implementation("io.github.spice:spice-core:0.1.0")
+    implementation("com.github.no-ai-labs.spice-framework:spice-core:Tag")
     
     // Optional: Spring Boot support
-    implementation("io.github.spice:spice-springboot:0.1.0")
+    implementation("com.github.no-ai-labs.spice-framework:spice-springboot:Tag")
 }
 ```
 
 ### Maven
+
+Add JitPack repository:
+```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+```
+
+Then add the dependency:
 ```xml
 <dependency>
-    <groupId>io.github.spice</groupId>
+    <groupId>com.github.no-ai-labs.spice-framework</groupId>
     <artifactId>spice-core</artifactId>
-    <version>0.1.0</version>
+    <version>Tag</version>
 </dependency>
 ```
+
+> Replace `Tag` with the latest version: [![](https://jitpack.io/v/no-ai-labs/spice-framework.svg)](https://jitpack.io/#no-ai-labs/spice-framework)
 
 ## Your First Agent
 

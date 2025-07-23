@@ -43,15 +43,36 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 
 ### Installation
 
+#### Using JitPack
+
+[![](https://jitpack.io/v/no-ai-labs/spice-framework.svg)](https://jitpack.io/#no-ai-labs/spice-framework)
+
+Add JitPack repository to your build file:
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+Then add the dependency:
+
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.spice:spice-core:0.1.0")
+    implementation("com.github.no-ai-labs.spice-framework:spice-core:Tag")
     
     // Optional modules
-    implementation("io.github.spice:spice-springboot:0.1.0")
+    implementation("com.github.no-ai-labs.spice-framework:spice-springboot:Tag")
 }
 ```
+
+Replace `Tag` with the latest version: [![](https://jitpack.io/v/no-ai-labs/spice-framework.svg)](https://jitpack.io/#no-ai-labs/spice-framework)
 
 ### Your First Agent
 

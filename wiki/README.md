@@ -46,8 +46,15 @@ Agent > Flow > Tool
 - **Flows**: Orchestration of multiple agents
 - **Tools**: Reusable capabilities that agents can use
 
+## 📦 Installation
+
+[![](https://jitpack.io/v/no-ai-labs/spice-framework.svg)](https://jitpack.io/#no-ai-labs/spice-framework)
+
+The framework is available via JitPack. See [Getting Started](getting-started.md) for detailed installation instructions.
+
 ## 🔗 Links
 
-- [GitHub Repository](https://github.com/devhub/spice-framework)
+- [GitHub Repository](https://github.com/no-ai-labs/spice-framework)
+- [JitPack Builds](https://jitpack.io/#no-ai-labs/spice-framework)
 - [Sample Projects](../spice-dsl-samples)
-- [Issue Tracker](https://github.com/devhub/spice-framework/issues)
+- [Issue Tracker](https://github.com/no-ai-labs/spice-framework/issues)
