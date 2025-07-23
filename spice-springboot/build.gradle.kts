@@ -1,6 +1,7 @@
 plugins {
     kotlin("plugin.spring")
     id("maven-publish")
+    id("org.springframework.boot") version "3.5.3"
 }
 
 dependencies {
@@ -28,13 +29,16 @@ tasks.test {
 
 publishing {
     publications {
-        create<MavenPublication>("maven") {
+        create<MavenPublication>("boot") {
             from(components["java"])
+            groupId = "io.github.no-ai-labs"
+            artifactId = "spice-springboot"
+            version = "0.1.0"
             
             pom {
                 name.set("Spice Spring Boot Starter")
                 description.set("Spring Boot AutoConfiguration for Spice Framework - Multi-LLM Orchestration")
-                url.set("https://github.com/spice-framework/spice")
+                url.set("https://github.com/no-ai-labs/spice")
                 
                 licenses {
                     license {
@@ -47,16 +51,16 @@ publishing {
                     developer {
                         id.set("spice-team")
                         name.set("Spice Framework Team")
-                        email.set("team@spice.dev")
+                        email.set("veryverybigdog@gmail.com")
                     }
                 }
                 
                 scm {
-                    connection.set("scm:git:git://github.com/spice-framework/spice.git")
-                    developerConnection.set("scm:git:ssh://github.com/spice-framework/spice.git")
-                    url.set("https://github.com/spice-framework/spice")
+                    connection.set("scm:git:git://github.com/no-ai-labs/spice.git")
+                    developerConnection.set("scm:git:ssh://github.com/no-ai-labs/spice.git")
+                    url.set("https://github.com/no-ai-labs/spice")
                 }
             }
         }
     }
-} 
+}

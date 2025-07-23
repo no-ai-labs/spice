@@ -10,8 +10,6 @@
 
 # Gradle wrapper (keep gradlew but ignore gradle directory internals)
 .gradle/
-gradle/wrapper/gradle-wrapper.jar
-**/gradle/wrapper/gradle-wrapper.jar
 
 # IntelliJ / IDEA (더 포괄적)
 .idea/

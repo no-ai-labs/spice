@@ -1,0 +1,5 @@
+jdk:
+  - openjdk21
+install:
+  - ./gradlew :spice-core:publishToMavenLocal
+  - ./gradlew :spice-springboot:publishToMavenLocal

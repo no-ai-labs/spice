@@ -57,18 +57,6 @@ kotlin {
     jvmToolchain(21)
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("maven") {
-            from(components["java"])
-            
-            groupId = "io.github.no-ai-labs"
-            artifactId = "spice-core"
-            version = "0.1.0"
-        }
-    }
-}
-
 jacoco {
     toolVersion = "0.8.12"
 }
@@ -82,4 +70,39 @@ tasks.jacocoTestReport {
         html.required.set(true)
         html.outputLocation.set(layout.buildDirectory.dir("jacocoHtml"))
     }
-} 
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("core") {
+            from(components["java"])
+            groupId = "io.github.no-ai-labs"
+            artifactId = "spice-core"
+            version = "0.1.0"
+
+            pom {
+                name.set("Spice Core")
+                description.set("Core utilities and orchestration engine for the Spice LLM Framework")
+                url.set("https://github.com/no-ai-labs/spice")
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("spice-team")
+                        name.set("Spice Framework Team")
+                        email.set("veryverybigdog@gmail.com")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/no-ai-labs/spice.git")
+                    developerConnection.set("scm:git:ssh://github.com/no-ai-labs/spice.git")
+                    url.set("https://github.com/no-ai-labs/spice")
+                }
+            }
+        }
+    }
+}

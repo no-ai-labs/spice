@@ -2,6 +2,8 @@ plugins {
     kotlin("jvm") version "2.2.0" apply false
     kotlin("plugin.serialization") version "2.2.0" apply false
     kotlin("plugin.spring") version "2.2.0" apply false
+    id("io.github.gradle-nexus.publish-plugin") version "1.3.0"
+    id("signing")
 }
 
 allprojects {
@@ -10,22 +12,34 @@ allprojects {
     
     repositories {
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+
     }
+
 }
 
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     
-    configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
-        jvmToolchain(21)
-        
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
-            freeCompilerArgs.add("-Xjsr305=strict")
-        }
-    }
-    
     tasks.withType<Test> {
         useJUnitPlatform()
     }
-} 
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            username.set(findProperty("ossrhUsername") as String)
+            password.set(findProperty("ossrhPassword") as String)
+        }
+    }
+}
+
+//signing {
+//    useInMemoryPgpKeys(
+//        findProperty("signing.keyId") as String,
+//        findProperty("signing.key") as String,
+//        findProperty("signing.password") as String,
+//    )
+//    sign(publishing.publications["maven"])
+//}
