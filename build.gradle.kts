@@ -25,21 +25,3 @@ subprojects {
         useJUnitPlatform()
     }
 }
-
-nexusPublishing {
-    repositories {
-        sonatype {
-            username.set(findProperty("ossrhUsername") as String)
-            password.set(findProperty("ossrhPassword") as String)
-        }
-    }
-}
-
-//signing {
-//    useInMemoryPgpKeys(
-//        findProperty("signing.keyId") as String,
-//        findProperty("signing.key") as String,
-//        findProperty("signing.password") as String,
-//    )
-//    sign(publishing.publications["maven"])
-//}
