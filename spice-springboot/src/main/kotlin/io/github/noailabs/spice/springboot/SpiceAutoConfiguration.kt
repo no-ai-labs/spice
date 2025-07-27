@@ -111,6 +111,39 @@ class SpiceAutoConfiguration {
                 prefix = properties.debug?.prefix ?: "[SPICE]"
                 logAgentCommunication = properties.debug?.logAgentCommunication ?: false
             }
+            
+            // Configure vector store
+            vectorStore {
+                enabled = properties.vectorstore.enabled
+                defaultProvider = properties.vectorstore.defaultProvider
+                
+                properties.vectorstore.qdrant?.let { qdrantProps ->
+                    qdrant = VectorStoreSettings.QdrantConfig(
+                        host = qdrantProps.host,
+                        port = qdrantProps.port,
+                        apiKey = qdrantProps.apiKey,
+                        useTls = qdrantProps.useTls
+                    )
+                }
+                
+                properties.vectorstore.pinecone?.let { pineconeProps ->
+                    pinecone = VectorStoreSettings.PineconeConfig(
+                        apiKey = pineconeProps.apiKey,
+                        environment = pineconeProps.environment,
+                        projectName = pineconeProps.projectName,
+                        indexName = pineconeProps.indexName
+                    )
+                }
+                
+                properties.vectorstore.weaviate?.let { weaviateProps ->
+                    weaviate = VectorStoreSettings.WeaviateConfig(
+                        host = weaviateProps.host,
+                        port = weaviateProps.port,
+                        scheme = weaviateProps.scheme,
+                        apiKey = weaviateProps.apiKey
+                    )
+                }
+            }
         }
         
         return SpiceConfig.current()
