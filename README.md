@@ -296,9 +296,9 @@ cd spice-framework
 - ✅ Tool Management System
 - ✅ LLM Integrations (OpenAI, Anthropic)
 - ✅ Spring Boot Starter
-- 🚧 Swarm Intelligence (Beta)
-- 🚧 Vector Store Integrations (Beta)
-- 📋 MCP Protocol Support (Planned)
+- ✅ Swarm Intelligence (Multi-agent coordination with 5 strategies)
+- ✅ MCP Protocol Support (Model Context Protocol integration)
+- 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
 
 ## 📄 License
 
