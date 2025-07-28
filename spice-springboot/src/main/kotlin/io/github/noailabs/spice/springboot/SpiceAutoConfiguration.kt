@@ -3,6 +3,7 @@ package io.github.noailabs.spice.springboot
 import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.CommHub
 import io.github.noailabs.spice.SpiceConfig
+import io.github.noailabs.spice.VectorStoreSettings
 import io.github.noailabs.spice.agents.claudeAgent
 import io.github.noailabs.spice.agents.gptAgent
 import io.github.noailabs.spice.agents.mockClaudeAgent

@@ -27,6 +27,16 @@ tasks.test {
     enabled = false
 }
 
+// Disable bootJar task as this is a library, not a runnable application
+tasks.bootJar {
+    enabled = false
+}
+
+// Enable regular jar task
+tasks.jar {
+    enabled = true
+}
+
 publishing {
     publications {
         create<MavenPublication>("boot") {
