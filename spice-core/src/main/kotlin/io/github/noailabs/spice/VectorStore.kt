@@ -846,22 +846,7 @@ suspend fun VectorStore.searchText(
     return searchByText(collection, query, limit)
 }
 
-/**
- * Convert any Map to JsonElement metadata
- * Automatically converts common types (String, Number, Boolean) to JsonPrimitive
- */
-fun Map<String, Any>.toJsonMetadata(): Map<String, JsonElement> {
-    return this.mapValues { (_, value) ->
-        when (value) {
-            is String -> JsonPrimitive(value)
-            is Number -> JsonPrimitive(value)
-            is Boolean -> JsonPrimitive(value)
-            is List<*> -> JsonPrimitive(value.toString()) // Convert lists to string for simplicity
-            is Map<*, *> -> JsonPrimitive(value.toString()) // Convert maps to string for simplicity
-            else -> JsonPrimitive(value.toString())
-        }
-    }
-}
+// Removed deprecated toJsonMetadata - use SpiceSerializer.toJsonMetadata() instead
 
 /**
  * Extract text content from VectorResult metadata

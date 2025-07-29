@@ -362,6 +362,85 @@ class ToolTest {
 }
 ```
 
+## Tool Export and JSON Schema
+
+Tools can be exported as JSON Schema for external integration:
+
+### AgentTool for Serialization
+
+```kotlin
+// Create a serializable tool representation
+val weatherTool = agentTool("weather-api") {
+    description("Get weather information for a location")
+    
+    parameters {
+        string("location", "City name or coordinates", required = true)
+        string("units", "Temperature units (C/F)", required = false)
+        array("days", "Days to forecast (1-7)", required = false)
+    }
+    
+    tags("weather", "api", "external")
+    metadata("version", "3.0")
+    metadata("rate-limit", "100/hour")
+    
+    implementationType("http-api", mapOf(
+        "endpoint" to "https://api.weather.com/v2/forecast",
+        "method" to "GET"
+    ))
+}
+
+// Export as JSON Schema
+val schema = weatherTool.toJsonSchema()
+println(schema)
+/* Output:
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "weather-api",
+  "description": "Get weather information for a location",
+  "type": "object",
+  "required": ["location"],
+  "properties": {
+    "location": {
+      "type": "string",
+      "description": "City name or coordinates"
+    },
+    "units": {
+      "type": "string", 
+      "description": "Temperature units (C/F)"
+    },
+    "days": {
+      "type": "array",
+      "description": "Days to forecast (1-7)"
+    }
+  },
+  "x-tags": ["weather", "api", "external"],
+  "x-metadata": {
+    "version": "3.0",
+    "rate-limit": "100/hour"
+  }
+}
+*/
+
+// Save to file
+weatherTool.saveToFile("tools/weather-api.json")
+
+// Load from file
+val loadedTool = AgentToolSerializer.loadFromFile("tools/weather-api.json")
+```
+
+### Converting Existing Tools
+
+```kotlin
+// Convert any Tool to AgentTool
+val agentTool = myExistingTool.toAgentTool(
+    tags = listOf("converted", "utility"),
+    metadata = mapOf("source" to "legacy-system")
+)
+
+// Now you can export it
+val schema = agentTool.toJsonSchema()
+```
+
 ## Best Practices
 
 1. **Always validate input parameters**

@@ -17,6 +17,7 @@ This package contains data model classes that serve as intermediate representati
 2. **Implementation Types**: Supports various implementation types (kotlin-function, http-api, script, etc.)
 3. **Metadata & Tags**: Additional information for categorization and discovery
 4. **Bidirectional Conversion**: Convert between Tool ↔ AgentTool seamlessly
+5. **JSON Schema Support**: Full JSON Schema draft-07 compliance for tool definitions
 
 ### Usage Examples
 
@@ -46,9 +47,70 @@ val agentTool = existingTool.toAgentTool(
 val json = Json.encodeToString(tool.copy(implementation = null))
 ```
 
+## AgentToolSerializer
+
+`AgentToolSerializer` provides JSON Schema conversion and file persistence:
+
+### JSON Schema Conversion
+
+```kotlin
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonSchema
+import io.github.noailabs.spice.serialization.SpiceSerializer.agentToolFromJsonSchema
+
+// Convert to JSON Schema
+val schema = myTool.toJsonSchema()
+
+// Create from JSON Schema
+val tool = SpiceSerializer.agentToolFromJsonSchema(schema)
+
+// Validate schema
+val result = SpiceSerializer.validateJsonSchema(schema)
+```
+
+### File Operations
+
+```kotlin
+import io.github.noailabs.spice.model.AgentToolSerializer.saveToFile
+import io.github.noailabs.spice.model.AgentToolSerializer.loadFromFile
+
+// Save to file
+myTool.saveToFile("tools/calculator.json", SerializationFormat.JSON)
+
+// Load from file
+val loadedTool = loadFromFile("tools/calculator.json")
+```
+
+### JSON Schema Format
+
+Tools are serialized using JSON Schema draft-07 format with custom extensions:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "tool-name",
+  "description": "Tool description",
+  "type": "object",
+  "required": ["param1"],
+  "properties": {
+    "param1": {
+      "type": "string",
+      "description": "Parameter description"
+    }
+  },
+  "x-tags": ["tag1", "tag2"],
+  "x-metadata": {
+    "version": "1.0"
+  },
+  "x-implementation": {
+    "type": "kotlin-function"
+  }
+}
+```
+
 ### Future Extensions
 
-- YAML/JSON loader for tool definitions
+- Full YAML support with proper parser
 - Tool validation and testing utilities
 - Tool composition and chaining
-- Remote tool execution support 
+- Remote tool execution support
+- VS Code extension for tool editing 

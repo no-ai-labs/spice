@@ -458,6 +458,101 @@ experimental {
 }
 ```
 
+## JSON Serialization and Export
+
+Spice provides comprehensive JSON serialization for all components, enabling easy integration with external systems, UIs, and APIs.
+
+### Unified Serialization System
+
+```kotlin
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJson
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonSchema
+
+// Serialize any Spice component
+val agentJson = myAgent.toJson()
+val toolJson = myTool.toJson()
+val vectorStoreJson = myVectorStore.toJson()
+
+// Export tool as JSON Schema (GUI/API integration)
+val schema = myAgentTool.toJsonSchema()
+```
+
+### AgentTool and JSON Schema
+
+AgentTool provides a serializable representation of tools:
+
+```kotlin
+val mlTool = agentTool("ml-predictor") {
+    description("Machine learning prediction tool")
+    
+    parameters {
+        array("features", "Input features")
+        string("model", "Model name")
+        number("threshold", "Confidence threshold")
+    }
+    
+    tags("ml", "prediction", "ai")
+    metadata("version", "2.0")
+    metadata("accuracy", "0.95")
+    
+    implementationType("python-script", mapOf(
+        "runtime" to "python3.9",
+        "requirements" to "numpy,scikit-learn"
+    ))
+}
+
+// Export as JSON Schema
+val schema = mlTool.toJsonSchema()
+// Result: Standard JSON Schema draft-07 format
+
+// Save to file
+mlTool.saveToFile("tools/ml-predictor.json")
+
+// Load from file
+val loadedTool = AgentToolSerializer.loadFromFile("tools/ml-predictor.json")
+```
+
+### Complex Metadata Handling
+
+SpiceSerializer properly handles nested structures:
+
+```kotlin
+// Before (toString() approach):
+// List -> "[a, b, c]"
+// Map -> "{key=value}"
+
+// After (proper JSON):
+val metadata = mapOf(
+    "stats" to mapOf(
+        "total" to 1000,
+        "success_rate" to 0.95
+    ),
+    "tags" to listOf("production", "v2"),
+    "config" to mapOf(
+        "features" to listOf(
+            mapOf("name" to "parallel", "enabled" to true),
+            mapOf("name" to "cache", "enabled" to false)
+        )
+    )
+)
+
+val json = SpiceSerializer.toJsonMetadata(metadata)
+// Preserves complete structure!
+```
+
+### Security Features
+
+```kotlin
+val vectorConfig = VectorStoreConfig(
+    provider = "pinecone",
+    apiKey = "sk-secret-key-12345",
+    // ... other config
+)
+
+val json = vectorConfig.toJson()
+// API key is automatically redacted: "apiKey": "[REDACTED]"
+```
+
 ## Best Practices for Advanced Features
 
 1. **Monitor performance** when using swarms - they can be resource intensive

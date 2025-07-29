@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "calculator",
+  "description": "Advanced mathematical calculator with multiple operations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["expression"],
+  "properties": {
+    "expression": {
+      "type": "string",
+      "description": "Mathematical expression to evaluate (e.g., '2 + 2', 'sqrt(16)', 'sin(PI/2)')"
+    },
+    "precision": {
+      "type": "integer",
+      "description": "Number of decimal places for the result",
+      "default": 2,
+      "minimum": 0,
+      "maximum": 10
+    },
+    "format": {
+      "type": "string",
+      "description": "Output format for the result",
+      "enum": ["decimal", "fraction", "scientific", "engineering"],
+      "default": "decimal"
+    },
+    "variables": {
+      "type": "object",
+      "description": "Variables to use in the expression",
+      "additionalProperties": {
+        "type": "number"
+      }
+    }
+  },
+  "x-tags": ["math", "calculator", "utility", "computation"],
+  "x-metadata": {
+    "version": "2.1.0",
+    "author": "Spice Math Team",
+    "license": "MIT",
+    "category": "computation",
+    "complexity": "medium"
+  },
+  "x-implementation": {
+    "type": "kotlin-function",
+    "details": {
+      "engine": "exp4j",
+      "supports": "basic-arithmetic,trigonometry,logarithms",
+      "thread-safe": "true"
+    }
+  }
+} 

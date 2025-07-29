@@ -503,3 +503,58 @@ fun Flow.withRetry(
     delayMillis: Long = 1000
 ): Flow
 ```
+
+## JSON Serialization
+
+### SpiceSerializer
+Unified JSON serialization for all Spice components.
+
+```kotlin
+object SpiceSerializer {
+    // Convert any value to JsonElement
+    fun Any?.toJsonElement(): JsonElement
+    
+    // Convert Map to JsonObject with proper type handling
+    fun Map<String, Any?>.toJsonObject(): JsonObject
+    
+    // Convert metadata Map preserving structure
+    fun toJsonMetadata(map: Map<String, Any>): Map<String, JsonElement>
+    
+    // Component serialization
+    fun Agent.toJson(): JsonObject
+    fun Tool.toJson(): JsonObject
+    fun AgentTool.toJson(): JsonObject
+    fun AgentTool.toJsonSchema(): JsonObject
+    fun VectorStoreConfig.toJson(): JsonObject
+    fun AgentPersona.toJson(): JsonObject
+    
+    // Deserialization
+    fun agentFromJson(json: JsonObject): AgentDescriptor
+    fun agentToolFromJsonSchema(schema: JsonObject): AgentTool
+    fun vectorStoreConfigFromJson(json: JsonObject): VectorStoreConfig
+    
+    // Validation
+    fun validateJsonSchema(schema: JsonObject): ValidationResult
+}
+```
+
+### Usage Examples
+```kotlin
+// Serialize components
+val agentJson = myAgent.toJson()
+val toolJson = myTool.toJson()
+
+// Export tool as JSON Schema
+val schema = myAgentTool.toJsonSchema()
+
+// Handle complex metadata
+val metadata = mapOf(
+    "tags" to listOf("ai", "ml"),
+    "config" to mapOf("timeout" to 30)
+)
+val jsonMetadata = SpiceSerializer.toJsonMetadata(metadata)
+// Result: {"tags": ["ai", "ml"], "config": {"timeout": 30}}
+
+// Universal conversion
+val element = anyValue.toJsonElement()
+```

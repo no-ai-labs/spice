@@ -31,6 +31,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **Generic Registry System** - Type-safe, thread-safe component management
 - **Progressive Disclosure** - Simple things simple, complex things possible
 - **Tool System** - Built-in tools and easy custom tool creation
+- **JSON Serialization** - Production-grade JSON conversion for all components
 
 ### Advanced Features
 - **Multi-LLM Support** - OpenAI, Anthropic, Google Vertex AI, and more
@@ -38,6 +39,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **Vector Store Integration** - Built-in RAG support with multiple providers
 - **MCP Protocol** - External tool integration via Model Context Protocol
 - **Spring Boot Starter** - Seamless Spring Boot integration
+- **JSON Schema Support** - Export tools as standard JSON Schema for GUI/API integration
 
 ## 🚀 Quick Start
 
@@ -249,6 +251,31 @@ val ragAgent = buildAgent {
 }
 ```
 
+### JSON Serialization
+
+Spice provides unified JSON serialization for all components:
+
+```kotlin
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJson
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonSchema
+
+// Serialize any component to JSON
+val agentJson = myAgent.toJson()
+val toolJson = myTool.toJson()
+val vectorStoreJson = myVectorStore.toJson()
+
+// Export tool as JSON Schema
+val schema = myAgentTool.toJsonSchema()
+
+// Handle complex metadata properly
+val metadata = mapOf(
+    "tags" to listOf("ai", "agent"),
+    "config" to mapOf("timeout" to 30, "retries" to 3)
+)
+// Preserves structure instead of toString()!
+val jsonMetadata = SpiceSerializer.toJsonMetadata(metadata)
+```
+
 ## 🌱 Spring Boot Integration
 
 ```kotlin
@@ -296,6 +323,7 @@ cd spice-framework
 - ✅ Tool Management System
 - ✅ LLM Integrations (OpenAI, Anthropic)
 - ✅ Spring Boot Starter
+- ✅ JSON Serialization System
 - ✅ Swarm Intelligence (Multi-agent coordination with 5 strategies)
 - ✅ MCP Protocol Support (Model Context Protocol integration)
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
