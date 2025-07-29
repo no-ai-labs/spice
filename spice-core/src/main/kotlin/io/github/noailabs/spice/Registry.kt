@@ -2,6 +2,7 @@ package io.github.noailabs.spice
 
 import io.github.noailabs.spice.chains.ModernToolChain
 import io.github.noailabs.spice.dsl.CoreFlow
+import io.github.noailabs.spice.model.AgentTool
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -146,10 +147,21 @@ object AgentRegistry : SearchableRegistry<Agent>("agents") {
 /**
  * Tool wrapper to make Tool implement Identifiable
  */
-data class ToolWrapper(
+open class ToolWrapper(
     override val id: String,
-    val tool: Tool
+    open val tool: Tool
 ) : Tool by tool, Identifiable
+
+/**
+ * Extended tool wrapper with metadata support
+ */
+data class ToolWrapperEx(
+    override val id: String,
+    override val tool: Tool,
+    val source: String = "direct",
+    val tags: List<String> = emptyList(),
+    val metadata: Map<String, String> = emptyMap()
+) : ToolWrapper(id, tool)
 
 /**
  * 🔧 Tool Registry with namespace support
@@ -168,7 +180,12 @@ object ToolRegistry : Registry<ToolWrapper>("tools") {
         }
         
         // Create a wrapper tool with qualified ID
-        val wrapper = ToolWrapper(qualifiedId, tool)
+        // Use extended wrapper for consistency
+        val wrapper = ToolWrapperEx(
+            id = qualifiedId, 
+            tool = tool,
+            source = "direct"
+        )
         super.register(wrapper)
         
         // Update namespace index
@@ -207,6 +224,72 @@ object ToolRegistry : Registry<ToolWrapper>("tools") {
      * Ensure tool is registered (for globalTools DSL)
      */
     fun ensureRegistered(name: String): Boolean = hasTool(name)
+    
+    /**
+     * Register AgentTool with metadata preservation
+     */
+    fun register(agentTool: AgentTool, namespace: String = "global"): Tool {
+        val tool = agentTool.toTool()
+        val qualifiedId = if (namespace == "global") {
+            agentTool.name
+        } else {
+            "$namespace::${agentTool.name}"
+        }
+        
+        // Create extended wrapper with metadata
+        val wrapper = ToolWrapperEx(
+            id = qualifiedId,
+            tool = tool,
+            source = "agent-tool",
+            tags = agentTool.tags,
+            metadata = agentTool.metadata + mapOf(
+                "implementationType" to agentTool.implementationType
+            )
+        )
+        
+        super.register(wrapper)
+        
+        // Update namespace index
+        namespaceIndex.computeIfAbsent(namespace) { ConcurrentHashMap.newKeySet() }
+            .add(agentTool.name)
+        
+        return tool
+    }
+    
+    /**
+     * Get tools by tag
+     */
+    fun getByTag(tag: String): List<Tool> {
+        return getAll()
+            .filterIsInstance<ToolWrapperEx>()
+            .filter { wrapper -> tag in wrapper.tags }
+            .map { it.tool }
+    }
+    
+    /**
+     * Get tools by source type
+     */
+    fun getBySource(source: String): List<Tool> {
+        return getAll()
+            .filterIsInstance<ToolWrapperEx>()
+            .filter { wrapper -> wrapper.source == source }
+            .map { it.tool }
+    }
+    
+    /**
+     * Get all AgentTool-sourced tools with metadata
+     */
+    fun getAgentTools(): List<Pair<Tool, Map<String, Any>>> {
+        return getAll()
+            .filterIsInstance<ToolWrapperEx>()
+            .filter { wrapper -> wrapper.source == "agent-tool" }
+            .map { wrapper ->
+                wrapper.tool to mapOf(
+                    "tags" to wrapper.tags,
+                    "metadata" to wrapper.metadata
+                )
+            }
+    }
 }
 
 /**
