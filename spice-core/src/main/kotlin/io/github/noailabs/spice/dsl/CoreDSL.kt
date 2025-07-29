@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.dsl
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.model.AgentTool
 
 /**
  * 🌶️ Spice Core DSL
@@ -584,6 +585,24 @@ class InlineTool(
     
     override fun toString(): String {
         return "InlineTool(name='$name', description='$description', parameters=${schema.parameters.keys})"
+    }
+    
+    /**
+     * Convert InlineTool to AgentTool
+     */
+    fun toAgentTool(
+        tags: List<String> = emptyList(),
+        metadata: Map<String, String> = emptyMap()
+    ): AgentTool {
+        return AgentTool(
+            name = name,
+            description = description,
+            parameters = schema.parameters,
+            tags = tags,
+            metadata = metadata,
+            implementationType = "inline-tool",
+            implementationDetails = mapOf("dsl" to "true")
+        ).withImplementation(executeFunction)
     }
 }
 
