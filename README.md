@@ -351,7 +351,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 </p>
 
 <p align="center">
-  <a href="https://github.com/no-ai-labs/spice/wiki/Getting-Started">Get Started</a> •
-  <a href="https://github.com/no-ai-labs/spice/wiki/Examples">View Examples</a> •
+  <a href="https://github.com/no-ai-labs/spice/wiki/getting-started.md">Get Started</a> •
+  <a href="https://github.com/no-ai-labs/spice/blob/main/spice-dsl-samples/README.md">View Examples</a> •
   <a href="https://github.com/no-ai-labs/spice/wiki">Read Docs</a>
 </p>
