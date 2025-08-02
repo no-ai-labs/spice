@@ -40,6 +40,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **MCP Protocol** - External tool integration via Model Context Protocol
 - **Spring Boot Starter** - Seamless Spring Boot integration
 - **JSON Schema Support** - Export tools as standard JSON Schema for GUI/API integration
+- **PSI (Program Structure Interface)** - Convert DSL to LLM-friendly tree structures
 
 ## 🚀 Quick Start
 
@@ -324,6 +325,7 @@ cd spice-framework
 - ✅ LLM Integrations (OpenAI, Anthropic)
 - ✅ Spring Boot Starter
 - ✅ JSON Serialization System
+- ✅ PSI (Program Structure Interface) - DSL to tree conversion
 - ✅ Swarm Intelligence (Multi-agent coordination with 5 strategies)
 - ✅ MCP Protocol Support (Model Context Protocol integration)
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)

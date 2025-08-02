@@ -553,6 +553,106 @@ val json = vectorConfig.toJson()
 // API key is automatically redacted: "apiKey": "[REDACTED]"
 ```
 
+## PSI (Program Structure Interface)
+
+PSI provides a tree-based representation of Spice DSL constructs, making them easier to analyze, transform, and persist:
+
+### Converting DSL to PSI
+
+```kotlin
+// Agent to PSI
+val agent = buildAgent {
+    id = "analyzer"
+    name = "Data Analyzer"
+    
+    tool("sentiment-analysis")
+    
+    vectorStore {
+        provider = "qdrant"
+        collection = "knowledge"
+    }
+}
+
+// Convert to PSI using builder
+val builder = CoreAgentBuilder().apply {
+    id = "analyzer" 
+    name = "Data Analyzer"
+    // ... configuration
+}
+val psi = SpicePsiBuilder.run { builder.toPsi() }
+
+// Explore the PSI tree
+val tools = psi.findByType(PsiTypes.TOOL)
+println("Agent has ${tools.size} tools")
+```
+
+### PSI Serialization for Storage
+
+```kotlin
+// Convert to JSON for mnemo storage
+val json = PsiSerializer.run { psi.toMnemoFormat() }
+mnemo.remember("agent-structure-${agent.id}", json)
+
+// Later, retrieve and analyze
+val saved = mnemo.recall("agent-structure-analyzer")
+val restoredPsi = PsiSerializer.fromMnemoFormat(saved)
+```
+
+### Visualization with PSI
+
+```kotlin
+// Generate Mermaid diagram
+val diagram = PsiSerializer.run { psi.toMermaid() }
+println(diagram)
+// Output:
+// graph TD
+//     root_Agent[Agent<br/>id=analyzer, name=Data Analyzer]
+//     root_Agent --> tools_Tools[Tools]
+//     tools_Tools --> tool1[Tool<br/>name=sentiment-analysis]
+
+// Generate GraphML for advanced visualization
+val graphml = PsiSerializer.run { psi.toGraphML() }
+```
+
+### LLM-Friendly Format
+
+```kotlin
+// Convert to LLM-optimized format
+val llmFormat = PsiSerializer.run { psi.toLLMFormat() }
+
+// Use with AI for analysis
+val prompt = """
+Analyze this agent structure and suggest optimizations:
+
+$llmFormat
+
+Consider tool redundancy and missing capabilities.
+"""
+
+val suggestions = llm.complete(prompt)
+```
+
+### Complete Application PSI
+
+```kotlin
+// Build PSI for entire application
+val appPsi = SpicePsiBuilder.buildCompletePsi {
+    agent(researchAgent)
+    agent(summaryAgent)
+    
+    flow(documentFlow)
+    
+    tool(searchTool)
+    tool(extractorTool)
+    
+    config("app.version", "1.0.0")
+}
+
+// Analyze application structure
+val allAgents = appPsi.findByType(PsiTypes.AGENT)
+val allFlows = appPsi.findByType(PsiTypes.FLOW)
+```
+
 ## Best Practices for Advanced Features
 
 1. **Monitor performance** when using swarms - they can be resource intensive
@@ -565,5 +665,7 @@ val json = vectorConfig.toJson()
 8. **Use connection pooling** for LLM integrations
 9. **Implement proper error boundaries** for experimental features
 10. **Document complex configurations** for future maintenance
+11. **Use PSI for agent structure analysis** and optimization
+12. **Store PSI representations** for version control and auditing
 
 ## Next: [Spring Boot Integration](spring-boot.md)
