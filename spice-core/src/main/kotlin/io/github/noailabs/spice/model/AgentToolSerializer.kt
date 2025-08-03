@@ -160,13 +160,101 @@ object AgentToolSerializer {
     }
     
     /**
-     * Convert YAML to JSON Schema
-     * Note: This is a placeholder. Use proper YAML parsing library
+     * Convert YAML to JSON Schema using simple regex parsing
+     * Note: This is a basic implementation. For production, use proper YAML library like kaml
      */
     private fun yamlToJsonSchema(yaml: String): JsonObject {
-        // For now, throw not implemented
-        // In production, use kaml or jackson-dataformat-yaml
-        throw NotImplementedError("YAML parsing requires additional dependency")
+        // Basic YAML to JSON Schema conversion
+        val lines = yaml.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
+        val jsonMap = mutableMapOf<String, Any?>()
+        
+        var currentKey = ""
+        var inParameters = false
+        val parameters = mutableMapOf<String, Map<String, Any?>>()
+        var currentParam: MutableMap<String, Any?>? = null
+        var currentParamName = ""
+        
+        for (line in lines) {
+            val trimmed = line.trim()
+            val indent = line.takeWhile { it == ' ' }.length
+            
+            when {
+                trimmed.endsWith(":") -> {
+                    val key = trimmed.dropLast(1)
+                    when (indent) {
+                        0 -> {
+                            currentKey = key
+                            if (key == "parameters") inParameters = true
+                        }
+                        2 -> {
+                            if (inParameters) {
+                                currentParamName = key
+                                currentParam = mutableMapOf()
+                            }
+                        }
+                    }
+                }
+                trimmed.contains(":") -> {
+                    val (key, value) = trimmed.split(":", limit = 2).map { it.trim() }
+                    val parsedValue = parseYamlValue(value)
+                    
+                    when (indent) {
+                        2 -> {
+                            if (!inParameters) {
+                                jsonMap[key] = parsedValue
+                            }
+                        }
+                        4 -> {
+                            if (inParameters && currentParam != null) {
+                                currentParam[key] = parsedValue
+                                if (key == "required" || key == "description" || key == "type") {
+                                    parameters[currentParamName] = currentParam.toMap()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Build JSON Schema
+        return buildJsonObject {
+            put("name", jsonMap["name"]?.toString() ?: "")
+            put("description", jsonMap["description"]?.toString() ?: "")
+            putJsonObject("input_schema") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    parameters.forEach { (name, props) ->
+                        putJsonObject(name) {
+                            put("type", props["type"]?.toString() ?: "string")
+                            put("description", props["description"]?.toString() ?: "")
+                        }
+                    }
+                }
+                putJsonArray("required") {
+                    parameters.filter { (_, props) -> 
+                        props["required"] == true 
+                    }.keys.forEach { add(it) }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Parse YAML value (simple types only)
+     */
+    private fun parseYamlValue(value: String): Any? {
+        val trimmed = value.trim()
+        return when {
+            trimmed == "true" -> true
+            trimmed == "false" -> false
+            trimmed == "null" || trimmed.isEmpty() -> null
+            trimmed.startsWith("\"") && trimmed.endsWith("\"") -> trimmed.drop(1).dropLast(1)
+            trimmed.startsWith("'") && trimmed.endsWith("'") -> trimmed.drop(1).dropLast(1)
+            trimmed.toIntOrNull() != null -> trimmed.toInt()
+            trimmed.toDoubleOrNull() != null -> trimmed.toDouble()
+            else -> trimmed
+        }
     }
     
     /**

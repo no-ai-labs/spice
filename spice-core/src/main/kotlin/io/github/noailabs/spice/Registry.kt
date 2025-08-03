@@ -121,24 +121,116 @@ object AgentRegistry : SearchableRegistry<Agent>("agents") {
     
     /**
      * Find agents by tag
-     * Note: This requires Agent implementation to have tags property
+     * Uses reflection to check for tags in agent properties or metadata
      */
     fun findByTag(tag: String): List<Agent> {
         return findBy { agent ->
-            // Check if agent has tags property (for now, return empty)
-            // TODO: Add tags support to Agent interface
-            false
+            // Try multiple approaches to find tags
+            when {
+                // Check if agent has 'tags' property via reflection
+                hasTagsProperty(agent, tag) -> true
+                
+                // Check if agent name or description contains the tag
+                agent.name.contains(tag, ignoreCase = true) -> true
+                agent.description.contains(tag, ignoreCase = true) -> true
+                
+                // Check metadata if available (e.g., through reflection)
+                hasMetadataWithTag(agent, tag) -> true
+                
+                else -> false
+            }
         }
     }
     
     /**
      * Find agents by provider  
-     * Note: This requires Agent implementation to have provider property
+     * Uses reflection and metadata to find provider information
      */
     fun findByProvider(provider: String): List<Agent> {
         return findBy { agent ->
-            // Check if agent has provider property (for now, return empty)
-            // TODO: Add provider support to Agent interface
+            when {
+                // Check if agent has 'provider' property via reflection
+                hasProviderProperty(agent, provider) -> true
+                
+                // Check metadata if available
+                hasMetadataWithProvider(agent, provider) -> true
+                
+                // Check if description mentions the provider
+                agent.description.contains(provider, ignoreCase = true) -> true
+                
+                else -> false
+            }
+        }
+    }
+    
+    /**
+     * Helper to check if agent has tags property containing the tag
+     */
+    private fun hasTagsProperty(agent: Agent, tag: String): Boolean {
+        return try {
+            val tagsProperty = agent::class.members.find { it.name == "tags" }
+            if (tagsProperty != null && tagsProperty is kotlin.reflect.KProperty<*>) {
+                when (val tags = tagsProperty.getter.call(agent)) {
+                    is List<*> -> tags.any { it.toString().equals(tag, ignoreCase = true) }
+                    is Set<*> -> tags.any { it.toString().equals(tag, ignoreCase = true) }
+                    is String -> tags.contains(tag, ignoreCase = true)
+                    else -> false
+                }
+            } else false
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Helper to check if agent has provider property matching the provider
+     */
+    private fun hasProviderProperty(agent: Agent, provider: String): Boolean {
+        return try {
+            val providerProperty = agent::class.members.find { it.name == "provider" }
+            if (providerProperty != null && providerProperty is kotlin.reflect.KProperty<*>) {
+                providerProperty.getter.call(agent)?.toString()?.equals(provider, ignoreCase = true) == true
+            } else false
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Helper to check if agent has metadata with tag
+     */
+    private fun hasMetadataWithTag(agent: Agent, tag: String): Boolean {
+        return try {
+            val metadataProperty = agent::class.members.find { it.name == "metadata" }
+            if (metadataProperty != null && metadataProperty is kotlin.reflect.KProperty<*>) {
+                val metadata = metadataProperty.getter.call(agent)
+                if (metadata is Map<*, *>) {
+                    val tags = metadata["tags"]
+                    when (tags) {
+                        is String -> tags.contains(tag, ignoreCase = true)
+                        is List<*> -> tags.any { it.toString().equals(tag, ignoreCase = true) }
+                        else -> false
+                    }
+                } else false
+            } else false
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Helper to check if agent has metadata with provider
+     */
+    private fun hasMetadataWithProvider(agent: Agent, provider: String): Boolean {
+        return try {
+            val metadataProperty = agent::class.members.find { it.name == "metadata" }
+            if (metadataProperty != null && metadataProperty is kotlin.reflect.KProperty<*>) {
+                val metadata = metadataProperty.getter.call(agent)
+                if (metadata is Map<*, *>) {
+                    metadata["provider"]?.toString()?.equals(provider, ignoreCase = true) == true
+                } else false
+            } else false
+        } catch (e: Exception) {
             false
         }
     }
