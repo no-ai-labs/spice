@@ -382,6 +382,22 @@ object SpiceSerializer {
         put("vocabulary", "[Complex Object - See Full Implementation]")
         put("behaviorModifiers", behaviorModifiers.toJsonObject())
     }
+    
+    /**
+     * Convert Comm to JSON
+     */
+    fun Comm.toJson(): JsonObject = buildJsonObject {
+        put("content", content)
+        put("from", from)
+        if (to != null) put("to", to)
+        if (data.isNotEmpty()) {
+            putJsonObject("data") {
+                data.forEach { (key, value) ->
+                    put(key, value)
+                }
+            }
+        }
+    }
 }
 
 /**

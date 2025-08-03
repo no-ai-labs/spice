@@ -151,4 +151,8 @@ object PsiTypes {
     const val PERSONA = "Persona"
     const val CONFIG = "Config"
     const val CONTEXT = "Context"
+    
+    // Flow types
+    const val STEP = "Step"
+    const val STEPS = "Steps"
 }
