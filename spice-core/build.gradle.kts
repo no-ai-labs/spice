@@ -32,6 +32,9 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation:2.3.7")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
     
+    // 🚀 Kafka Support (Optional)
+    compileOnly("org.apache.kafka:kafka-clients:3.7.0")
+    
     // 🧪 Testing
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
