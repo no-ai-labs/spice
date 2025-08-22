@@ -18,6 +18,11 @@ interface Agent : Identifiable {
     suspend fun processComm(comm: Comm): Comm
     
     /**
+     * Process with runtime context
+     */
+    suspend fun processComm(comm: Comm, runtime: AgentRuntime): Comm = processComm(comm)
+    
+    /**
      * Check if this Agent can handle the given comm
      */
     fun canHandle(comm: Comm): Boolean
@@ -33,6 +38,21 @@ interface Agent : Identifiable {
     fun isReady(): Boolean
     
     /**
+     * Get configuration
+     */
+    fun getConfig(): AgentConfig = AgentConfig()
+    
+    /**
+     * Initialize agent with runtime
+     */
+    suspend fun initialize(runtime: AgentRuntime) {}
+    
+    /**
+     * Cleanup resources
+     */
+    suspend fun cleanup() {}
+    
+    /**
      * Get VectorStore by name (if configured)
      */
     fun getVectorStore(name: String): VectorStore? = null
@@ -41,6 +61,11 @@ interface Agent : Identifiable {
      * Get all VectorStores configured for this agent
      */
     fun getVectorStores(): Map<String, VectorStore> = emptyMap()
+    
+    /**
+     * Get agent metrics
+     */
+    fun getMetrics(): AgentMetrics = AgentMetrics()
 }
 
 /**
@@ -50,11 +75,14 @@ abstract class BaseAgent(
     override val id: String,
     override val name: String,
     override val description: String,
-    override val capabilities: List<String> = emptyList()
+    override val capabilities: List<String> = emptyList(),
+    private val config: AgentConfig = AgentConfig()
 ) : Agent {
     
     private val _tools = mutableListOf<Tool>()
     private val _vectorStores = mutableMapOf<String, VectorStore>()
+    private var runtime: AgentRuntime? = null
+    private val metrics = AgentMetrics()
     
     fun addTool(tool: Tool) {
         _tools.add(tool)
@@ -69,6 +97,34 @@ abstract class BaseAgent(
     override fun getVectorStore(name: String): VectorStore? = _vectorStores[name]
     
     override fun getVectorStores(): Map<String, VectorStore> = _vectorStores.toMap()
+    
+    override fun getConfig(): AgentConfig = config
+    
+    override fun getMetrics(): AgentMetrics = metrics
+    
+    override suspend fun initialize(runtime: AgentRuntime) {
+        this.runtime = runtime
+        runtime.log(LogLevel.INFO, "Agent initialized: $id")
+    }
+    
+    override suspend fun processComm(comm: Comm, runtime: AgentRuntime): Comm {
+        this.runtime = runtime
+        metrics.recordRequest()
+        
+        val startTime = System.currentTimeMillis()
+        return try {
+            val response = processComm(comm)
+            metrics.recordSuccess(System.currentTimeMillis() - startTime)
+            response
+        } catch (e: Exception) {
+            metrics.recordError()
+            runtime.log(LogLevel.ERROR, "Error processing comm", mapOf(
+                "error" to (e.message ?: "Unknown error"),
+                "commId" to comm.id
+            ))
+            comm.error("Processing failed: ${e.message}", id)
+        }
+    }
     
     override fun canHandle(comm: Comm): Boolean {
         return when (comm.type) {
@@ -88,10 +144,113 @@ abstract class BaseAgent(
         val tool = _tools.find { tool -> tool.name == toolName }
             ?: return ToolResult.error("Tool not found: $toolName")
         
-        return if (tool.canExecute(parameters)) {
-            tool.execute(parameters)
-        } else {
-            ToolResult.error("Tool execution conditions not met: $toolName")
+        metrics.recordToolCall(toolName)
+        
+        return try {
+            if (tool.canExecute(parameters)) {
+                val result = tool.execute(parameters)
+                if (result.success) metrics.recordToolSuccess(toolName)
+                else metrics.recordToolError(toolName)
+                result
+            } else {
+                metrics.recordToolError(toolName)
+                ToolResult.error("Tool execution conditions not met: $toolName")
+            }
+        } catch (e: Exception) {
+            metrics.recordToolError(toolName)
+            ToolResult.error("Tool execution failed: ${e.message}")
         }
     }
-} 
+    
+    /**
+     * Log a message through runtime
+     */
+    protected fun log(level: LogLevel, message: String, data: Map<String, Any> = emptyMap()) {
+        runtime?.log(level, "[$id] $message", data)
+    }
+    
+    /**
+     * Call another agent
+     */
+    protected suspend fun callAgent(agentId: String, comm: Comm): Comm? {
+        return runtime?.callAgent(agentId, comm)
+    }
+    
+    /**
+     * Publish an event
+     */
+    protected suspend fun publishEvent(type: String, data: Map<String, Any> = emptyMap()) {
+        runtime?.publishEvent(AgentEvent(type, id, data))
+    }
+    
+    /**
+     * Save state
+     */
+    protected suspend fun saveState(key: String, value: Any) {
+        runtime?.saveState("$id:$key", value)
+    }
+    
+    /**
+     * Get state
+     */
+    protected suspend fun getState(key: String): Any? {
+        return runtime?.getState("$id:$key")
+    }
+}
+
+/**
+ * 📊 Agent Metrics
+ */
+data class AgentMetrics(
+    var totalRequests: Long = 0,
+    var successfulRequests: Long = 0,
+    var failedRequests: Long = 0,
+    var totalResponseTimeMs: Long = 0,
+    val toolMetrics: MutableMap<String, ToolMetrics> = mutableMapOf()
+) {
+    fun recordRequest() {
+        totalRequests++
+    }
+    
+    fun recordSuccess(responseTimeMs: Long) {
+        successfulRequests++
+        totalResponseTimeMs += responseTimeMs
+    }
+    
+    fun recordError() {
+        failedRequests++
+    }
+    
+    fun recordToolCall(toolName: String) {
+        toolMetrics.getOrPut(toolName) { ToolMetrics() }.totalCalls++
+    }
+    
+    fun recordToolSuccess(toolName: String) {
+        toolMetrics.getOrPut(toolName) { ToolMetrics() }.successfulCalls++
+    }
+    
+    fun recordToolError(toolName: String) {
+        toolMetrics.getOrPut(toolName) { ToolMetrics() }.failedCalls++
+    }
+    
+    fun getAverageResponseTimeMs(): Double {
+        return if (successfulRequests > 0) {
+            totalResponseTimeMs.toDouble() / successfulRequests
+        } else 0.0
+    }
+    
+    fun getSuccessRate(): Double {
+        return if (totalRequests > 0) {
+            successfulRequests.toDouble() / totalRequests
+        } else 0.0
+    }
+}
+
+/**
+ * Tool-specific metrics
+ */
+data class ToolMetrics(
+    var totalCalls: Long = 0,
+    var successfulCalls: Long = 0,
+    var failedCalls: Long = 0
+) 

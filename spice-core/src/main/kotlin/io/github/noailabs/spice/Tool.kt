@@ -19,9 +19,51 @@ interface Tool {
     suspend fun execute(parameters: Map<String, Any>): ToolResult
     
     /**
+     * Tool execution with context
+     */
+    suspend fun execute(parameters: Map<String, Any>, context: ToolContext): ToolResult = 
+        execute(parameters)
+    
+    /**
      * Check if tool can process specific parameters
      */
     fun canExecute(parameters: Map<String, Any>): Boolean = true
+    
+    /**
+     * Validate parameters before execution
+     */
+    fun validateParameters(parameters: Map<String, Any>): ValidationResult {
+        val errors = mutableListOf<String>()
+        
+        schema.parameters.forEach { (name, paramSchema) ->
+            if (paramSchema.required && !parameters.containsKey(name)) {
+                errors.add("Missing required parameter: $name")
+            }
+            
+            parameters[name]?.let { value ->
+                if (!isValidType(value, paramSchema.type)) {
+                    errors.add("Parameter '$name' has invalid type. Expected: ${paramSchema.type}")
+                }
+            }
+        }
+        
+        return if (errors.isEmpty()) {
+            ValidationResult(valid = true, errors = emptyList())
+        } else {
+            ValidationResult(valid = false, errors = errors)
+        }
+    }
+    
+    private fun isValidType(value: Any, expectedType: String): Boolean {
+        return when (expectedType.lowercase()) {
+            "string" -> value is String
+            "number" -> value is Number
+            "boolean" -> value is Boolean
+            "array" -> value is List<*> || value is Array<*>
+            "object" -> value is Map<*, *>
+            else -> true
+        }
+    }
 }
 
 /**
@@ -74,6 +116,18 @@ abstract class BaseTool : Tool {
         return true
     }
 }
+
+/**
+ * Tool execution context
+ */
+data class ToolContext(
+    val agentId: String,
+    val userId: String? = null,
+    val tenantId: String? = null,
+    val correlationId: String? = null,
+    val metadata: Map<String, Any> = emptyMap()
+)
+
 
 /**
  * Web search tool
