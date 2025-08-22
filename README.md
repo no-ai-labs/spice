@@ -42,6 +42,13 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **JSON Schema Support** - Export tools as standard JSON Schema for GUI/API integration
 - **PSI (Program Structure Interface)** - Convert DSL to LLM-friendly tree structures
 
+### Enterprise Features (New! 🎉)
+- **Multi-Tenant Support** - Full tenant isolation with ThreadLocal context propagation
+- **Dynamic Platform Management** - Register and manage platforms at runtime
+- **Policy Versioning** - Version control for policies with rollback capability
+- **Event-Driven Architecture** - Kafka integration for distributed systems
+- **Advanced Monitoring** - Built-in metrics and performance tracking
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -277,6 +284,139 @@ val metadata = mapOf(
 val jsonMetadata = SpiceSerializer.toJsonMetadata(metadata)
 ```
 
+### Multi-Tenant Support
+
+Spice now includes enterprise-grade multi-tenant support:
+
+```kotlin
+import io.github.noailabs.spice.tenant.*
+
+// Set tenant context
+TenantContext.set("tenant-123", mapOf("tier" to "premium"))
+
+// Use tenant-aware runtime
+val runtime = TenantAwareAgentRuntime(
+    context = agentContext { 
+        this["locale"] = "en-US"
+    },
+    tenantId = "tenant-123"
+)
+
+// Create tenant-aware agent
+class MyTenantAgent : TenantAwareAgent(
+    id = "my-agent",
+    name = "Multi-Tenant Agent"
+) {
+    override suspend fun processCommInternal(comm: Comm): Comm {
+        val tenantId = requireTenantId() // Automatically gets current tenant
+        // Process with tenant isolation
+        return comm.reply("Processing for tenant: $tenantId", id)
+    }
+}
+
+// Tenant context propagates across coroutines
+coroutineScope {
+    launch(coroutineContext.withTenant("tenant-456")) {
+        // This coroutine sees tenant-456
+        val agent = agentRegistry.get("my-agent")
+        agent.processComm(comm) // Processes in tenant-456 context
+    }
+}
+```
+
+### Platform Management
+
+Dynamic platform registration and management:
+
+```kotlin
+import io.github.noailabs.spice.platform.*
+
+// Create platform manager
+val platformManager = DefaultPlatformManager()
+
+// Register a platform
+platformManager.registerPlatform(
+    PlatformInfo(
+        id = "shopify",
+        name = "Shopify",
+        type = PlatformType.MARKETPLACE,
+        capabilities = setOf("orders", "inventory", "customers"),
+        metadata = mapOf("apiVersion" to "2024-01")
+    )
+)
+
+// Tenant-specific platform configuration
+val tenantPlatformManager = DefaultTenantPlatformManager(platformManager)
+
+tenantPlatformManager.registerPlatformForTenant(
+    tenantId = "tenant-123",
+    platformId = "shopify",
+    config = PlatformConfig(
+        platformId = "shopify",
+        credentials = mapOf("apiKey" to "xxx", "apiSecret" to "yyy"),
+        endpoints = mapOf("base" to "https://mystore.myshopify.com"),
+        rateLimits = RateLimitConfig(
+            requestsPerMinute = 40,
+            burstSize = 10
+        )
+    )
+)
+
+// Check platform health
+val health = platformManager.checkPlatformHealth("shopify")
+println("Platform status: ${health.status}")
+```
+
+### Policy Versioning
+
+Version control for configuration and policies:
+
+```kotlin
+import io.github.noailabs.spice.policy.*
+import kotlinx.serialization.json.*
+
+// Create policy manager
+val policyManager = DefaultPolicyManager()
+
+// Save a policy with version tracking
+val v1 = policyManager.savePolicy(
+    policyId = "refund-policy",
+    content = buildJsonObject {
+        put("maxRefundDays", 30)
+        put("autoApprove", true)
+        put("maxAmount", 1000)
+    },
+    createdBy = "admin",
+    comment = "Initial refund policy"
+)
+
+// Update policy (creates v2)
+val v2 = policyManager.savePolicy(
+    policyId = "refund-policy",
+    content = buildJsonObject {
+        put("maxRefundDays", 60)  // Changed
+        put("autoApprove", false) // Changed
+        put("maxAmount", 1000)
+    },
+    createdBy = "admin",
+    comment = "Extended refund period, manual approval required"
+)
+
+// View history
+val history = policyManager.getPolicyHistory("refund-policy")
+history.forEach { entry ->
+    println("v${entry.version}: ${entry.comment} by ${entry.createdBy}")
+}
+
+// Rollback to v1
+val v3 = policyManager.rollbackPolicy(
+    policyId = "refund-policy",
+    targetVersion = 1,
+    rolledBackBy = "admin",
+    comment = "Reverting to original policy"
+)
+```
+
 ## 🌱 Spring Boot Integration
 
 ```kotlin
@@ -328,7 +468,12 @@ cd spice-framework
 - ✅ PSI (Program Structure Interface) - DSL to tree conversion
 - ✅ Swarm Intelligence (Multi-agent coordination with 5 strategies)
 - ✅ MCP Protocol Support (Model Context Protocol integration)
+- ✅ Multi-Tenant Support with ThreadLocal context propagation
+- ✅ Dynamic Platform Management System
+- ✅ Policy Versioning with rollback capability
+- ✅ Tenant-aware storage abstractions
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
+- 🚧 Distributed Event System (Kafka integration in progress)
 
 ## 📄 License
 
