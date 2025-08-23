@@ -1,18 +1,7 @@
 package io.github.noailabs.spice.eventsourcing
 
-import io.github.noailabs.spice.KafkaCommHub
-import io.github.noailabs.spice.Comm
-import io.github.noailabs.spice.CommType
-import io.github.noailabs.spice.CommRole
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import org.apache.kafka.clients.producer.ProducerRecord
-import org.apache.kafka.common.header.internals.RecordHeader
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import javax.sql.DataSource
@@ -29,22 +18,18 @@ import kotlinx.serialization.encodeToString
  * Integrates with Spice's KafkaCommHub for messaging
  */
 class KafkaEventStore(
-    private val kafkaCommHub: KafkaCommHub,
     private val dataSource: DataSource,
+    private val eventPublisher: EventPublisher,
     private val config: EventStoreConfig = EventStoreConfig(),
     private val serializer: EventSerializer = JsonEventSerializer()
 ) : EventStore {
     
     private val logger = LoggerFactory.getLogger(KafkaEventStore::class.java)
     private val streamVersionCache = ConcurrentHashMap<String, Long>()
-    private val eventSubscribers = ConcurrentHashMap<String, Channel<Event>>()
     
     init {
         // Initialize database schema
         initializeSchema()
-        
-        // Subscribe to event topics
-        setupEventSubscriptions()
     }
     
     override suspend fun append(
@@ -97,10 +82,8 @@ class KafkaEventStore(
                 conn.commit()
                 streamVersionCache[streamId] = version
                 
-                // Publish events to Kafka
-                publishedEvents.forEach { event ->
-                    publishEventToKafka(event)
-                }
+                // Publish events via EventPublisher
+                eventPublisher.publishBatch(publishedEvents)
                 
                 version
             } catch (e: Exception) {
@@ -154,45 +137,18 @@ class KafkaEventStore(
         streamId: String,
         fromVersion: Long
     ): Flow<Event> = flow {
-        // Create a channel for this subscription
-        val channel = Channel<Event>(Channel.UNLIMITED)
-        val subscriptionId = "${streamId}-${System.currentTimeMillis()}"
-        eventSubscribers[subscriptionId] = channel
+        // First, emit all existing events
+        val existingEvents = readStream(streamId, fromVersion)
+        existingEvents.forEach { emit(it) }
         
-        try {
-            // First, emit all existing events
-            val existingEvents = readStream(streamId, fromVersion)
-            existingEvents.forEach { emit(it) }
-            
-            // Then listen for new events
-            for (event in channel) {
-                if (event.streamId == streamId && event.version >= fromVersion) {
-                    emit(event)
-                }
-            }
-        } finally {
-            eventSubscribers.remove(subscriptionId)
-            channel.close()
+        // Then subscribe to new events via publisher
+        eventPublisher.subscribe(streamId, fromVersion).collect { event ->
+            emit(event)
         }
     }
     
-    override suspend fun subscribeToTypes(vararg eventTypes: String): Flow<Event> = flow {
-        // Create a channel for this subscription
-        val channel = Channel<Event>(Channel.UNLIMITED)
-        val subscriptionId = "types-${System.currentTimeMillis()}"
-        eventSubscribers[subscriptionId] = channel
-        
-        try {
-            for (event in channel) {
-                if (event.eventType in eventTypes) {
-                    emit(event)
-                }
-            }
-        } finally {
-            eventSubscribers.remove(subscriptionId)
-            channel.close()
-        }
-    }
+    override suspend fun subscribeToTypes(vararg eventTypes: String): Flow<Event> = 
+        eventPublisher.subscribeToTypes(*eventTypes)
     
     override suspend fun getStreamVersion(streamId: String): Long {
         return streamVersionCache[streamId] ?: withContext(Dispatchers.IO) {
@@ -323,92 +279,11 @@ class KafkaEventStore(
         }
     }
     
-    private fun setupEventSubscriptions() {
-        // Subscribe to a special agent that listens for event messages
-        kafkaCommHub.subscribeAgent("event-store") { comm ->
-            if (comm.type == CommType.DATA && comm.data["is_event"] == "true") {
-                GlobalScope.launch {
-                    try {
-                        val event = deserializeEventFromComm(comm)
-                        // Distribute to all subscribers
-                        eventSubscribers.values.forEach { channel ->
-                            channel.send(event)
-                        }
-                    } catch (e: Exception) {
-                        logger.error("Failed to process event from Kafka", e)
-                    }
-                }
-            }
-        }
-    }
-    
-    private suspend fun publishEventToKafka(event: Event) {
-        val comm = Comm(
-            content = "Event: ${event.eventType} for stream ${event.streamId}",
-            from = "event-store",
-            type = CommType.DATA,
-            role = CommRole.SYSTEM,
-            data = mapOf(
-                "is_event" to "true",
-                "event_id" to event.eventId,
-                "event_type" to event.eventType,
-                "stream_id" to event.streamId,
-                "version" to event.version.toString(),
-                "timestamp" to event.timestamp.toString(),
-                "data" to event.toProto().encodeToString()
-            )
-        )
-        
-        kafkaCommHub.send(comm)
-        
-        // Also broadcast to a stream-specific topic
-        val streamComm = comm.copy(
-            to = "stream-${event.streamId}"
-        )
-        kafkaCommHub.send(streamComm)
-    }
-    
-    private fun deserializeEvent(
-        eventId: String,
-        eventType: String,
-        streamId: String,
-        version: Long,
-        timestamp: Instant,
-        data: ByteArray,
-        metadata: EventMetadata
-    ): Event {
-        // For now, return a generic event implementation
-        // In real implementation, you would deserialize based on eventType
-        return GenericEvent(
-            eventId = eventId,
-            eventType = eventType,
-            streamId = streamId,
-            version = version,
-            timestamp = timestamp,
-            metadata = metadata,
-            data = data
-        )
-    }
-    
-    private fun deserializeEventFromComm(comm: Comm): Event {
-        return GenericEvent(
-            eventId = comm.data["event_id"] as String,
-            eventType = comm.data["event_type"] as String,
-            streamId = comm.data["stream_id"] as String,
-            version = (comm.data["version"] as String).toLong(),
-            timestamp = Instant.parse(comm.data["timestamp"] as String),
-            metadata = EventMetadata(
-                userId = comm.from,
-                correlationId = comm.id
-            ),
-            data = (comm.data["data"] as String).toByteArray()
-        )
-    }
-    
-    fun close() {
-        kafkaCommHub.unsubscribeAgent("event-store")
-        eventSubscribers.values.forEach { it.close() }
-        eventSubscribers.clear()
+    /**
+     * Close the event store and release resources
+     */
+    suspend fun close() {
+        eventPublisher.close()
     }
 }
 
@@ -460,10 +335,3 @@ data class GenericEvent(
     override fun hashCode(): Int = eventId.hashCode()
 }
 
-// Extension function to encode ByteArray to String
-private fun ByteArray.encodeToString(): String = 
-    java.util.Base64.getEncoder().encodeToString(this)
-
-// Extension function to decode String to ByteArray
-private fun String.toByteArray(): ByteArray = 
-    java.util.Base64.getDecoder().decode(this)

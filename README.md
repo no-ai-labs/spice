@@ -428,13 +428,22 @@ import io.github.noailabs.spice.eventsourcing.*
 import javax.sql.DataSource
 
 // Create event store with Kafka and PostgreSQL
-val eventStore = KafkaEventStore(
+val eventStore = EventStoreFactory.kafkaWithPostgres(
     kafkaCommHub = kafkaCommHub,
     dataSource = dataSource,
     config = EventStoreConfig(
         topicPrefix = "events",
         snapshotFrequency = 100
     )
+)
+
+// Or use in-memory for testing
+val testEventStore = EventStoreFactory.inMemory(dataSource)
+
+// Or use custom event publisher (e.g., RabbitMQ)
+val customEventStore = EventStoreFactory.withCustomPublisher(
+    dataSource = dataSource,
+    eventPublisher = MyRabbitMQEventPublisher()
 )
 
 // Define domain events
