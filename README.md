@@ -46,6 +46,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **Multi-Tenant Support** - Full tenant isolation with ThreadLocal context propagation
 - **Dynamic Platform Management** - Register and manage platforms at runtime
 - **Policy Versioning** - Version control for policies with rollback capability
+- **Event Sourcing** - Complete event sourcing module with Kafka integration
 - **Event-Driven Architecture** - Kafka integration for distributed systems
 - **Advanced Monitoring** - Built-in metrics and performance tracking
 
@@ -79,6 +80,7 @@ dependencies {
     
     // Optional modules
     implementation("com.github.no-ai-labs.spice-framework:spice-springboot:Tag")
+    implementation("com.github.no-ai-labs.spice-framework:spice-eventsourcing:Tag")
 }
 ```
 
@@ -417,6 +419,137 @@ val v3 = policyManager.rollbackPolicy(
 )
 ```
 
+### Event Sourcing
+
+Spice now includes a complete event sourcing module with Kafka integration:
+
+```kotlin
+import io.github.noailabs.spice.eventsourcing.*
+import javax.sql.DataSource
+
+// Create event store with Kafka and PostgreSQL
+val eventStore = EventStoreFactory.kafkaWithPostgres(
+    kafkaCommHub = kafkaCommHub,
+    dataSource = dataSource,
+    config = EventStoreConfig(
+        topicPrefix = "events",
+        snapshotFrequency = 100
+    )
+)
+
+// Or use in-memory for testing
+val testEventStore = EventStoreFactory.inMemory(dataSource)
+
+// Or use custom event publisher (e.g., RabbitMQ)
+val customEventStore = EventStoreFactory.withCustomPublisher(
+    dataSource = dataSource,
+    eventPublisher = MyRabbitMQEventPublisher()
+)
+
+// Define domain events
+class OrderCreatedEvent(
+    orderId: String,
+    val customerId: String,
+    val items: List<OrderItem>
+) : EntityCreatedEvent(
+    aggregateId = orderId,
+    aggregateType = "Order"
+)
+
+// Create event-sourced aggregate
+class OrderAggregate(
+    override val aggregateId: String
+) : Aggregate() {
+    
+    override val aggregateType = "Order"
+    
+    // State
+    var customerId: String? = null
+    var items: MutableList<OrderItem> = mutableListOf()
+    var status: OrderStatus = OrderStatus.DRAFT
+    
+    // Business operations
+    suspend fun create(customerId: String, items: List<OrderItem>) {
+        raiseEvent(OrderCreatedEvent(aggregateId, customerId, items))
+    }
+    
+    // Apply events to update state
+    override fun apply(event: DomainEvent) {
+        when (event) {
+            is OrderCreatedEvent -> {
+                this.customerId = event.customerId
+                this.items.addAll(event.items)
+                this.status = OrderStatus.CREATED
+            }
+        }
+    }
+}
+
+// Use repository for loading/saving
+val repository = AggregateRepository(eventStore)
+
+// Create and save aggregate
+val order = OrderAggregate("order-123")
+order.create("customer-456", items)
+repository.save(order)
+
+// Load aggregate from events
+val loadedOrder = repository.load("order-123") { OrderAggregate(it) }
+```
+
+### Saga Pattern Support
+
+Implement distributed transactions with compensating actions:
+
+```kotlin
+import io.github.noailabs.spice.eventsourcing.*
+
+// Define a saga for order fulfillment
+class OrderFulfillmentSaga(
+    override val sagaId: String,
+    private val orderId: String
+) : Saga() {
+    
+    override val sagaType = "OrderFulfillment"
+    
+    override suspend fun execute(context: SagaContext) {
+        // Step 1: Reserve inventory
+        executeStep(ReserveInventoryStep(orderId), context)
+        
+        // Step 2: Process payment
+        executeStep(ProcessPaymentStep(orderId), context)
+        
+        // Step 3: Create shipment
+        executeStep(CreateShipmentStep(orderId), context)
+        
+        // Step 4: Send confirmation
+        executeStep(SendConfirmationStep(orderId), context)
+    }
+}
+
+// Define saga steps with compensation logic
+class ProcessPaymentStep(private val orderId: String) : SagaStep {
+    override val name = "ProcessPayment"
+    
+    override suspend fun execute(context: SagaContext) {
+        // Process payment
+        val paymentId = paymentService.charge(orderId)
+        context.set("paymentId", paymentId)
+    }
+    
+    override suspend fun compensate(context: SagaContext) {
+        // Refund if saga fails
+        val paymentId = context.get<String>("paymentId")
+        paymentService.refund(paymentId)
+    }
+}
+
+// Execute saga
+val sagaManager = SagaManager(eventStore, InMemorySagaStore())
+val saga = OrderFulfillmentSaga("saga-123", "order-123")
+sagaManager.startSaga(saga, SagaContext())
+```
+
 ## 🌱 Spring Boot Integration
 
 ```kotlin
@@ -472,8 +605,9 @@ cd spice-framework
 - ✅ Dynamic Platform Management System
 - ✅ Policy Versioning with rollback capability
 - ✅ Tenant-aware storage abstractions
+- ✅ Event Sourcing Module with Kafka and PostgreSQL
+- ✅ Saga Pattern for distributed transactions
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
-- 🚧 Distributed Event System (Kafka integration in progress)
 
 ## 📄 License
 
