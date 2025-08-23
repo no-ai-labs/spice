@@ -164,7 +164,9 @@ class AggregateRepository(
 }
 
 /**
- * Example: Order aggregate using DomainEvents
+ * Example: Order aggregate using DomainEvents (Basic version without Memento)
+ * 
+ * For Memento-enabled version, see OrderAggregateWithMemento
  */
 class OrderAggregate(
     override val aggregateId: String
