@@ -497,6 +497,89 @@ repository.save(order)
 val loadedOrder = repository.load("order-123") { OrderAggregate(it) }
 ```
 
+### Memento Pattern for Snapshots
+
+Efficiently manage aggregate snapshots with the Memento pattern:
+
+```kotlin
+import io.github.noailabs.spice.eventsourcing.*
+
+// Define a memento for your aggregate
+data class CartMemento(
+    override val aggregateId: String,
+    override val version: Long,
+    override val timestamp: Instant,
+    val customerId: String,
+    val items: List<CartItem>,
+    val totalAmount: Money,
+    val appliedCoupons: List<String>
+) : AggregateMemento, Serializable {
+    
+    override val aggregateType = "ShoppingCart"
+    
+    override fun restoreState(aggregate: Aggregate) {
+        require(aggregate is ShoppingCartAggregate)
+        aggregate.restoreFromMemento(this)
+    }
+}
+
+// Create aggregate with memento support
+class ShoppingCartAggregate(
+    override val aggregateId: String
+) : MementoAggregate() {
+    
+    override val aggregateType = "ShoppingCart"
+    
+    // State
+    private var customerId: String? = null
+    private val items = mutableListOf<CartItem>()
+    private var totalAmount = Money(0, "USD")
+    private val appliedCoupons = mutableListOf<String>()
+    
+    // Create memento
+    override fun doCreateMemento(): AggregateMemento {
+        return CartMemento(
+            aggregateId = aggregateId,
+            version = version,
+            timestamp = Instant.now(),
+            customerId = customerId ?: "",
+            items = items.toList(),
+            totalAmount = totalAmount,
+            appliedCoupons = appliedCoupons.toList()
+        )
+    }
+    
+    // Restore from memento
+    override fun doRestoreFromMemento(memento: AggregateMemento) {
+        require(memento is CartMemento)
+        this.customerId = memento.customerId
+        this.items.clear()
+        this.items.addAll(memento.items)
+        this.totalAmount = memento.totalAmount
+        this.appliedCoupons.clear()
+        this.appliedCoupons.addAll(memento.appliedCoupons)
+    }
+    
+    // Event handling...
+    override fun apply(event: DomainEvent) {
+        // Apply events to update state
+    }
+}
+
+// Use memento-aware repository
+val repository = MementoAggregateRepository(
+    eventStore = eventStore,
+    snapshotStore = MementoSnapshotStoreFactory.inMemory(),
+    snapshotFrequency = 50  // Create snapshot every 50 events
+)
+
+// Load aggregate (uses snapshot if available)
+val cart = repository.load("cart-123") { ShoppingCartAggregate(it) }
+
+// Save aggregate (creates snapshot automatically if needed)
+repository.save(cart)
+```
+
 ### Saga Pattern Support
 
 Implement distributed transactions with compensating actions:
