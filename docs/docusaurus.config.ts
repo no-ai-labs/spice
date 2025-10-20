@@ -25,7 +25,7 @@ const config: Config = {
   organizationName: 'no-ai-labs', // Usually your GitHub org/user name.
   projectName: 'spice', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
@@ -109,15 +109,15 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              to: '/docs/getting-started',
+              to: '/docs/getting-started/installation',
             },
             {
               label: 'Core Concepts',
-              to: '/docs/core-concepts',
+              to: '/docs/core-concepts/agent',
             },
             {
               label: 'API Reference',
-              to: '/docs/api',
+              to: '/docs/api/agent',
             },
           ],
         },

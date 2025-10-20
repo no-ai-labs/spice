@@ -19,7 +19,7 @@ interface Agent : Identifiable {
     val description: String
     val capabilities: List<String>
 
-    suspend fun processComm(comm: Comm): Comm
+    suspend fun processComm(comm: Comm): SpiceResult<Comm>
     fun canHandle(comm: Comm): Boolean
     fun getTools(): List<Tool>
     fun isReady(): Boolean
@@ -37,8 +37,10 @@ val agent = buildAgent {
     description = "Does amazing things"
 
     handle { comm ->
-        // Process communication
-        comm.reply("Processed!", id)
+        // Process communication - returns SpiceResult<Comm>
+        SpiceResult.success(
+            comm.reply("Processed!", id)
+        )
     }
 }
 ```
@@ -76,9 +78,11 @@ class CustomAgent(
     name: String
 ) : BaseAgent(id, name, "Custom agent") {
 
-    override suspend fun processComm(comm: Comm): Comm {
-        // Custom processing logic
-        return comm.reply("Custom response", id)
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // Custom processing logic - returns SpiceResult
+        return SpiceResult.success(
+            comm.reply("Custom response", id)
+        )
     }
 }
 ```

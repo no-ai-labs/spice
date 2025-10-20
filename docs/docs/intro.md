@@ -57,15 +57,20 @@ fun main() = runBlocking {
 
         // Define message handling
         handle { comm ->
-            comm.reply("How can I help you today?", id)
+            SpiceResult.success(
+                comm.reply("How can I help you today?", id)
+            )
         }
     }
 
     // Use the agent
-    val response = assistant.processComm(
+    val result = assistant.processComm(
         Comm(content = "Hello!", from = "user")
     )
-    println(response.content)
+    result.fold(
+        onSuccess = { response -> println(response.content) },
+        onFailure = { error -> println("Error: ${error.message}") }
+    )
 }
 ```
 
