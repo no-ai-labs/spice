@@ -3,6 +3,8 @@ package io.github.noailabs.spice.agents
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.config.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 import io.ktor.client.*
@@ -129,23 +131,23 @@ fun mockClaudeAgent(
         handle { comm ->
             // Simulate API delay
             delay(100)
-            
+
             val response = when {
-                comm.content.contains("hello", ignoreCase = true) -> 
+                comm.content.contains("hello", ignoreCase = true) ->
                     "Hello! I'm Claude, how can I help you today?"
-                comm.content.contains("code", ignoreCase = true) -> 
+                comm.content.contains("code", ignoreCase = true) ->
                     "I'd be happy to help you with coding! What programming task are you working on?"
-                comm.content.contains("analysis", ignoreCase = true) -> 
+                comm.content.contains("analysis", ignoreCase = true) ->
                     "I can analyze that for you. Let me think through this systematically..."
-                personality == "concise" -> 
+                personality == "concise" ->
                     "Got it. ${comm.content.take(20)}... - Here's my response."
-                personality == "verbose" -> 
+                personality == "verbose" ->
                     "Thank you for your question about '${comm.content}'. I've considered this carefully and here's my detailed response..."
-                else -> 
+                else ->
                     "I understand you're asking about: ${comm.content}. Let me help you with that."
             }
-            
-            Comm(
+
+            SpiceResult.success(Comm(
                 content = response,
                 from = id,
                 to = comm.from,
@@ -154,7 +156,7 @@ fun mockClaudeAgent(
                     "mock" to "true",
                     "timestamp" to System.currentTimeMillis().toString()
                 )
-            )
+            ))
         }
     }
 }

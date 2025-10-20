@@ -3,6 +3,8 @@ package io.github.noailabs.spice.agents
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.config.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 import io.ktor.client.*
@@ -85,7 +87,7 @@ fun gptAgent(
             this.id = agent.id
             name = agent.name
             description = agent.description
-            
+
             handle { comm ->
                 println("[GPT] Processing message: ${comm.content}")
                 agent.processComm(comm)
@@ -116,23 +118,23 @@ fun mockGPTAgent(
         handle { comm ->
             // Simulate API delay
             delay(150)
-            
+
             val response = when {
-                comm.content.contains("hello", ignoreCase = true) -> 
+                comm.content.contains("hello", ignoreCase = true) ->
                     "Hello! How can I assist you today?"
-                comm.content.contains("explain", ignoreCase = true) -> 
+                comm.content.contains("explain", ignoreCase = true) ->
                     "Let me explain that for you. ${comm.content.substringAfter("explain").trim()} involves..."
-                comm.content.contains("code", ignoreCase = true) -> 
+                comm.content.contains("code", ignoreCase = true) ->
                     "Here's a solution for your coding request: ```kotlin\n// Your code here\n```"
-                personality == "technical" -> 
+                personality == "technical" ->
                     "Technical analysis: ${comm.content}. Implementation details follow..."
-                personality == "casual" -> 
+                personality == "casual" ->
                     "Hey! So about ${comm.content} - here's what I think..."
-                else -> 
+                else ->
                     "I understand you're asking about: ${comm.content}. Here's my response..."
             }
-            
-            Comm(
+
+            SpiceResult.success(Comm(
                 content = response,
                 from = id,
                 to = comm.from,
@@ -141,7 +143,7 @@ fun mockGPTAgent(
                     "mock" to "true",
                     "timestamp" to System.currentTimeMillis().toString()
                 )
-            )
+            ))
         }
     }
 }

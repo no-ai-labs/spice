@@ -4,6 +4,7 @@ import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.ToolRegistry
 import io.github.noailabs.spice.Comm
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.*
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -78,7 +79,10 @@ class ToolDSL(
                 "[Error] Invalid parameters for tool '$name'"
             } else {
                 val result = tool.execute(params)
-                result.result ?: result.error
+                result.fold(
+                    onSuccess = { toolResult -> toolResult.result ?: toolResult.error },
+                    onFailure = { error -> "[Error] ${error.message}" }
+                )
             }
         } catch (e: Exception) {
             "[Error] Tool '$name' execution failed: ${e.message}"
@@ -108,14 +112,21 @@ class ToolDSL(
         
         return try {
             val result = tool.execute(params)
-            ToolResultWithMeta(
-                result = result.result,
-                error = result.error,
-                metadata = result.metadata + mapOf(
-                    "tool_name" to name,
-                    "execution_time" to System.currentTimeMillis().toString(),
-                    "success" to result.success.toString()
-                )
+            result.fold(
+                onSuccess = { toolResult ->
+                    ToolResultWithMeta(
+                        result = toolResult.result,
+                        error = toolResult.error,
+                        metadata = toolResult.metadata + mapOf(
+                            "tool_name" to name,
+                            "execution_time" to System.currentTimeMillis().toString(),
+                            "success" to toolResult.success.toString()
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    ToolResultWithMeta(null, "Execution failed: ${error.message}", emptyMap())
+                }
             )
         } catch (e: Exception) {
             ToolResultWithMeta(null, "Tool execution failed: ${e.message}", emptyMap())
@@ -228,10 +239,13 @@ object ToolExecutor {
     suspend fun runTool(name: String, parameters: Map<String, Any> = emptyMap()): Any? {
         val tool = ToolRegistry.getTool(name)
             ?: return "[Error] Tool '$name' not found in global registry"
-        
+
         return try {
             val result = tool.execute(parameters)
-            result.result ?: result.error
+            result.fold(
+                onSuccess = { toolResult -> toolResult.result ?: toolResult.error },
+                onFailure = { error -> "[Error] ${error.message}" }
+            )
         } catch (e: Exception) {
             "[Error] Global tool execution failed: ${e.message}"
         }

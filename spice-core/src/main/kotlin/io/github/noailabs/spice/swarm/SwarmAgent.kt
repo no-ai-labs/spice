@@ -2,6 +2,8 @@ package io.github.noailabs.spice.swarm
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
@@ -29,17 +31,17 @@ class SwarmAgent(
     private val activeOperations = ConcurrentHashMap<String, SwarmOperation>()
     private val results = ConcurrentHashMap<String, SwarmResult>()
     
-    override suspend fun processComm(comm: Comm): Comm {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         val operationId = "swarm-${System.currentTimeMillis()}"
-        
+
         return try {
             if (config.debugEnabled) {
                 println("[SWARM] ${this.name} handling comm: ${comm.content}")
             }
-            
+
             // Analyze task and determine strategy
             val strategy = coordinator.analyzeTask(comm.content)
-            
+
             // Execute swarm operation
             val operation = SwarmOperation(
                 id = operationId,
@@ -47,9 +49,9 @@ class SwarmAgent(
                 strategy = strategy,
                 startTime = System.currentTimeMillis()
             )
-            
+
             activeOperations[operationId] = operation
-            
+
             val result = when (strategy.type) {
                 SwarmStrategyType.PARALLEL -> executeParallel(strategy, comm)
                 SwarmStrategyType.SEQUENTIAL -> executeSequential(strategy, comm)
@@ -57,11 +59,11 @@ class SwarmAgent(
                 SwarmStrategyType.COMPETITION -> executeCompetition(strategy, comm)
                 SwarmStrategyType.HIERARCHICAL -> executeHierarchical(strategy, comm)
             }
-            
+
             results[operationId] = result
             activeOperations.remove(operationId)
-            
-            comm.reply(
+
+            SpiceResult.success(comm.reply(
                 content = result.content,
                 from = id,
                 data = mapOf(
@@ -71,20 +73,20 @@ class SwarmAgent(
                     "execution_time_ms" to (System.currentTimeMillis() - operation.startTime).toString(),
                     "success_rate" to result.successRate.toString()
                 )
-            )
-            
+            ))
+
         } catch (e: Exception) {
             if (config.debugEnabled) {
                 println("[SWARM] Error in operation $operationId: ${e.message}")
             }
-            
+
             activeOperations.remove(operationId)
-            
-            comm.reply(
+
+            SpiceResult.success(comm.reply(
                 content = "🤖 Swarm operation failed: ${e.message}",
                 from = id,
                 data = mapOf("error" to "swarm_execution_failed")
-            )
+            ))
         }
     }
     
@@ -104,7 +106,10 @@ class SwarmAgent(
                     
                     try {
                         val result = agent.processComm(comm)
-                        AgentResult(agentId, true, result.content, result.data)
+                        result.fold(
+                            onSuccess = { response -> AgentResult(agentId, true, response.content, response.data) },
+                            onFailure = { error -> AgentResult(agentId, false, "Error: ${error.message}") }
+                        )
                     } catch (e: Exception) {
                         AgentResult(agentId, false, "Error: ${e.message}")
                     }
@@ -133,19 +138,29 @@ class SwarmAgent(
             
             try {
                 val result = agent.processComm(currentComm)
-                val agentResult = AgentResult(agentId, true, result.content, result.data)
-                agentResults.add(agentResult)
-                
-                // Create new comm with accumulated context
-                currentComm = Comm(
-                    id = "sequential-${System.currentTimeMillis()}",
-                    content = result.content,
-                    from = agentId,
-                    to = result.to,
-                    type = CommType.TEXT,
-                    data = result.data
+
+                result.fold(
+                    onSuccess = { response ->
+                        val agentResult = AgentResult(agentId, true, response.content, response.data)
+                        agentResults.add(agentResult)
+
+                        // Create new comm with accumulated context
+                        currentComm = Comm(
+                            id = "sequential-${System.currentTimeMillis()}",
+                            content = response.content,
+                            from = agentId,
+                            to = response.to,
+                            type = CommType.TEXT,
+                            data = response.data
+                        )
+                    },
+                    onFailure = { error ->
+                        agentResults.add(AgentResult(agentId, false, "Error: ${error.message}"))
+                    }
                 )
-                
+
+                if (result.isFailure) break // Stop on first failure
+
             } catch (e: Exception) {
                 agentResults.add(AgentResult(agentId, false, "Error: ${e.message}"))
                 break // Stop on first failure
@@ -182,7 +197,10 @@ class SwarmAgent(
             
             try {
                 val refinedResult = agent.processComm(consensusComm)
-                refinedResults.add(AgentResult(agentId, true, refinedResult.content))
+                refinedResult.fold(
+                    onSuccess = { response -> refinedResults.add(AgentResult(agentId, true, response.content)) },
+                    onFailure = { error -> refinedResults.add(AgentResult(agentId, false, "Consensus error: ${error.message}")) }
+                )
             } catch (e: Exception) {
                 refinedResults.add(AgentResult(agentId, false, "Consensus error: ${e.message}"))
             }
@@ -232,7 +250,10 @@ class SwarmAgent(
                 
                 try {
                     val result = agent.processComm(contextComm)
-                    levelResults.add(AgentResult(agentId, true, result.content))
+                    result.fold(
+                        onSuccess = { response -> levelResults.add(AgentResult(agentId, true, response.content)) },
+                        onFailure = { error -> levelResults.add(AgentResult(agentId, false, "Hierarchy error: ${error.message}")) }
+                    )
                 } catch (e: Exception) {
                     levelResults.add(AgentResult(agentId, false, "Hierarchy error: ${e.message}"))
                 }

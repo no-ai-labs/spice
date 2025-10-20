@@ -1,26 +1,33 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.flow.Flow
 
 /**
  * 🌶️ Core Agent interface of Spice Framework
  * Defines the basic contract for all Agent implementations
+ *
+ * @since 0.2.0 - processComm now returns SpiceResult<Comm> for type-safe error handling
  */
 interface Agent : Identifiable {
     override val id: String
     val name: String
     val description: String
     val capabilities: List<String>
-    
+
     /**
      * Process incoming comm and return response
+     *
+     * @return SpiceResult<Comm> - Success with response or Failure with error
      */
-    suspend fun processComm(comm: Comm): Comm
-    
+    suspend fun processComm(comm: Comm): SpiceResult<Comm>
+
     /**
      * Process with runtime context
+     *
+     * @return SpiceResult<Comm> - Success with response or Failure with error
      */
-    suspend fun processComm(comm: Comm, runtime: AgentRuntime): Comm = processComm(comm)
+    suspend fun processComm(comm: Comm, runtime: AgentRuntime): SpiceResult<Comm> = processComm(comm)
     
     /**
      * Check if this Agent can handle the given comm
@@ -107,23 +114,23 @@ abstract class BaseAgent(
         runtime.log(LogLevel.INFO, "Agent initialized: $id")
     }
     
-    override suspend fun processComm(comm: Comm, runtime: AgentRuntime): Comm {
+    override suspend fun processComm(comm: Comm, runtime: AgentRuntime): SpiceResult<Comm> {
         this.runtime = runtime
         metrics.recordRequest()
-        
+
         val startTime = System.currentTimeMillis()
-        return try {
-            val response = processComm(comm)
-            metrics.recordSuccess(System.currentTimeMillis() - startTime)
-            response
-        } catch (e: Exception) {
-            metrics.recordError()
-            runtime.log(LogLevel.ERROR, "Error processing comm", mapOf(
-                "error" to (e.message ?: "Unknown error"),
-                "commId" to comm.id
-            ))
-            comm.error("Processing failed: ${e.message}", id)
-        }
+        return processComm(comm)
+            .onSuccess {
+                metrics.recordSuccess(System.currentTimeMillis() - startTime)
+            }
+            .onFailure { error ->
+                metrics.recordError()
+                runtime.log(LogLevel.ERROR, "Error processing comm", mapOf(
+                    "error" to error.message,
+                    "error_code" to error.code,
+                    "commId" to comm.id
+                ))
+            }
     }
     
     override fun canHandle(comm: Comm): Boolean {
@@ -140,25 +147,29 @@ abstract class BaseAgent(
     /**
      * Execute Tool by name
      */
-    protected suspend fun executeTool(toolName: String, parameters: Map<String, Any>): ToolResult {
+    protected suspend fun executeTool(toolName: String, parameters: Map<String, Any>): SpiceResult<ToolResult> {
         val tool = _tools.find { tool -> tool.name == toolName }
-            ?: return ToolResult.error("Tool not found: $toolName")
-        
+            ?: return SpiceResult.success(ToolResult.error("Tool not found: $toolName"))
+
         metrics.recordToolCall(toolName)
-        
+
         return try {
             if (tool.canExecute(parameters)) {
                 val result = tool.execute(parameters)
-                if (result.success) metrics.recordToolSuccess(toolName)
-                else metrics.recordToolError(toolName)
+                result.onSuccess { toolResult ->
+                    if (toolResult.success) metrics.recordToolSuccess(toolName)
+                    else metrics.recordToolError(toolName)
+                }.onFailure {
+                    metrics.recordToolError(toolName)
+                }
                 result
             } else {
                 metrics.recordToolError(toolName)
-                ToolResult.error("Tool execution conditions not met: $toolName")
+                SpiceResult.success(ToolResult.error("Tool execution conditions not met: $toolName"))
             }
         } catch (e: Exception) {
             metrics.recordToolError(toolName)
-            ToolResult.error("Tool execution failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Tool execution failed: ${e.message}"))
         }
     }
     
@@ -172,7 +183,7 @@ abstract class BaseAgent(
     /**
      * Call another agent
      */
-    protected suspend fun callAgent(agentId: String, comm: Comm): Comm? {
+    protected suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm>? {
         return runtime?.callAgent(agentId, comm)
     }
     

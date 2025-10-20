@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.commhub
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.ConcurrentHashMap
@@ -217,18 +218,34 @@ class PluggableCommHub(
                 try {
                     // Create runtime for this agent
                     val runtime = createRuntime(agent)
-                    
+
                     // Process the message
-                    val response = withTimeout(config.processTimeoutMs) {
+                    val responseResult = withTimeout(config.processTimeoutMs) {
                         agent.processComm(comm, runtime)
                     }
-                    
-                    // Send response if needed and it's different from the original
-                    if (response.to != null && response != comm) {
-                        send(response)
-                    }
-                    
-                    metrics.messageProcessed()
+
+                    // Handle response
+                    responseResult.fold(
+                        onSuccess = { response ->
+                            // Send response if needed and it's different from the original
+                            if (response.to != null && response != comm) {
+                                send(response)
+                            }
+                            metrics.messageProcessed()
+                        },
+                        onFailure = { error ->
+                            metrics.messageError()
+                            // Send error response
+                            if (comm.from != null) {
+                                send(
+                                    comm.error(
+                                        "Processing failed: ${error.message}",
+                                        agent.id
+                                    )
+                                )
+                            }
+                        }
+                    )
                 } catch (e: Exception) {
                     metrics.messageError()
                     
@@ -250,9 +267,14 @@ class PluggableCommHub(
             override val context = AgentContext()
             override val scope = this@PluggableCommHub.scope
             
-            override suspend fun callAgent(agentId: String, comm: Comm): Comm {
-                val targetAgent = agents[agentId] 
-                    ?: throw IllegalArgumentException("Agent not found: $agentId")
+            override suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm> {
+                val targetAgent = agents[agentId]
+                    ?: return SpiceResult.failure(
+                        io.github.noailabs.spice.error.SpiceError.AgentError(
+                            message = "Agent not found: $agentId",
+                            agentId = agentId
+                        )
+                    )
                 return targetAgent.processComm(comm, this)
             }
             

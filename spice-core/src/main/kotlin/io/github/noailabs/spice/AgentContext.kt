@@ -1,5 +1,6 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -131,7 +132,7 @@ interface AgentRuntime {
     /**
      * 다른 Agent 호출
      */
-    suspend fun callAgent(agentId: String, comm: Comm): Comm
+    suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm>
     
     /**
      * 이벤트 발행
@@ -231,9 +232,12 @@ open class DefaultAgentRuntime(
     
     private val stateStore = mutableMapOf<String, Any>()
     
-    override suspend fun callAgent(agentId: String, comm: Comm): Comm {
-        return orchestrator?.routeComm(comm.copy(to = agentId))
-            ?: comm.error("No orchestrator available", "runtime")
+    override suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm> {
+        return if (orchestrator != null) {
+            orchestrator.routeComm(comm.copy(to = agentId))
+        } else {
+            SpiceResult.success(comm.error("No orchestrator available", "runtime"))
+        }
     }
     
     override suspend fun publishEvent(event: AgentEvent) {
@@ -261,5 +265,5 @@ open class DefaultAgentRuntime(
  * Agent Orchestrator 인터페이스 (순환 참조 방지)
  */
 interface AgentOrchestrator {
-    suspend fun routeComm(comm: Comm): Comm
+    suspend fun routeComm(comm: Comm): SpiceResult<Comm>
 }

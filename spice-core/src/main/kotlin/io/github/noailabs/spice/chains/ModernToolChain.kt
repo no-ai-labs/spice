@@ -2,6 +2,7 @@ package io.github.noailabs.spice.chains
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.delay
 
 /**
@@ -85,19 +86,27 @@ class ModernToolChain(
                 // Execute tool
                 val tool = ToolRegistry.getTool(step.toolName)
                     ?: return ChainResult.error("Tool not found: ${step.toolName}")
-                
+
                 val result = tool.execute(stepParams)
-                context.addResult(result)
-                
-                if (!result.success) {
-                    return ChainResult.error("Step '${step.id}' failed: ${result.error}")
-                }
-                
-                // Transform result for next step
-                if (step.transformer != null) {
-                    val transformedData = step.transformer.invoke(result)
-                    context.sharedData.putAll(transformedData)
-                }
+
+                result.fold(
+                    onSuccess = { toolResult ->
+                        context.addResult(toolResult)
+
+                        if (!toolResult.success) {
+                            return ChainResult.error("Step '${step.id}' failed: ${toolResult.error}")
+                        }
+
+                        // Transform result for next step
+                        if (step.transformer != null) {
+                            val transformedData = step.transformer.invoke(toolResult)
+                            context.sharedData.putAll(transformedData)
+                        }
+                    },
+                    onFailure = { error ->
+                        return ChainResult.error("Step '${step.id}' execution failed: ${error.message}")
+                    }
+                )
                 
                 if (debugEnabled) {
                     println("[CHAIN] Step '${step.id}' completed successfully")

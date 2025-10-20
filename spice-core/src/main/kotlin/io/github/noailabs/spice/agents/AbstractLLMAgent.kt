@@ -2,6 +2,8 @@ package io.github.noailabs.spice.agents
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.*
 import io.ktor.client.*
@@ -109,7 +111,7 @@ fun <T : LLMConfig> modernLLMAgent(
     val client = clientFactory(config)
     
     handle { comm ->
-        when (comm.type) {
+        SpiceResult.success(when (comm.type) {
             CommType.TEXT -> {
                 val response = client.sendMessage(comm.content)
                 comm.reply(
@@ -138,6 +140,6 @@ fun <T : LLMConfig> modernLLMAgent(
                     type = CommType.ERROR
                 )
             }
-        }
+        })
     }
 }

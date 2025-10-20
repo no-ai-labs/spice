@@ -471,10 +471,10 @@ abstract class LifecycleAwareAgent(
     override suspend fun processComm(
         comm: io.github.noailabs.spice.Comm,
         runtime: AgentRuntime
-    ): io.github.noailabs.spice.Comm {
-        val manager = lifecycleManager 
+    ): io.github.noailabs.spice.error.SpiceResult<io.github.noailabs.spice.Comm> {
+        val manager = lifecycleManager
             ?: throw IllegalStateException("Agent not initialized with lifecycle manager")
-        
+
         return manager.trackRequest {
             super.processComm(comm, runtime)
         }

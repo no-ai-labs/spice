@@ -1,5 +1,7 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
+
 /**
  * Base implementation of Agent that processes Comm messages
  */
@@ -37,9 +39,12 @@ abstract class CommAgent(
     protected suspend fun executeTool(toolName: String, parameters: Map<String, Any>): ToolResult {
         val tool = tools.find { it.name == toolName }
             ?: return ToolResult.error("Tool not found: $toolName")
-        
+
         return if (tool.canExecute(parameters)) {
-            tool.execute(parameters)
+            tool.execute(parameters).fold(
+                onSuccess = { result -> result },
+                onFailure = { error -> ToolResult.error(error.message ?: "Execution failed") }
+            )
         } else {
             ToolResult.error("Tool execution conditions not met: $toolName")
         }

@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.dsl
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.error.SpiceResult
 
 /**
  * 🔀 Conditional Flow DSL
@@ -311,10 +312,10 @@ class ConditionalAgent(
     private val conditionalFlow: ConditionalFlow
 ) : Agent by baseAgent {
     
-    override suspend fun processComm(comm: Comm): Comm {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         // First apply conditional flow
         val processedComm = conditionalFlow.execute(comm)
-        
+
         // Then process with base agent
         return baseAgent.processComm(processedComm)
     }

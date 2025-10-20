@@ -4,6 +4,8 @@ import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.ToolSchema
 import io.github.noailabs.spice.ParameterSchema
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
@@ -42,27 +44,27 @@ data class AgentTool(
      * The actual implementation function (transient, not serialized)
      */
     @Transient
-    private val implementation: (suspend (Map<String, Any>) -> ToolResult)? = null
+    private val implementation: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
 ) {
-    
+
     /**
      * Convert to executable Tool interface
      */
     fun toTool(): Tool = AgentToolAdapter(this)
-    
+
     /**
      * Create a copy with implementation
      */
-    fun withImplementation(impl: suspend (Map<String, Any>) -> ToolResult): AgentTool {
+    fun withImplementation(impl: suspend (Map<String, Any>) -> SpiceResult<ToolResult>): AgentTool {
         return copy(implementation = impl)
     }
-    
+
     /**
      * Execute the tool (if implementation is available)
      */
-    suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return implementation?.invoke(parameters)
-            ?: ToolResult.error("No implementation available for tool '$name'")
+            ?: SpiceResult.success(ToolResult.error("No implementation available for tool '$name'"))
     }
     
     /**
@@ -89,11 +91,11 @@ internal class AgentToolAdapter(
     override val name: String = agentTool.name
     override val description: String = agentTool.description
     override val schema: ToolSchema = agentTool.getSchema()
-    
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return agentTool.execute(parameters)
     }
-    
+
     override fun canExecute(parameters: Map<String, Any>): Boolean {
         return agentTool.hasImplementation()
     }
@@ -109,7 +111,7 @@ class AgentToolBuilder(private val name: String) {
     private val metadata = mutableMapOf<String, String>()
     var implementationType: String = "kotlin-function"
     private val implementationDetails = mutableMapOf<String, String>()
-    private var implementation: (suspend (Map<String, Any>) -> ToolResult)? = null
+    private var implementation: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
     
     /**
      * Set description
@@ -164,7 +166,7 @@ class AgentToolBuilder(private val name: String) {
     /**
      * Set Kotlin function implementation
      */
-    fun implement(handler: suspend (Map<String, Any>) -> ToolResult) {
+    fun implement(handler: suspend (Map<String, Any>) -> SpiceResult<ToolResult>) {
         implementation = handler
         implementationType = "kotlin-function"
     }

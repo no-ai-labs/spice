@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.tenant
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 
@@ -22,7 +23,7 @@ class TenantAwareAgentRuntime(
         }
     }
     
-    override suspend fun callAgent(agentId: String, comm: Comm): Comm {
+    override suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm> {
         // Ensure tenant context is propagated
         val currentTenant = TenantContext.current()
         return if (currentTenant != null) {
@@ -111,7 +112,7 @@ abstract class TenantAwareAgent(
         return block()
     }
     
-    override suspend fun processComm(comm: Comm): Comm {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         // Extract tenant from comm if available
         val tenantId = comm.data["tenantId"]
         return if (tenantId != null && TenantContext.current() == null) {
@@ -122,11 +123,11 @@ abstract class TenantAwareAgent(
             processCommInternal(comm)
         }
     }
-    
+
     /**
      * Override this method instead of processComm
      */
-    protected abstract suspend fun processCommInternal(comm: Comm): Comm
+    protected abstract suspend fun processCommInternal(comm: Comm): SpiceResult<Comm>
 }
 
 /**
