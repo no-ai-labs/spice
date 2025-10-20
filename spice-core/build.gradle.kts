@@ -31,6 +31,14 @@ dependencies {
     implementation("io.ktor:ktor-client-cio:2.3.7")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.7")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
+
+    // 📊 OpenTelemetry - Observability
+    implementation("io.opentelemetry:opentelemetry-api:1.34.1")
+    implementation("io.opentelemetry:opentelemetry-sdk:1.34.1")
+    implementation("io.opentelemetry:opentelemetry-sdk-metrics:1.34.1")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp:1.34.1")
+    implementation("io.opentelemetry.semconv:opentelemetry-semconv:1.23.1-alpha")
+    implementation("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:2.1.0")
     
     // 🚀 Kafka Support (Optional)
     compileOnly("org.apache.kafka:kafka-clients:3.7.0")
