@@ -35,12 +35,13 @@ class SwarmAgentBuilder {
     var id: String = "swarm-${System.currentTimeMillis()}"
     var name: String = ""
     var description: String = ""
-    
+
     // Swarm-specific configurations
     private val memberAgents = mutableMapOf<String, Agent>()
     private var coordinatorType: CoordinatorType = CoordinatorType.SMART
     private var swarmConfig = SwarmConfig()
     private var defaultStrategy: SwarmStrategyType = SwarmStrategyType.PARALLEL
+    private var llmCoordinatorAgent: Agent? = null  // Optional LLM for AI-powered coordination
     
     /**
      * Configure swarm behavior
@@ -93,6 +94,23 @@ class SwarmAgentBuilder {
     fun coordinator(type: CoordinatorType) {
         coordinatorType = type
     }
+
+    /**
+     * Set LLM agent for AI-powered coordination
+     * When set with CoordinatorType.AI_POWERED, this agent will be used
+     * for meta-coordination decisions.
+     */
+    fun llmCoordinator(agent: Agent) {
+        llmCoordinatorAgent = agent
+    }
+
+    /**
+     * Quick setup: Use AI-powered coordinator with given LLM agent
+     */
+    fun aiCoordinator(llmAgent: Agent) {
+        coordinatorType = CoordinatorType.AI_POWERED
+        llmCoordinatorAgent = llmAgent
+    }
     
     /**
      * 🔧 Configure specialized swarm tools for coordination
@@ -133,7 +151,7 @@ class SwarmAgentBuilder {
         return when (coordinatorType) {
             CoordinatorType.SMART -> SmartSwarmCoordinator(memberAgents, swarmConfig)
             CoordinatorType.SIMPLE -> SimpleSwarmCoordinator(memberAgents, swarmConfig)
-            CoordinatorType.AI_POWERED -> AISwarmCoordinator(memberAgents, swarmConfig)
+            CoordinatorType.AI_POWERED -> AISwarmCoordinator(memberAgents, swarmConfig, llmCoordinatorAgent)
         }
     }
 }
@@ -343,32 +361,380 @@ class SimpleSwarmCoordinator(
 }
 
 /**
- * 🧠 AI-Powered Coordinator (future enhancement)
+ * 🧠 AI-Powered Coordinator - LLM-Enhanced Meta-Coordination
+ *
+ * Uses an LLM agent to make sophisticated decisions about:
+ * - Task analysis and strategy selection
+ * - Intelligent result aggregation
+ * - Consensus building
+ * - Best result selection
  */
 class AISwarmCoordinator(
     private val memberAgents: Map<String, Agent>,
-    private val config: SwarmConfig
+    private val config: SwarmConfig,
+    private val llmAgent: Agent? = null  // Optional LLM for meta-coordination
 ) : SwarmCoordinator {
-    
+
+    private val fallbackCoordinator = SmartSwarmCoordinator(memberAgents, config)
+
     override suspend fun analyzeTask(task: String): SwarmStrategy {
-        // TODO: Use AI to analyze task and determine optimal strategy
-        // For now, fallback to smart coordinator behavior
-        return SmartSwarmCoordinator(memberAgents, config).analyzeTask(task)
+        if (llmAgent == null) {
+            return fallbackCoordinator.analyzeTask(task)
+        }
+
+        return try {
+            val agentCapabilities = memberAgents.map { (id, agent) ->
+                "$id: ${agent.name} - ${agent.capabilities.joinToString(", ")}"
+            }.joinToString("\n")
+
+            val prompt = """
+                Analyze this task and determine the optimal swarm coordination strategy.
+
+                Task: "$task"
+
+                Available Agents:
+                $agentCapabilities
+
+                Available Strategies:
+                - PARALLEL: Execute all agents simultaneously (good for independent analyses)
+                - SEQUENTIAL: Execute agents in sequence, passing results forward (good for step-by-step processing)
+                - CONSENSUS: Build consensus through multi-round discussion (good for decision-making)
+                - COMPETITION: Compete and select best result (good for creative tasks)
+                - HIERARCHICAL: Hierarchical delegation with levels (good for complex tasks)
+
+                Respond ONLY with valid JSON in this exact format (no additional text):
+                {
+                  "strategy": "PARALLEL|SEQUENTIAL|CONSENSUS|COMPETITION|HIERARCHICAL",
+                  "selectedAgents": ["agent1", "agent2"],
+                  "confidence": 0.85,
+                  "reasoning": "Brief explanation"
+                }
+            """.trimIndent()
+
+            val comm = Comm(
+                content = prompt,
+                from = "ai-coordinator",
+                to = llmAgent.id,
+                type = CommType.TEXT
+            )
+
+            val result = llmAgent.processComm(comm)
+
+            result.fold(
+                onSuccess = { response ->
+                    parseStrategyFromLLM(response.content, task)
+                },
+                onFailure = {
+                    if (config.debugEnabled) {
+                        println("[AI-COORDINATOR] LLM task analysis failed, using fallback")
+                    }
+                    fallbackCoordinator.analyzeTask(task)
+                }
+            )
+        } catch (e: Exception) {
+            if (config.debugEnabled) {
+                println("[AI-COORDINATOR] Error in analyzeTask: ${e.message}")
+            }
+            fallbackCoordinator.analyzeTask(task)
+        }
     }
-    
+
     override suspend fun aggregateResults(results: List<AgentResult>, strategy: SwarmStrategy): SwarmResult {
-        // TODO: Use AI to intelligently aggregate results
-        return SmartSwarmCoordinator(memberAgents, config).aggregateResults(results, strategy)
+        if (llmAgent == null || results.isEmpty()) {
+            return fallbackCoordinator.aggregateResults(results, strategy)
+        }
+
+        return try {
+            val successfulResults = results.filter { it.success }
+            if (successfulResults.isEmpty()) {
+                return fallbackCoordinator.aggregateResults(results, strategy)
+            }
+
+            val resultsText = successfulResults.mapIndexed { index, result ->
+                "Agent ${result.agentId} (${index + 1}/${successfulResults.size}):\n${result.content}"
+            }.joinToString("\n\n---\n\n")
+
+            val prompt = """
+                Synthesize these agent results into a comprehensive, coherent response.
+
+                Strategy Used: ${strategy.type}
+                Number of Agents: ${successfulResults.size}/${results.size}
+
+                Agent Results:
+                $resultsText
+
+                Your task:
+                1. Identify key patterns and insights across all results
+                2. Note any contradictions or disagreements
+                3. Synthesize into a unified, comprehensive response
+                4. Maintain important details from individual agents
+
+                Provide a well-structured synthesis that combines the best of all perspectives.
+            """.trimIndent()
+
+            val comm = Comm(
+                content = prompt,
+                from = "ai-coordinator",
+                to = llmAgent.id,
+                type = CommType.TEXT
+            )
+
+            val result = llmAgent.processComm(comm)
+
+            result.fold(
+                onSuccess = { response ->
+                    SwarmResult(
+                        content = "🧠 AI-Synthesized Result:\n\n${response.content}",
+                        successRate = successfulResults.size.toDouble() / results.size,
+                        agentResults = results,
+                        timestamp = System.currentTimeMillis()
+                    )
+                },
+                onFailure = {
+                    if (config.debugEnabled) {
+                        println("[AI-COORDINATOR] LLM aggregation failed, using fallback")
+                    }
+                    fallbackCoordinator.aggregateResults(results, strategy)
+                }
+            )
+        } catch (e: Exception) {
+            if (config.debugEnabled) {
+                println("[AI-COORDINATOR] Error in aggregateResults: ${e.message}")
+            }
+            fallbackCoordinator.aggregateResults(results, strategy)
+        }
     }
-    
+
     override suspend fun buildConsensus(results: List<AgentResult>, strategy: SwarmStrategy): SwarmResult {
-        // TODO: Use AI to build sophisticated consensus
-        return SmartSwarmCoordinator(memberAgents, config).buildConsensus(results, strategy)
+        if (llmAgent == null || results.isEmpty()) {
+            return fallbackCoordinator.buildConsensus(results, strategy)
+        }
+
+        return try {
+            val successfulResults = results.filter { it.success }
+            if (successfulResults.isEmpty()) {
+                return fallbackCoordinator.buildConsensus(results, strategy)
+            }
+
+            val perspectivesText = successfulResults.mapIndexed { index, result ->
+                "Perspective ${index + 1} (Agent ${result.agentId}):\n${result.content}"
+            }.joinToString("\n\n")
+
+            val prompt = """
+                Build a sophisticated consensus from these diverse agent perspectives.
+
+                Number of Perspectives: ${successfulResults.size}
+
+                $perspectivesText
+
+                Your task:
+                1. Identify areas of strong agreement across agents
+                2. Acknowledge areas of disagreement or different viewpoints
+                3. Weigh the quality and reasoning of each perspective
+                4. Build a consensus that represents the collective intelligence
+                5. Note confidence level and any caveats
+
+                Provide a consensus statement that:
+                - Highlights key agreements
+                - Addresses contradictions thoughtfully
+                - Synthesizes the best reasoning from all perspectives
+                - Indicates confidence level
+            """.trimIndent()
+
+            val comm = Comm(
+                content = prompt,
+                from = "ai-coordinator",
+                to = llmAgent.id,
+                type = CommType.TEXT
+            )
+
+            val result = llmAgent.processComm(comm)
+
+            result.fold(
+                onSuccess = { response ->
+                    SwarmResult(
+                        content = "🤝 AI-Powered Consensus:\n\n${response.content}",
+                        successRate = successfulResults.size.toDouble() / results.size,
+                        agentResults = results,
+                        timestamp = System.currentTimeMillis()
+                    )
+                },
+                onFailure = {
+                    if (config.debugEnabled) {
+                        println("[AI-COORDINATOR] LLM consensus failed, using fallback")
+                    }
+                    fallbackCoordinator.buildConsensus(results, strategy)
+                }
+            )
+        } catch (e: Exception) {
+            if (config.debugEnabled) {
+                println("[AI-COORDINATOR] Error in buildConsensus: ${e.message}")
+            }
+            fallbackCoordinator.buildConsensus(results, strategy)
+        }
     }
-    
+
     override suspend fun selectBestResult(results: SwarmResult, strategy: SwarmStrategy): SwarmResult {
-        // TODO: Use AI to select best result
-        return SmartSwarmCoordinator(memberAgents, config).selectBestResult(results, strategy)
+        if (llmAgent == null) {
+            return fallbackCoordinator.selectBestResult(results, strategy)
+        }
+
+        return try {
+            val successfulResults = results.agentResults.filter { it.success }
+            if (successfulResults.isEmpty()) {
+                return fallbackCoordinator.selectBestResult(results, strategy)
+            }
+
+            val competitorsText = successfulResults.mapIndexed { index, result ->
+                "Candidate ${index + 1} (Agent ${result.agentId}):\n${result.content}"
+            }.joinToString("\n\n---\n\n")
+
+            val prompt = """
+                Evaluate these competing results and select the best one.
+
+                Number of Candidates: ${successfulResults.size}
+
+                $competitorsText
+
+                Evaluation Criteria:
+                - Quality and depth of analysis
+                - Accuracy and correctness
+                - Completeness of response
+                - Clarity and coherence
+                - Practical value
+
+                Your task:
+                1. Evaluate each result against the criteria
+                2. Compare strengths and weaknesses
+                3. Select the best overall result
+                4. Explain your selection reasoning
+
+                Format your response as:
+                WINNER: Agent [agent_id]
+                REASONING: [Your detailed reasoning]
+
+                [Then include or enhance the winning result]
+            """.trimIndent()
+
+            val comm = Comm(
+                content = prompt,
+                from = "ai-coordinator",
+                to = llmAgent.id,
+                type = CommType.TEXT
+            )
+
+            val result = llmAgent.processComm(comm)
+
+            result.fold(
+                onSuccess = { response ->
+                    SwarmResult(
+                        content = "🏆 AI-Selected Best Result:\n\n${response.content}",
+                        successRate = results.successRate,
+                        agentResults = results.agentResults,
+                        timestamp = System.currentTimeMillis()
+                    )
+                },
+                onFailure = {
+                    if (config.debugEnabled) {
+                        println("[AI-COORDINATOR] LLM selection failed, using fallback")
+                    }
+                    fallbackCoordinator.selectBestResult(results, strategy)
+                }
+            )
+        } catch (e: Exception) {
+            if (config.debugEnabled) {
+                println("[AI-COORDINATOR] Error in selectBestResult: ${e.message}")
+            }
+            fallbackCoordinator.selectBestResult(results, strategy)
+        }
+    }
+
+    /**
+     * Parse strategy from LLM response (JSON or natural language)
+     */
+    private fun parseStrategyFromLLM(content: String, originalTask: String): SwarmStrategy {
+        return try {
+            // Try to extract JSON from response
+            val jsonStart = content.indexOf('{')
+            val jsonEnd = content.lastIndexOf('}') + 1
+
+            if (jsonStart >= 0 && jsonEnd > jsonStart) {
+                val jsonContent = content.substring(jsonStart, jsonEnd)
+
+                // Simple JSON parsing (in production, use kotlinx.serialization)
+                val strategyType = extractJsonField(jsonContent, "strategy")?.let { strategyName ->
+                    try {
+                        SwarmStrategyType.valueOf(strategyName)
+                    } catch (e: Exception) {
+                        SwarmStrategyType.PARALLEL
+                    }
+                } ?: SwarmStrategyType.PARALLEL
+
+                val selectedAgentsJson = extractJsonArrayField(jsonContent, "selectedAgents")
+                val selectedAgents = if (selectedAgentsJson.isNotEmpty()) {
+                    selectedAgentsJson.filter { memberAgents.containsKey(it) }
+                } else {
+                    memberAgents.keys.toList()
+                }
+
+                val confidence = extractJsonField(jsonContent, "confidence")?.toDoubleOrNull() ?: 0.8
+
+                SwarmStrategy(
+                    type = strategyType,
+                    selectedAgents = selectedAgents.ifEmpty { memberAgents.keys.toList() },
+                    confidence = confidence.coerceIn(0.0, 1.0)
+                )
+            } else {
+                // Fallback to keyword-based parsing
+                parseStrategyFromKeywords(content, originalTask)
+            }
+        } catch (e: Exception) {
+            if (config.debugEnabled) {
+                println("[AI-COORDINATOR] Failed to parse LLM strategy, using fallback: ${e.message}")
+            }
+            // Return default strategy instead of calling suspend function
+            parseStrategyFromKeywords(originalTask, originalTask)
+        }
+    }
+
+    /**
+     * Extract field from simple JSON string
+     */
+    private fun extractJsonField(json: String, field: String): String? {
+        val pattern = """"$field"\s*:\s*"([^"]*)"""".toRegex()
+        return pattern.find(json)?.groupValues?.get(1)
+    }
+
+    /**
+     * Extract array field from simple JSON string
+     */
+    private fun extractJsonArrayField(json: String, field: String): List<String> {
+        val pattern = """"$field"\s*:\s*\[([^\]]*)]""".toRegex()
+        val arrayContent = pattern.find(json)?.groupValues?.get(1) ?: return emptyList()
+        return arrayContent.split(",")
+            .map { it.trim().removeSurrounding("\"") }
+            .filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Parse strategy from natural language keywords
+     */
+    private fun parseStrategyFromKeywords(content: String, originalTask: String): SwarmStrategy {
+        val lowerContent = content.lowercase()
+
+        val strategyType = when {
+            lowerContent.contains("consensus") -> SwarmStrategyType.CONSENSUS
+            lowerContent.contains("competition") || lowerContent.contains("compete") -> SwarmStrategyType.COMPETITION
+            lowerContent.contains("sequential") || lowerContent.contains("sequence") -> SwarmStrategyType.SEQUENTIAL
+            lowerContent.contains("hierarchical") || lowerContent.contains("hierarchy") -> SwarmStrategyType.HIERARCHICAL
+            else -> SwarmStrategyType.PARALLEL
+        }
+
+        return SwarmStrategy(
+            type = strategyType,
+            selectedAgents = memberAgents.keys.toList(),
+            confidence = 0.7
+        )
     }
 }
 
