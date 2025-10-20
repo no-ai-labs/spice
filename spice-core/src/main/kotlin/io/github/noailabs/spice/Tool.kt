@@ -1,5 +1,7 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -7,21 +9,27 @@ import kotlinx.serialization.json.JsonObject
 /**
  * Tool interface for JVM-Autogen
  * Defines tools that agents can use.
+ *
+ * @since 0.2.0 - execute now returns SpiceResult<ToolResult> for type-safe error handling
  */
 interface Tool {
     val name: String
     val description: String
     val schema: ToolSchema
-    
+
     /**
      * Tool execution
+     *
+     * @return SpiceResult<ToolResult> - Success with tool result or Failure with error
      */
-    suspend fun execute(parameters: Map<String, Any>): ToolResult
-    
+    suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult>
+
     /**
      * Tool execution with context
+     *
+     * @return SpiceResult<ToolResult> - Success with tool result or Failure with error
      */
-    suspend fun execute(parameters: Map<String, Any>, context: ToolContext): ToolResult = 
+    suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> =
         execute(parameters)
     
     /**
@@ -144,23 +152,23 @@ class WebSearchTool : BaseTool() {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         val query = parameters["query"] as? String
-            ?: return ToolResult.error("tool.web_search.error.query_required".i18n())
-        
+            ?: return SpiceResult.success(ToolResult.error("tool.web_search.error.query_required".i18n()))
+
         val limit = (parameters["limit"] as? Number)?.toInt() ?: 5
-        
+
         // Actual web search logic (mock implementation here)
         val results = try {
             searchWeb(query, limit)
         } catch (e: Exception) {
-            return ToolResult.error("tool.web_search.error.search_failed".i18n())
+            return SpiceResult.success(ToolResult.error("tool.web_search.error.search_failed".i18n()))
         }
-        
-        return ToolResult.success(
+
+        return SpiceResult.success(ToolResult.success(
             result = results.joinToString("\n") { "- $it" },
             metadata = mapOf("query" to query, "resultCount" to results.size.toString())
-        )
+        ))
     }
     
     private suspend fun searchWeb(query: String, limit: Int): List<String> {
@@ -182,18 +190,18 @@ class FileReadTool : BaseTool() {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         val path = parameters["path"] as? String
-            ?: return ToolResult.error("tool.file_read.error.path_required".i18n())
-        
+            ?: return SpiceResult.success(ToolResult.error("tool.file_read.error.path_required".i18n()))
+
         return try {
             val content = java.io.File(path).readText()
-            ToolResult.success(
+            SpiceResult.success(ToolResult.success(
                 result = content,
                 metadata = mapOf("path" to path, "size" to content.length.toString())
-            )
+            ))
         } catch (e: Exception) {
-            ToolResult.error("tool.file_read.error.read_failed".i18n())
+            SpiceResult.success(ToolResult.error("tool.file_read.error.read_failed".i18n()))
         }
     }
 }
@@ -213,21 +221,21 @@ class FileWriteTool : BaseTool() {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         val path = parameters["path"] as? String
-            ?: return ToolResult.error("tool.file_write.error.path_required".i18n())
-        
+            ?: return SpiceResult.success(ToolResult.error("tool.file_write.error.path_required".i18n()))
+
         val content = parameters["content"] as? String
-            ?: return ToolResult.error("tool.file_write.error.content_required".i18n())
-        
+            ?: return SpiceResult.success(ToolResult.error("tool.file_write.error.content_required".i18n()))
+
         return try {
             java.io.File(path).writeText(content)
-            ToolResult.success(
+            SpiceResult.success(ToolResult.success(
                 result = "tool.file_write.success".i18n(),
                 metadata = mapOf("path" to path, "size" to content.length.toString())
-            )
+            ))
         } catch (e: Exception) {
-            ToolResult.error("tool.file_write.error.write_failed".i18n())
+            SpiceResult.success(ToolResult.error("tool.file_write.error.write_failed".i18n()))
         }
     }
 } 

@@ -39,6 +39,14 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("io.mockk:mockk:1.13.8")
+
+    // Kotest for property-based testing
+    testImplementation("io.kotest:kotest-runner-junit5:5.8.0")
+    testImplementation("io.kotest:kotest-assertions-core:5.8.0")
+    testImplementation("io.kotest:kotest-property:5.8.0")
+
+    // Test fixtures and utilities
+    testImplementation("org.awaitility:awaitility-kotlin:4.2.0")
 }
 
 tasks.test {

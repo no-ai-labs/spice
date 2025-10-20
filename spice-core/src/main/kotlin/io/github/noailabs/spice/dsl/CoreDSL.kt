@@ -1,6 +1,8 @@
 package io.github.noailabs.spice.dsl
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.model.AgentTool
 
 /**
@@ -21,7 +23,7 @@ class CoreAgentBuilder {
     var id: String = "agent-${System.currentTimeMillis()}"
     var name: String = ""
     var description: String = ""
-    private var handler: (suspend (Comm) -> Comm)? = null
+    private var handler: (suspend (Comm) -> SpiceResult<Comm>)? = null
     
     // 4-Level Management System
     private val agentTools = mutableListOf<String>()        // Level 1: Agent-only tools
@@ -159,7 +161,7 @@ class CoreAgentBuilder {
     /**
      * Set message handler
      */
-    fun handle(handler: suspend (Comm) -> Comm) {
+    fun handle(handler: suspend (Comm) -> SpiceResult<Comm>) {
         this.handler = handler
     }
 
@@ -208,38 +210,38 @@ class CoreAgentBuilder {
                 )
             )
             
-            override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
                 return try {
                     val query = parameters["query"] as? String
-                        ?: return ToolResult.error("Query parameter required")
-                    
+                        ?: return SpiceResult.success(ToolResult.error("Query parameter required"))
+
                     val topK = (parameters["topK"] as? Number)?.toInt() ?: 5
-                    
+
                     // Get vector store instance from registry or create new one
-                    val vectorStore = VectorStoreRegistry.get(storeName) 
+                    val vectorStore = VectorStoreRegistry.get(storeName)
                         ?: createVectorStoreInstance(config)
-                    
+
                     // Perform search
                     val results = vectorStore.searchByText(
                         collectionName = "default",
                         queryText = query,
                         topK = topK
                     )
-                    
+
                     val resultText = results.joinToString("\n") { result ->
                         "Score: ${result.score}, Content: ${result.metadata["content"] ?: "N/A"}"
                     }
-                    
-                    ToolResult.success(
+
+                    SpiceResult.success(ToolResult.success(
                         result = resultText,
                         metadata = mapOf(
                             "store_name" to storeName,
                             "result_count" to results.size.toString(),
                             "provider" to config.provider
                         )
-                    )
+                    ))
                 } catch (e: Exception) {
-                    ToolResult.error("Vector search failed: ${e.message}")
+                    SpiceResult.success(ToolResult.error("Vector search failed: ${e.message}"))
                 }
             }
         }
@@ -299,27 +301,27 @@ internal class CoreAgent(
     override val id: String,
     override val name: String,
     override val description: String,
-    private val handler: suspend (Comm) -> Comm,
+    private val handler: suspend (Comm) -> SpiceResult<Comm>,
     private val tools: List<Tool> = emptyList(),
     private val vectorStores: Map<String, VectorStoreConfig> = emptyMap(),
     private val vectorStoreInstances: Map<String, VectorStore> = emptyMap(),
     private val debugInfo: DebugInfo? = null
 ) : Agent {
-    
+
     override val capabilities: List<String> = listOf("core-processing", "tool-context")
-    
-    override suspend fun processComm(comm: Comm): Comm {
+
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         if (debugInfo?.enabled == true) {
             println("${debugInfo.prefix} Agent '$name' ($id) received comm:")
             println("${debugInfo.prefix}   From: ${comm.from}")
             println("${debugInfo.prefix}   Content: ${comm.content}")
             println("${debugInfo.prefix}   Data: ${comm.data}")
         }
-        
+
         val startTime = System.currentTimeMillis()
-        
+
         // Execute handler with tool context if tools are available
-        val response = if (tools.isNotEmpty()) {
+        val result = if (tools.isNotEmpty()) {
             // Use withToolContext for tool-aware processing
             io.github.noailabs.spice.dsl.withToolContext(
                 tools = tools,
@@ -332,19 +334,27 @@ internal class CoreAgent(
         } else {
             handler(comm)
         }
-        
+
         val duration = System.currentTimeMillis() - startTime
-        
+
         if (debugInfo?.enabled == true) {
-            println("${debugInfo.prefix} Agent '$name' ($id) response:")
-            println("${debugInfo.prefix}   To: ${response.to}")
-            println("${debugInfo.prefix}   Content: ${response.content}")
-            println("${debugInfo.prefix}   Data: ${response.data}")
-            println("${debugInfo.prefix}   Processing time: ${duration}ms")
-            println("${debugInfo.prefix}   ---")
+            result.onSuccess { response ->
+                println("${debugInfo.prefix} Agent '$name' ($id) response:")
+                println("${debugInfo.prefix}   To: ${response.to}")
+                println("${debugInfo.prefix}   Content: ${response.content}")
+                println("${debugInfo.prefix}   Data: ${response.data}")
+                println("${debugInfo.prefix}   Processing time: ${duration}ms")
+                println("${debugInfo.prefix}   ---")
+            }.onFailure { error ->
+                println("${debugInfo.prefix} Agent '$name' ($id) error:")
+                println("${debugInfo.prefix}   Error: ${error.message}")
+                println("${debugInfo.prefix}   Code: ${error.code}")
+                println("${debugInfo.prefix}   Processing time: ${duration}ms")
+                println("${debugInfo.prefix}   ---")
+            }
         }
-        
-        return response
+
+        return result
     }
     
     override fun canHandle(comm: Comm): Boolean = true
@@ -375,24 +385,28 @@ internal class CoreAgent(
     /**
      * 🚀 Direct tool execution sugar - agent.run("toolName", params)
      */
-    suspend fun run(toolName: String, parameters: Map<String, Any> = emptyMap()): ToolResult {
+    suspend fun run(toolName: String, parameters: Map<String, Any> = emptyMap()): SpiceResult<ToolResult> {
         val tool = tools.find { it.name == toolName }
-            ?: return ToolResult.error("Tool '$toolName' not found in agent '${this.name}'")
-        
+            ?: return SpiceResult.success(ToolResult.error("Tool '$toolName' not found in agent '${this.name}'"))
+
         return try {
             if (debugInfo?.enabled == true) {
                 println("${debugInfo.prefix} Agent '$name' executing tool '$toolName'")
             }
-            
+
             val result = tool.execute(parameters)
-            
+
             if (debugInfo?.enabled == true) {
-                println("${debugInfo.prefix} Tool '$toolName' result: ${if (result.success) "✅ SUCCESS" else "❌ ERROR: ${result.error}"}")
+                result.onSuccess { toolResult ->
+                    println("${debugInfo.prefix} Tool '$toolName' result: ${if (toolResult.success) "✅ SUCCESS" else "❌ ERROR: ${toolResult.error}"}")
+                }.onFailure { error ->
+                    println("${debugInfo.prefix} Tool '$toolName' failed: ${error.message}")
+                }
             }
-            
+
             result
         } catch (e: Exception) {
-            ToolResult.error("Tool execution failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Tool execution failed: ${e.message}"))
         }
     }
     
@@ -415,22 +429,23 @@ internal class CoreAgent(
      */
     suspend fun runSequence(
         toolsWithParams: List<Pair<String, Map<String, Any>>>
-    ): List<ToolResult> {
-        val results = mutableListOf<ToolResult>()
-        
+    ): List<SpiceResult<ToolResult>> {
+        val results = mutableListOf<SpiceResult<ToolResult>>()
+
         for ((toolName, params) in toolsWithParams) {
             val result = run(toolName, params)
             results.add(result)
-            
+
             // Stop on first failure if not explicitly configured otherwise
-            if (!result.success) {
+            val toolResult = result.getOrNull()
+            if (toolResult?.success == false || result.isFailure) {
                 if (debugInfo?.enabled == true) {
                     println("${debugInfo.prefix} Sequence stopped at '$toolName' due to failure")
                 }
                 break
             }
         }
-        
+
         return results
     }
 }
@@ -455,7 +470,7 @@ suspend fun <T> withToolContext(
 class InlineToolBuilder(private val name: String) {
     var description: String = ""
     private val parametersMap: MutableMap<String, ParameterSchema> = mutableMapOf()
-    private var executeFunction: (suspend (Map<String, Any>) -> ToolResult)? = null
+    private var executeFunction: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
     private var canExecuteFunction: ((Map<String, Any>) -> Boolean)? = null
     
     /**
@@ -475,10 +490,10 @@ class InlineToolBuilder(private val name: String) {
     /**
      * Set the execution function
      */
-    fun execute(executor: suspend (Map<String, Any>) -> ToolResult) {
+    fun execute(executor: suspend (Map<String, Any>) -> SpiceResult<ToolResult>) {
         executeFunction = executor
     }
-    
+
     /**
      * Set simple execution with auto-success result
      */
@@ -486,9 +501,9 @@ class InlineToolBuilder(private val name: String) {
         executeFunction = { params ->
             try {
                 val result = executor(params)
-                ToolResult(success = true, result = result?.toString() ?: "")
+                SpiceResult.success(ToolResult(success = true, result = result?.toString() ?: ""))
             } catch (e: Exception) {
-                ToolResult(success = false, error = e.message ?: "Unknown error")
+                SpiceResult.success(ToolResult(success = false, error = e.message ?: "Unknown error"))
             }
         }
     }
@@ -536,22 +551,22 @@ class InlineTool(
     override val name: String,
     override val description: String,
     override val schema: ToolSchema,
-    private val executeFunction: suspend (Map<String, Any>) -> ToolResult,
+    private val executeFunction: suspend (Map<String, Any>) -> SpiceResult<ToolResult>,
     private val canExecuteFunction: ((Map<String, Any>) -> Boolean)? = null
 ) : Tool {
-    
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         // Validate parameters if canExecute function is provided
         canExecuteFunction?.let { validator ->
             if (!validator(parameters)) {
-                return ToolResult.error("Tool execution validation failed")
+                return SpiceResult.success(ToolResult.error("Tool execution validation failed"))
             }
         }
-        
+
         return try {
             executeFunction(parameters)
         } catch (e: Exception) {
-            ToolResult.error("Tool execution failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Tool execution failed: ${e.message}"))
         }
     }
     
@@ -566,7 +581,7 @@ class InlineTool(
         name: String = this.name,
         description: String = this.description,
         schema: ToolSchema = this.schema,
-        executeFunction: suspend (Map<String, Any>) -> ToolResult = this.executeFunction,
+        executeFunction: suspend (Map<String, Any>) -> SpiceResult<ToolResult> = this.executeFunction,
         canExecuteFunction: ((Map<String, Any>) -> Boolean)? = this.canExecuteFunction
     ): InlineTool {
         return InlineTool(
@@ -796,7 +811,7 @@ fun textProcessingAgent(
     id: String,
     name: String,
     description: String = "Text processing agent",
-    processor: suspend (Comm) -> Comm
+    processor: suspend (Comm) -> SpiceResult<Comm>
 ): Agent = buildAgent {
     this.id = id
     this.name = name
@@ -816,9 +831,9 @@ fun echoAgent(
     this.name = name
     this.description = description
     handle { comm ->
-        comm.reply(
+        SpiceResult.success(comm.reply(
             content = "Echo: ${comm.content}",
             from = id
-        )
+        ))
     }
 } 
