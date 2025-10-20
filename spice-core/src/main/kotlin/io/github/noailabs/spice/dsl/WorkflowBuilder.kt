@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.dsl
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -172,7 +173,18 @@ class WorkflowBuilder(private val id: String, private val name: String) {
             id = id,
             name = name,
             type = NodeType.AGENT,
-            processor = { comm -> agent.processComm(comm) }
+            processor = { comm ->
+                agent.processComm(comm).fold(
+                    onSuccess = { result -> result },
+                    onFailure = { error ->
+                        comm.reply(
+                            content = "Agent execution failed: ${error.message}",
+                            from = id,
+                            type = CommType.ERROR
+                        )
+                    }
+                )
+            }
         ))
     }
     
@@ -187,10 +199,21 @@ class WorkflowBuilder(private val id: String, private val name: String) {
             processor = { comm ->
                 val parameters = comm.data.toMap()
                 val result = tool.execute(parameters)
-                comm.reply(
-                    content = result.result ?: result.error ?: "Tool execution completed",
-                    from = "tool-$id",
-                    data = result.metadata + mapOf("tool_success" to result.success.toString())
+                result.fold(
+                    onSuccess = { toolResult ->
+                        comm.reply(
+                            content = toolResult.result ?: toolResult.error ?: "Tool execution completed",
+                            from = "tool-$id",
+                            data = toolResult.metadata + mapOf("tool_success" to toolResult.success.toString())
+                        )
+                    },
+                    onFailure = { error ->
+                        comm.reply(
+                            content = "Tool execution failed: ${error.message}",
+                            from = "tool-$id",
+                            type = CommType.ERROR
+                        )
+                    }
                 )
             }
         ))
@@ -501,7 +524,18 @@ fun Agent.toWorkflowNode(id: String = this.id): WorkflowNode {
         id = id,
         name = name,
         type = NodeType.AGENT,
-        processor = { comm -> processComm(comm) }
+        processor = { comm ->
+            processComm(comm).fold(
+                onSuccess = { result -> result },
+                onFailure = { error ->
+                    comm.reply(
+                        content = "Agent execution failed: ${error.message}",
+                        from = id,
+                        type = CommType.ERROR
+                    )
+                }
+            )
+        }
     )
 }
 
@@ -516,10 +550,21 @@ fun Tool.toWorkflowNode(id: String = this.name): WorkflowNode {
         processor = { comm ->
             val parameters = comm.data.toMap()
             val result = execute(parameters)
-            comm.reply(
-                content = result.result ?: result.error ?: "Tool execution completed",
-                from = "tool-$id",
-                data = result.metadata + mapOf("tool_success" to result.success.toString())
+            result.fold(
+                onSuccess = { toolResult ->
+                    comm.reply(
+                        content = toolResult.result ?: toolResult.error ?: "Tool execution completed",
+                        from = "tool-$id",
+                        data = toolResult.metadata + mapOf("tool_success" to toolResult.success.toString())
+                    )
+                },
+                onFailure = { error ->
+                    comm.reply(
+                        content = "Tool execution failed: ${error.message}",
+                        from = "tool-$id",
+                        type = CommType.ERROR
+                    )
+                }
             )
         }
     )

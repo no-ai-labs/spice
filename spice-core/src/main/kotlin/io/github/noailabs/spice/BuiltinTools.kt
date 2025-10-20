@@ -1,5 +1,6 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.random.Random
@@ -204,7 +205,7 @@ class SimpleTool(
         parameters = parameterSchemas
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
-        return executor(parameters)
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+        return SpiceResult.success(executor(parameters))
     }
 } 

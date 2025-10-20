@@ -2,6 +2,7 @@ package io.github.noailabs.spice.swarm
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
 
 /**
  * Mock agent registry function (replace with actual AgentRegistry when available)
@@ -192,10 +193,10 @@ class QuickSwarmBuilder {
                 this.name = name
                 description = "Claude-powered AI agent"
                 handle { comm ->
-                    comm.reply(
+                    SpiceResult.success(comm.reply(
                         content = "🤖 Claude response to: ${comm.content}",
                         from = id
-                    )
+                    ))
                 }
             }
             agents[id] = agent
@@ -219,10 +220,10 @@ class QuickSwarmBuilder {
                 this.name = name
                 description = "GPT-powered AI agent"
                 handle { comm ->
-                    comm.reply(
+                    SpiceResult.success(comm.reply(
                         content = "🧠 GPT response to: ${comm.content}",
                         from = id
-                    )
+                    ))
                 }
             }
             agents[id] = agent
@@ -278,16 +279,16 @@ class QuickSwarmBuilder {
         return buildAgent {
             this.name = name
             description = "Mock agent for swarm testing"
-            
+
             handle { comm ->
-                comm.reply(
+                SpiceResult.success(comm.reply(
                     content = "$responsePrefix: ${comm.content}",
                     from = id,
                     data = mapOf(
                         "agent_type" to "mock",
                         "speciality" to responsePrefix
                     )
-                )
+                ))
             }
         }
     }

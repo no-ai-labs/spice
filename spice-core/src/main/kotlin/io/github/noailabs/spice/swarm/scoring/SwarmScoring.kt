@@ -2,6 +2,7 @@ package io.github.noailabs.spice.swarm.scoring
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.swarm.*
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -127,9 +128,12 @@ class AIResultScorer(
                 to = scoringAgent.id,
                 type = CommType.TEXT
             )
-            
+
             val response = scoringAgent.processComm(comm)
-            parseScoringResponse(response.content)
+            response.fold(
+                onSuccess = { comm -> parseScoringResponse(comm.content) },
+                onFailure = { error -> ScoringResult.failed("AI comm failed: ${error.message}") }
+            )
             
         } catch (e: Exception) {
             ScoringResult.failed("AI scoring error: ${e.message}")

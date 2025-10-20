@@ -2,6 +2,8 @@ package io.github.noailabs.spice.swarm
 
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.swarm.scoring.*
 
 /**
@@ -108,22 +110,22 @@ class AIConsensusTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return try {
             val responses = parameters["responses"] as? List<*> ?: emptyList<String>()
             val criteria = parameters["criteria"] as? String ?: "balanced"
             val taskType = TaskType.valueOf(parameters["task_type"] as? String ?: "GENERAL")
-            
+
             val consensusResult = if (scoringAgent != null) {
                 buildAIConsensus(responses.map { it.toString() }, criteria, taskType)
             } else {
                 buildRuleBasedConsensus(responses.map { it.toString() }, criteria)
             }
-            
-            ToolResult.success(consensusResult)
-            
+
+            SpiceResult.success(ToolResult.success(consensusResult))
+
         } catch (e: Exception) {
-            ToolResult.error("Consensus building failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Consensus building failed: ${e.message}"))
         }
     }
     
@@ -157,9 +159,12 @@ class AIConsensusTool(
             to = scoringAgent!!.id,
             type = CommType.TEXT
         )
-        
+
         val response = scoringAgent!!.processComm(comm)
-        return "🤝 AI Consensus:\n\n${response.content}"
+        return response.fold(
+            onSuccess = { comm -> "🤝 AI Consensus:\n\n${comm.content}" },
+            onFailure = { error -> "🤝 AI Consensus failed: ${error.message}" }
+        )
     }
     
     private fun buildRuleBasedConsensus(responses: List<String>, criteria: String): String {
@@ -213,22 +218,22 @@ class ConflictResolverTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return try {
             val responses = parameters["conflicting_responses"] as? List<*> ?: emptyList<String>()
             val strategy = parameters["resolution_strategy"] as? String ?: "hybrid"
-            
+
             val resolution = when (strategy) {
                 "vote" -> resolveByVoting(responses.map { it.toString() })
                 "weighted" -> resolveByWeighting(responses.map { it.toString() })
                 "hybrid" -> resolveByHybrid(responses.map { it.toString() })
                 else -> resolveByHybrid(responses.map { it.toString() })
             }
-            
-            ToolResult.success(resolution)
-            
+
+            SpiceResult.success(ToolResult.success(resolution))
+
         } catch (e: Exception) {
-            ToolResult.error("Conflict resolution failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Conflict resolution failed: ${e.message}"))
         }
     }
     
@@ -275,22 +280,22 @@ class QualityAssessorTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return try {
             val content = parameters["content"] as String
             val originalQuery = parameters["original_query"] as String
             val taskType = TaskType.valueOf(parameters["task_type"] as? String ?: "GENERAL")
-            
+
             val assessment = if (scoringAgent != null) {
                 performAIAssessment(content, originalQuery, taskType)
             } else {
                 performRuleBasedAssessment(content, originalQuery)
             }
-            
-            ToolResult.success(assessment)
-            
+
+            SpiceResult.success(ToolResult.success(assessment))
+
         } catch (e: Exception) {
-            ToolResult.error("Quality assessment failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Quality assessment failed: ${e.message}"))
         }
     }
     
@@ -380,22 +385,22 @@ class ResultAggregatorTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return try {
             val results = parameters["results"] as? List<*> ?: emptyList<String>()
             val strategy = parameters["aggregation_strategy"] as? String ?: "synthesize"
-            
+
             val aggregated = when (strategy) {
                 "concat" -> concatenateResults(results.map { it.toString() })
                 "summarize" -> summarizeResults(results.map { it.toString() })
                 "synthesize" -> synthesizeResults(results.map { it.toString() })
                 else -> synthesizeResults(results.map { it.toString() })
             }
-            
-            ToolResult.success(aggregated)
-            
+
+            SpiceResult.success(ToolResult.success(aggregated))
+
         } catch (e: Exception) {
-            ToolResult.error("Result aggregation failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Result aggregation failed: ${e.message}"))
         }
     }
     
@@ -460,17 +465,17 @@ class StrategyOptimizerTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): ToolResult {
+    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return try {
             val history = parameters["performance_history"] as? List<*> ?: emptyList<String>()
             val currentTask = parameters["current_task"] as String
-            
+
             val optimization = optimizeStrategy(history.map { it.toString() }, currentTask)
-            
-            ToolResult.success(optimization)
-            
+
+            SpiceResult.success(ToolResult.success(optimization))
+
         } catch (e: Exception) {
-            ToolResult.error("Strategy optimization failed: ${e.message}")
+            SpiceResult.success(ToolResult.error("Strategy optimization failed: ${e.message}"))
         }
     }
     
