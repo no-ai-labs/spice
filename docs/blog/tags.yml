@@ -1,19 +1,34 @@
-facebook:
-  label: Facebook
-  permalink: /facebook
-  description: Facebook tag description
+release:
+  label: Release
+  permalink: /release
+  description: Release announcements and changelogs
 
-hello:
-  label: Hello
-  permalink: /hello
-  description: Hello tag description
+railway-oriented-programming:
+  label: Railway-Oriented Programming
+  permalink: /railway-oriented-programming
+  description: Functional programming patterns for error handling
 
-docusaurus:
-  label: Docusaurus
-  permalink: /docusaurus
-  description: Docusaurus tag description
+error-handling:
+  label: Error Handling
+  permalink: /error-handling
+  description: Best practices for error handling
 
-hola:
-  label: Hola
-  permalink: /hola
-  description: Hola tag description
+spice-result:
+  label: SpiceResult
+  permalink: /spice-result
+  description: Type-safe result type for error handling
+
+features:
+  label: Features
+  permalink: /features
+  description: New features and enhancements
+
+tutorial:
+  label: Tutorial
+  permalink: /tutorial
+  description: Step-by-step guides and tutorials
+
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: Architecture patterns and design decisions
