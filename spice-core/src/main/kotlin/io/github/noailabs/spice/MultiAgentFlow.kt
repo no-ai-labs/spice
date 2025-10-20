@@ -1,5 +1,6 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.selects.select
 import java.util.concurrent.CopyOnWriteArrayList
@@ -181,10 +182,17 @@ class MultiAgentFlow(
             try {
                 val stepComm = currentComm.withData("step_index", index.toString())
                 val result = agent.processComm(stepComm)
-                
-                processingSteps.add("Step ${index + 1} (${agent.name}): Processed")
-                currentComm = result
-                
+
+                result.fold(
+                    onSuccess = { comm ->
+                        processingSteps.add("Step ${index + 1} (${agent.name}): Processed")
+                        currentComm = comm
+                    },
+                    onFailure = { error ->
+                        processingSteps.add("Step ${index + 1} (${agent.name}): Error - ${error.message}")
+                    }
+                )
+
             } catch (e: Exception) {
                 processingSteps.add("Step ${index + 1} (${agent.name}): Error - ${e.message}")
                 // Continue with original message if agent fails
@@ -208,7 +216,10 @@ class MultiAgentFlow(
                 try {
                     val indexedComm = comm.withData("parallel_index", index.toString())
                     val result = agent.processComm(indexedComm)
-                    "${agent.name}: ${result.content}"
+                    result.fold(
+                        onSuccess = { comm -> "${agent.name}: ${comm.content}" },
+                        onFailure = { error -> "${agent.name}: Error - ${error.message}" }
+                    )
                 } catch (e: Exception) {
                     "${agent.name}: Error - ${e.message}"
                 }
@@ -236,12 +247,25 @@ class MultiAgentFlow(
                 try {
                     val result = agent.processComm(comm)
                     val processingTime = System.currentTimeMillis() - startTime
-                    AgentCompetitionResult(
-                        agentId = agent.id,
-                        agentName = agent.name,
-                        content = result.content,
-                        processingTime = processingTime,
-                        success = true
+                    result.fold(
+                        onSuccess = { comm ->
+                            AgentCompetitionResult(
+                                agentId = agent.id,
+                                agentName = agent.name,
+                                content = comm.content,
+                                processingTime = processingTime,
+                                success = true
+                            )
+                        },
+                        onFailure = { error ->
+                            AgentCompetitionResult(
+                                agentId = agent.id,
+                                agentName = agent.name,
+                                content = "Error: ${error.message}",
+                                processingTime = processingTime,
+                                success = false
+                            )
+                        }
                     )
                 } catch (e: Exception) {
                     val processingTime = System.currentTimeMillis() - startTime
@@ -307,17 +331,24 @@ class MultiAgentFlow(
             try {
                 val stepComm = currentComm.withData("pipeline_step", index.toString())
                 val result = agent.processComm(stepComm)
-                
-                pipelineSteps.add("Step ${index + 1} (${agent.name}): Processed")
-                
-                // Next agent receives previous agent's output
-                currentComm = result.copy(
-                    data = currentComm.data + mapOf(
-                        "previous_agent" to agent.id,
-                        "pipeline_step" to index.toString()
-                    )
+
+                result.fold(
+                    onSuccess = { comm ->
+                        pipelineSteps.add("Step ${index + 1} (${agent.name}): Processed")
+
+                        // Next agent receives previous agent's output
+                        currentComm = comm.copy(
+                            data = currentComm.data + mapOf(
+                                "previous_agent" to agent.id,
+                                "pipeline_step" to index.toString()
+                            )
+                        )
+                    },
+                    onFailure = { error ->
+                        pipelineSteps.add("Step ${index + 1} (${agent.name}): Failed - ${error.message}")
+                    }
                 )
-                
+
             } catch (e: Exception) {
                 pipelineSteps.add("Step ${index + 1} (${agent.name}): Failed - ${e.message}")
                 break // Stop pipeline on error
@@ -381,28 +412,28 @@ class SwarmAgent(
         return this
     }
     
-    override suspend fun processComm(comm: Comm): Comm {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         if (agentPool.isEmpty()) {
-            return comm.reply(
+            return SpiceResult.success(comm.reply(
                 content = "No agents in swarm pool",
                 from = id,
                 type = CommType.ERROR
-            )
+            ))
         }
-        
+
         // Select optimal agents for this comm
         val selectedAgents = selectOptimalAgents(comm)
-        
+
         // Create new flow with selected agents
         val swarmFlow = MultiAgentFlow().apply {
             selectedAgents.forEach { addAgent(it) }
             strategyResolver?.let { setStrategyResolver(it) }
         }
-        
+
         // Determine execution strategy
-        val strategy = strategyResolver?.invoke(comm, selectedAgents) 
+        val strategy = strategyResolver?.invoke(comm, selectedAgents)
             ?: determineDefaultStrategy(comm, selectedAgents)
-        
+
         // Process through flow
         val flowComm = comm.copy(
             data = comm.data + mapOf(
@@ -411,8 +442,8 @@ class SwarmAgent(
                 "swarm_strategy" to strategy.name
             )
         )
-        
-        return swarmFlow.process(flowComm)
+
+        return SpiceResult.success(swarmFlow.process(flowComm))
     }
     
     /**
@@ -546,20 +577,35 @@ class SequentialFlow(
                 val result = withContext(scope.coroutineContext) {
                     agent.processComm(current)
                 }
-                
+
                 val processingTime = System.currentTimeMillis() - startTime
-                
-                executionResults.add(
-                    AgentExecutionResult(
-                        agentId = agent.id,
-                        agentName = agent.name,
-                        success = true,
-                        processingTime = processingTime
-                    )
+
+                result.fold(
+                    onSuccess = { comm ->
+                        executionResults.add(
+                            AgentExecutionResult(
+                                agentId = agent.id,
+                                agentName = agent.name,
+                                success = true,
+                                processingTime = processingTime
+                            )
+                        )
+
+                        // Use result as input for next agent
+                        current = comm
+                    },
+                    onFailure = { error ->
+                        executionResults.add(
+                            AgentExecutionResult(
+                                agentId = agent.id,
+                                agentName = agent.name,
+                                success = false,
+                                processingTime = processingTime,
+                                errorMessage = error.message
+                            )
+                        )
+                    }
                 )
-                
-                // Use result as input for next agent
-                current = result
                 
             } catch (e: Exception) {
                 executionResults.add(

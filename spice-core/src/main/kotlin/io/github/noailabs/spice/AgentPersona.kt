@@ -1,8 +1,10 @@
 package io.github.noailabs.spice
 
+import io.github.noailabs.spice.error.SpiceResult
+
 /**
  * 🎭 Spice Agent Persona System
- * 
+ *
  * System that gives agents personas to make their styles and behaviors different
  */
 
@@ -520,30 +522,35 @@ abstract class PersonaAdapter(
     /**
      * Process comm with persona applied
      */
-    override suspend fun processComm(comm: Comm): Comm {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         // Original processing
         val originalResponse = processCommWithPersonality(comm)
-        
-        // Apply persona
-        val personalizedContent = persona.applyToResponse(originalResponse.content, originalResponse.type)
-        
-        // Add persona information to data
-        val personalizedData = originalResponse.data + mapOf(
-            "persona" to persona.name,
-            "personalityType" to persona.personalityType.toString(),
-            "communicationStyle" to persona.communicationStyle.toString()
-        )
-        
-        return originalResponse.copy(
-            content = personalizedContent,
-            data = personalizedData
+
+        return originalResponse.fold(
+            onSuccess = { response ->
+                // Apply persona
+                val personalizedContent = persona.applyToResponse(response.content, response.type)
+
+                // Add persona information to data
+                val personalizedData = response.data + mapOf(
+                    "persona" to persona.name,
+                    "personalityType" to persona.personalityType.toString(),
+                    "communicationStyle" to persona.communicationStyle.toString()
+                )
+
+                SpiceResult.success(response.copy(
+                    content = personalizedContent,
+                    data = personalizedData
+                ))
+            },
+            onFailure = { error -> SpiceResult.failure(error) }
         )
     }
-    
+
     /**
      * Actual comm processing logic to be implemented by subclasses
      */
-    abstract suspend fun processCommWithPersonality(comm: Comm): Comm
+    abstract suspend fun processCommWithPersonality(comm: Comm): SpiceResult<Comm>
     
     /**
      * Check if agent has specific trait
@@ -577,7 +584,7 @@ fun Agent.withPersona(persona: AgentPersona): PersonaAdapter {
         capabilities = originalAgent.capabilities,
         persona = persona
     ) {
-        override suspend fun processCommWithPersonality(comm: Comm): Comm {
+        override suspend fun processCommWithPersonality(comm: Comm): SpiceResult<Comm> {
             return originalAgent.processComm(comm)
         }
         

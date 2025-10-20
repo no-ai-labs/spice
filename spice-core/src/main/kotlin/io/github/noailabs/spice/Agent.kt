@@ -183,7 +183,7 @@ abstract class BaseAgent(
     /**
      * Call another agent
      */
-    protected suspend fun callAgent(agentId: String, comm: Comm): Comm? {
+    protected suspend fun callAgent(agentId: String, comm: Comm): SpiceResult<Comm>? {
         return runtime?.callAgent(agentId, comm)
     }
     
