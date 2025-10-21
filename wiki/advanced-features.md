@@ -4,32 +4,145 @@
 
 Swarm Intelligence enables multiple agents to work together as a collective, making decisions through consensus and emergent behaviors.
 
-### Basic Swarm Setup
+### Modern Swarm DSL
+
 ```kotlin
-val swarm = SwarmAgent(
-    id = "analysis-swarm",
-    name = "Analysis Swarm",
-    description = "Collective analysis system"
-).apply {
-    // Add worker agents
-    addWorker(sentimentAnalyzer)
-    addWorker(keywordExtractor)
-    addWorker(summaryGenerator)
-    addWorker(factChecker)
-    
-    // Configure swarm behavior
-    config.consensusThreshold = 0.7
-    config.minWorkers = 3
-    config.timeout = 5000
+import io.github.noailabs.spice.swarm.*
+
+// Create swarm with DSL
+val researchSwarm = buildSwarmAgent {
+    name = "AI Research Swarm"
+    description = "Multi-agent research and analysis swarm"
+
+    // Add member agents
+    quickSwarm {
+        researchAgent("researcher", "Lead Researcher")
+        analysisAgent("analyst", "Data Analyst")
+        specialist("expert", "Domain Expert", "Expert analysis")
+    }
+
+    // Configure behavior
+    config {
+        debug(true)
+        timeout(45000)
+        maxOperations(5)
+    }
+
+    // Set default strategy
+    defaultStrategy(SwarmStrategyType.PARALLEL)
 }
 
-// Execute swarm task
-val result = swarm.execute(
-    SwarmTask(
-        type = TaskType.CONSENSUS,
-        input = comm("Analyze this article about AI"),
-        strategy = ExecutionStrategy.PARALLEL
-    )
+// Execute swarm
+val result = researchSwarm.processComm(Comm(
+    content = "Analyze the impact of AI on healthcare",
+    from = "user",
+    type = CommType.TEXT
+))
+```
+
+### Swarm Coordination Strategies
+
+```kotlin
+// 1. PARALLEL - Execute all agents simultaneously
+val parallelSwarm = buildSwarmAgent {
+    name = "Parallel Analysis Swarm"
+    defaultStrategy(SwarmStrategyType.PARALLEL)
+    // Best for: Independent analyses, diverse perspectives
+}
+
+// 2. SEQUENTIAL - Execute agents in sequence, passing results forward
+val sequentialSwarm = buildSwarmAgent {
+    name = "Sequential Processing Swarm"
+    defaultStrategy(SwarmStrategyType.SEQUENTIAL)
+    // Best for: Step-by-step processing, pipeline workflows
+}
+
+// 3. CONSENSUS - Build consensus through multi-round discussion
+val consensusSwarm = buildSwarmAgent {
+    name = "Consensus Building Swarm"
+    defaultStrategy(SwarmStrategyType.CONSENSUS)
+    // Best for: Decision-making, reaching agreement
+}
+
+// 4. COMPETITION - Select best result from competing agents
+val competitionSwarm = buildSwarmAgent {
+    name = "Competition Swarm"
+    defaultStrategy(SwarmStrategyType.COMPETITION)
+    // Best for: Creative tasks, multiple solutions
+}
+
+// 5. HIERARCHICAL - Multi-level delegation
+val hierarchicalSwarm = buildSwarmAgent {
+    name = "Hierarchical Swarm"
+    defaultStrategy(SwarmStrategyType.HIERARCHICAL)
+    // Best for: Complex tasks, organizational structure
+}
+```
+
+### AI-Powered Coordinator
+
+Use LLM for meta-coordination decisions:
+
+```kotlin
+// Create LLM coordinator agent (GPT-4 or Claude)
+val llmCoordinator = buildAgent {
+    name = "GPT-4 Coordinator"
+    description = "Meta-coordination agent"
+    // Configure your LLM agent here
+}
+
+// Create AI-powered swarm
+val aiSwarm = buildSwarmAgent {
+    name = "AI Research Swarm"
+
+    // Use AI for intelligent coordination
+    aiCoordinator(llmCoordinator)
+
+    quickSwarm {
+        researchAgent("researcher")
+        analysisAgent("analyst")
+        specialist("expert", "Domain Expert", "Expert analysis")
+    }
+
+    config {
+        debug(true)
+        timeout(60000)
+    }
+}
+```
+
+The AI coordinator will:
+- Analyze tasks and select optimal strategies
+- Intelligently aggregate agent results
+- Build sophisticated consensus
+- Select best results with reasoning
+
+### Quick Swarm Creation
+
+```kotlin
+// Research swarm
+val research = researchSwarm(
+    name = "Research Team",
+    debugEnabled = true
+)
+
+// Creative swarm
+val creative = creativeSwarm(
+    name = "Creative Team",
+    debugEnabled = false
+)
+
+// Decision-making swarm
+val decision = decisionSwarm(
+    name = "Decision Team"
+)
+
+// AI powerhouse (with real API keys)
+val powerhouse = aiPowerhouseSwarm(
+    name = "AI Powerhouse",
+    claudeApiKey = System.getenv("CLAUDE_API_KEY"),
+    gptApiKey = System.getenv("OPENAI_API_KEY"),
+    debugEnabled = true
 )
 ```
 
@@ -330,6 +443,262 @@ val gptAgent = ModernGPTAgent(
     )
 )
 ```
+
+## Observability and Monitoring
+
+Production-grade observability with OpenTelemetry integration.
+
+### OpenTelemetry Setup
+
+```kotlin
+import io.github.noailabs.spice.observability.*
+
+// Initialize observability (once at application startup)
+ObservabilityConfig.initialize(
+    ObservabilityConfig.Config(
+        serviceName = "my-spice-app",
+        serviceVersion = "1.0.0",
+        otlpEndpoint = "http://localhost:4317",  // Jaeger/OTLP collector
+        samplingRatio = 1.0,  // 100% sampling
+        enableTracing = true,
+        enableMetrics = true,
+        environment = "production",
+        attributes = mapOf(
+            "team" to "ai-research",
+            "region" to "us-west-2"
+        )
+    )
+)
+```
+
+### Traced Agents
+
+Automatically add distributed tracing to any agent:
+
+```kotlin
+// Wrap any agent with tracing
+val myAgent = buildAgent {
+    name = "Research Agent"
+    handle { comm ->
+        SpiceResult.success(comm.reply("Response", id))
+    }
+}
+
+val tracedAgent = myAgent.traced()  // Now includes tracing!
+
+// Or wrap during creation
+val agent = buildAgent {
+    name = "Analyst"
+    handle { ... }
+}.traced(enableMetrics = true)
+```
+
+### Manual Tracing
+
+For fine-grained control:
+
+```kotlin
+suspend fun complexOperation() {
+    SpiceTracer.traced("complex.operation") { span ->
+        span.setAttribute("operation.type", "analysis")
+        span.setAttribute("complexity", "high")
+
+        // Step 1
+        SpiceTracer.childSpan("step1.preprocess") {
+            preprocessData()
+        }
+
+        // Step 2
+        SpiceTracer.childSpan("step2.analyze") {
+            analyzeData()
+        }
+
+        // Add events
+        SpiceTracer.addEvent("analysis.complete", mapOf(
+            "records_processed" to "1000"
+        ))
+
+        result
+    }
+}
+```
+
+### Metrics Collection
+
+Track performance and usage:
+
+```kotlin
+// Automatic metrics for traced agents
+val tracedAgent = myAgent.traced(enableMetrics = true)
+
+// Manual metrics recording
+SpiceMetrics.recordAgentCall(
+    agentId = "research-agent",
+    agentName = "Research Agent",
+    latencyMs = 1200,
+    success = true
+)
+
+// LLM usage tracking
+SpiceMetrics.recordLLMCall(
+    provider = "openai",
+    model = "gpt-4",
+    latencyMs = 1500,
+    inputTokens = 500,
+    outputTokens = 200,
+    success = true,
+    estimatedCostUsd = 0.015  // Track costs!
+)
+
+// Swarm operations
+SpiceMetrics.recordSwarmOperation(
+    swarmId = "research-swarm",
+    strategyType = "CONSENSUS",
+    latencyMs = 3200,
+    successRate = 1.0,
+    participatingAgents = 3
+)
+```
+
+### Observability with Swarms
+
+Combine tracing with swarm intelligence:
+
+```kotlin
+val observableSwarm = buildSwarmAgent {
+    name = "Observable Research Swarm"
+
+    quickSwarm {
+        // All member agents traced automatically
+        val researcher = buildAgent { ... }.traced()
+        val analyst = buildAgent { ... }.traced()
+        val expert = buildAgent { ... }.traced()
+
+        addAgent("researcher", researcher)
+        addAgent("analyst", analyst)
+        addAgent("expert", expert)
+    }
+
+    config {
+        debug(true)  // Additional debug logging
+    }
+}
+
+// View complete trace hierarchy:
+// swarm.processComm
+// ├─ agent.processComm [researcher] 1.2s
+// │   ├─ tool.execute [web_search] 800ms
+// │   └─ tool.execute [summarize] 350ms
+// ├─ agent.processComm [analyst] 2.1s
+// │   └─ llm.call [gpt-4] 1.8s
+// └─ agent.processComm [expert] 900ms
+```
+
+### Visualization Setup
+
+#### Jaeger for Traces
+
+```bash
+# Run Jaeger with Docker
+docker run -d --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  jaegertracing/all-in-one:latest
+
+# Access UI at http://localhost:16686
+```
+
+#### Prometheus + Grafana for Metrics
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "8889:8889"  # Prometheus metrics
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+```
+
+### Available Metrics
+
+```
+# Agent Metrics
+spice.agent.calls                    # Total agent calls
+spice.agent.latency                  # Agent call latency
+spice.agent.errors                   # Agent errors
+
+# Swarm Metrics
+spice.swarm.operations               # Swarm operations
+spice.swarm.latency                  # Swarm operation latency
+spice.swarm.success_rate             # Success rate
+
+# LLM Metrics
+spice.llm.calls                      # LLM API calls
+spice.llm.tokens                     # Token usage
+spice.llm.cost                       # Estimated cost in USD
+spice.llm.latency                    # LLM API latency
+
+# Tool Metrics
+spice.tool.executions                # Tool executions
+spice.tool.latency                   # Tool execution latency
+
+# System Metrics
+spice.errors                         # Total errors
+spice.system.memory_usage            # Memory usage
+spice.system.active_agents           # Active agents count
+```
+
+### Error Tracking
+
+```kotlin
+try {
+    val result = agent.processComm(comm)
+} catch (e: Exception) {
+    // Automatically recorded in span
+    SpiceTracer.recordException(e)
+    SpiceTracer.setError("Processing failed: ${e.message}")
+
+    // Also record as metric
+    SpiceMetrics.recordError(
+        errorType = e::class.simpleName ?: "Unknown",
+        component = "agent.${agent.id}",
+        message = e.message
+    )
+
+    throw e
+}
+```
+
+### Best Practices
+
+1. **Enable observability in production** - Essential for debugging
+2. **Use sampling** for high-volume systems (0.1 = 10%)
+3. **Monitor LLM costs** - Track token usage and spending
+4. **Set up alerts** - Notify on high latency or errors
+5. **Use trace IDs** - Pass through entire request chain
+6. **Tag by environment** - Separate dev/staging/prod
+7. **Correlate logs** - Include trace IDs in log messages
+8. **Dashboard everything** - Visualize all metrics
 
 ## Performance Optimization
 

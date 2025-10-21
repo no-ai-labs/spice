@@ -35,7 +35,9 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 
 ### Advanced Features
 - **Multi-LLM Support** - OpenAI, Anthropic, Google Vertex AI, and more
-- **Swarm Intelligence** - Coordinate multiple agents for complex tasks
+- **Swarm Intelligence** - Coordinate multiple agents with 5 strategies
+- **AI-Powered Coordinator** - LLM-enhanced meta-coordination for swarms
+- **OpenTelemetry Integration** - Production-grade observability with distributed tracing
 - **Vector Store Integration** - Built-in RAG support with multiple providers
 - **MCP Protocol** - External tool integration via Model Context Protocol
 - **Spring Boot Starter** - Seamless Spring Boot integration
@@ -203,6 +205,96 @@ Comprehensive documentation is available in our [GitHub Wiki](https://github.com
 
 ## 🛠️ Advanced Usage
 
+### Swarm Intelligence
+
+Coordinate multiple agents with AI-powered meta-coordination:
+
+```kotlin
+import io.github.noailabs.spice.swarm.*
+
+// Create a swarm with AI coordinator
+val llmCoordinator = buildAgent {
+    name = "GPT-4 Coordinator"
+    // Configure your GPT-4 or Claude agent
+}
+
+val aiSwarm = buildSwarmAgent {
+    name = "AI Research Swarm"
+    description = "Multi-agent research and analysis"
+
+    // Use AI for intelligent coordination
+    aiCoordinator(llmCoordinator)
+
+    // Add member agents
+    quickSwarm {
+        researchAgent("researcher", "Lead Researcher")
+        analysisAgent("analyst", "Data Analyst")
+        specialist("expert", "Domain Expert", "Expert analysis")
+    }
+
+    config {
+        debug(true)
+        timeout(60000)
+    }
+}
+
+// Execute with automatic strategy selection
+val result = aiSwarm.processComm(Comm(
+    content = "Analyze the impact of AI on healthcare",
+    from = "user",
+    type = CommType.TEXT
+))
+
+// Or use pre-configured swarms
+val research = researchSwarm(name = "Research Team")
+val creative = creativeSwarm(name = "Creative Team")
+val decision = decisionSwarm(name = "Decision Team")
+```
+
+### Observability
+
+Track everything with OpenTelemetry:
+
+```kotlin
+import io.github.noailabs.spice.observability.*
+
+// Initialize observability at startup
+ObservabilityConfig.initialize(
+    ObservabilityConfig.Config(
+        serviceName = "my-ai-app",
+        serviceVersion = "1.0.0",
+        otlpEndpoint = "http://localhost:4317",
+        enableTracing = true,
+        enableMetrics = true
+    )
+)
+
+// Add tracing to any agent
+val tracedAgent = buildAgent {
+    name = "Research Agent"
+    handle { comm ->
+        // Your agent logic
+        SpiceResult.success(comm.reply("Result", id))
+    }
+}.traced()  // Add tracing with one line!
+
+// Create observable swarm
+val observableSwarm = buildSwarmAgent {
+    name = "Observable Swarm"
+
+    quickSwarm {
+        val agent1 = buildAgent { ... }.traced()
+        val agent2 = buildAgent { ... }.traced()
+        addAgent("agent1", agent1)
+        addAgent("agent2", agent2)
+    }
+}
+
+// View complete traces in Jaeger
+// Track metrics in Grafana
+// Monitor LLM costs in real-time
+```
+
 ### Multi-Agent Collaboration
 
 ```kotlin
@@ -227,7 +319,7 @@ AgentRegistry.register(analyzer)
 val researchFlow = buildFlow {
     id = "research-flow"
     name = "Research and Analyze"
-    
+
     step("research", "researcher")
     step("analyze", "analyzer") { comm ->
         // Only analyze if research found something
@@ -683,6 +775,9 @@ cd spice-framework
 - ✅ JSON Serialization System
 - ✅ PSI (Program Structure Interface) - DSL to tree conversion
 - ✅ Swarm Intelligence (Multi-agent coordination with 5 strategies)
+- ✅ AI-Powered Swarm Coordinator (LLM-enhanced meta-coordination)
+- ✅ OpenTelemetry Integration (Distributed tracing & metrics)
+- ✅ TracedAgent Wrapper (Automatic observability)
 - ✅ MCP Protocol Support (Model Context Protocol integration)
 - ✅ Multi-Tenant Support with ThreadLocal context propagation
 - ✅ Dynamic Platform Management System
@@ -691,6 +786,8 @@ cd spice-framework
 - ✅ Event Sourcing Module with Kafka and PostgreSQL
 - ✅ Saga Pattern for distributed transactions
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
+- 🚧 CachedAgent (Performance optimization)
+- 🚧 BatchingCommHub (Message batching)
 
 ## 📄 License
 
