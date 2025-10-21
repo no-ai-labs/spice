@@ -7,6 +7,158 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### 🤖 AI-Powered Swarm Coordinator (COMPLETED)
+- **AISwarmCoordinator fully implemented** with LLM-enhanced meta-coordination
+- **4 intelligent coordination methods**:
+  - `analyzeTask()` - LLM-based task analysis and strategy selection
+  - `aggregateResults()` - AI synthesis of multi-agent results
+  - `buildConsensus()` - LLM-powered consensus building across agents
+  - `selectBestResult()` - AI evaluation and selection with reasoning
+- **Graceful fallback** to SmartSwarmCoordinator when LLM unavailable
+- **JSON parsing with fallbacks** for robust LLM response handling
+- **SwarmDSL enhancements**:
+  - `llmCoordinator(agent)` - Set LLM agent for coordination
+  - `aiCoordinator(llmAgent)` - Shorthand for AI-powered coordination
+- **Type-safe coordination** with SpiceResult error handling
+
+**Example**:
+```kotlin
+val llmCoordinator = buildAgent {
+    name = "GPT-4 Coordinator"
+    // Configure your LLM agent
+}
+
+val aiSwarm = buildSwarmAgent {
+    name = "AI Research Swarm"
+    aiCoordinator(llmCoordinator)
+
+    quickSwarm {
+        researchAgent("researcher")
+        analysisAgent("analyst")
+        specialist("expert", "Expert", "analysis")
+    }
+}
+
+// LLM intelligently selects strategy and coordinates agents
+val result = aiSwarm.processComm(comm)
+```
+
+#### 📊 OpenTelemetry Integration (Production-Grade Observability)
+- **ObservabilityConfig** - Central OpenTelemetry configuration and initialization
+  - Support for OTLP export to Jaeger, Prometheus, Grafana
+  - Configurable sampling, service metadata, and export intervals
+  - Resource attributes with semantic conventions
+- **SpiceTracer** - Simplified distributed tracing utilities
+  - `traced()` function for coroutine-aware span management
+  - Automatic error recording and status tracking
+  - Context propagation across async boundaries
+  - Manual span creation for custom instrumentation
+- **SpiceMetrics** - Comprehensive metrics collection
+  - Agent operation metrics (latency, success rate)
+  - Swarm coordination metrics (strategy type, participation)
+  - LLM usage metrics (tokens, cost estimation, provider/model tracking)
+  - Tool execution metrics (latency, success/failure)
+  - Error tracking with type classification
+- **TracedAgent** - Agent wrapper with automatic observability
+  - Delegation pattern for zero-boilerplate tracing
+  - `.traced()` extension function for any Agent
+  - Automatic metric recording
+  - Distributed trace context propagation
+
+**Quick Start**:
+```kotlin
+// 1. Initialize at startup
+ObservabilityConfig.initialize(
+    ObservabilityConfig.Config(
+        serviceName = "my-ai-app",
+        enableTracing = true,
+        enableMetrics = true
+    )
+)
+
+// 2. Add tracing to agents
+val agent = buildAgent {
+    name = "Research Agent"
+    handle { comm -> /* ... */ }
+}.traced()
+
+// 3. View in Jaeger (http://localhost:16686)
+```
+
+**Benefits**:
+- ⚡ **Performance Optimization** - Find bottlenecks and slow agents
+- 💰 **Cost Management** - Track LLM token usage and estimated costs
+- 🐛 **Error Tracking** - Trace errors across distributed agent systems
+- 📊 **Capacity Planning** - Monitor load and predict scaling needs
+
+### Changed
+
+#### 🔧 SwarmDSL.kt
+- **AISwarmCoordinator** implementation completed (was 4 TODOs)
+- Added `llmAgent` parameter to constructor for meta-coordination
+- Implemented intelligent task analysis with LLM-based strategy selection
+- Added robust JSON parsing with keyword-based fallback
+- Enhanced error handling with graceful degradation
+
+#### 📦 Build Configuration
+- Added **6 OpenTelemetry dependencies** to spice-core:
+  - `opentelemetry-api:1.34.1`
+  - `opentelemetry-sdk:1.34.1`
+  - `opentelemetry-sdk-metrics:1.34.1`
+  - `opentelemetry-exporter-otlp:1.34.1`
+  - `opentelemetry-semconv:1.23.1-alpha`
+  - `opentelemetry-instrumentation-annotations:2.1.0`
+
+### Enhanced
+
+#### 📚 Documentation Updates
+- **wiki/advanced-features.md**:
+  - Complete Swarm Intelligence section with Modern Swarm DSL
+  - AI-Powered Coordinator examples and usage patterns
+  - Comprehensive Observability and Monitoring section
+  - OpenTelemetry setup, traced agents, metrics collection
+  - Visualization guides (Jaeger, Prometheus, Grafana)
+- **docs/docs/observability/overview.md** (NEW):
+  - Complete observability guide with quick start
+  - Benefits explanation (performance, cost, errors, capacity)
+  - What gets tracked (agents, LLMs, swarms, system health)
+  - Jaeger setup instructions
+- **docs/docs/orchestration/swarm.md**:
+  - Complete rewrite with all 5 swarm strategies
+  - AI-Powered Coordinator usage examples
+  - Quick swarm templates (research, creative, decision, aiPowerhouse)
+  - Observability integration examples
+- **README.md**:
+  - Added AI-Powered Coordinator to Advanced Features
+  - Added OpenTelemetry Integration to Advanced Features
+  - New Swarm Intelligence section with examples
+  - New Observability section with traced agents and metrics
+
+### Technical Details
+
+#### 🏗️ New Files Created
+- `spice-core/src/main/kotlin/io/github/noailabs/spice/observability/ObservabilityConfig.kt`
+- `spice-core/src/main/kotlin/io/github/noailabs/spice/observability/SpiceTracer.kt`
+- `spice-core/src/main/kotlin/io/github/noailabs/spice/observability/SpiceMetrics.kt`
+- `spice-core/src/main/kotlin/io/github/noailabs/spice/observability/TracedAgent.kt`
+
+#### 📊 Impact
+- **Swarm Intelligence**: AI-Powered Coordinator enables LLM-enhanced meta-coordination for complex multi-agent scenarios
+- **Observability**: Production-grade monitoring with OpenTelemetry integration
+- **Developer Experience**: Zero-boilerplate observability with `.traced()` extension
+- **Documentation**: Comprehensive guides for both features with quick start examples
+
+#### 🎯 Roadmap Progress
+- ✅ **AI-Powered Swarm Coordinator** - Completed (was Phase 3)
+- ✅ **OpenTelemetry Integration** - Completed (was Phase 3)
+- ✅ **TracedAgent Wrapper** - Completed (was Phase 3)
+- ⏳ **Configuration Validation** - Pending (Phase 2)
+- ⏳ **Performance Optimizations** - Pending (Phase 2: CachedAgent, BatchingCommHub)
+
+---
+
 ## [0.2.0] - 2025-01-XX
 
 ### 🚨 BREAKING CHANGES - Railway-Oriented Programming
