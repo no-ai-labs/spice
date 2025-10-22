@@ -25,7 +25,7 @@ class SwarmToolsTest {
                     parameter("b", "number", "Second number", required = true)
                     parameter("operation", "string", "Operation (+, -, *, /)", required = true)
 
-                    execute { params ->
+                    execute { params: Map<String, Any> ->
                         val a = (params["a"] as Number).toDouble()
                         val b = (params["b"] as Number).toDouble()
                         val op = params["operation"] as String
@@ -38,7 +38,7 @@ class SwarmToolsTest {
                             else -> throw IllegalArgumentException("Unknown operation: $op")
                         }
 
-                        ToolResult.success("Result: $result")
+                        "Result: $result"
                     }
                 }
             }
@@ -68,10 +68,10 @@ class SwarmToolsTest {
                     parameter("x", "number", "First number", required = true)
                     parameter("y", "number", "Second number", required = true)
 
-                    execute { params ->
+                    execute { params: Map<String, Any> ->
                         val x = (params["x"] as Number).toDouble()
                         val y = (params["y"] as Number).toDouble()
-                        ToolResult.success("${x + y}")
+                        "${x + y}"
                     }
                 }
             }
@@ -103,9 +103,9 @@ class SwarmToolsTest {
                 tool("greet", "Greeting tool") {
                     parameter("name", "string", "Name to greet", required = true)
 
-                    execute { params ->
+                    execute { params: Map<String, Any> ->
                         val name = params["name"] as String
-                        ToolResult.success("Hello, $name!")
+                        "Hello, $name!"
                     }
                 }
             }
@@ -136,8 +136,8 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("swarm_tool", "Swarm's own tool") {
-                    execute { _ ->
-                        ToolResult.success("Swarm tool executed")
+                    execute { _: Map<String, Any> ->
+                        "Swarm tool executed"
                     }
                 }
             }
@@ -163,10 +163,10 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("tool1", "Tool 1") {
-                    execute { _ -> ToolResult.success("Tool 1") }
+                    execute { _: Map<String, Any> -> "Tool 1" }
                 }
                 tool("tool2", "Tool 2") {
-                    execute { _ -> ToolResult.success("Tool 2") }
+                    execute { _: Map<String, Any> -> "Tool 2" }
                 }
             }
 
@@ -194,9 +194,9 @@ class SwarmToolsTest {
                 tool("coordinate", "Coordination tool") {
                     parameter("action", "string", "Action to coordinate", required = true)
 
-                    execute { params ->
+                    execute { params: Map<String, Any> ->
                         val action = params["action"] as String
-                        ToolResult.success("Coordinating: $action")
+                        "Coordinating: $action"
                     }
                 }
             }
@@ -235,7 +235,7 @@ class SwarmToolsTest {
                     parameter("numerator", "number", "Numerator", required = true)
                     parameter("denominator", "number", "Denominator", required = true)
 
-                    execute { params ->
+                    execute { params: Map<String, Any> ->
                         val numerator = (params["numerator"] as Number).toDouble()
                         val denominator = (params["denominator"] as Number).toDouble()
 
@@ -243,7 +243,7 @@ class SwarmToolsTest {
                             throw ArithmeticException("Division by zero")
                         }
 
-                        ToolResult.success("${numerator / denominator}")
+                        "${numerator / denominator}"
                     }
                 }
             }

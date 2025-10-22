@@ -39,10 +39,13 @@ class SwarmToolBuilder {
     }
 
     /**
-     * Define an inline tool with simple builder
+     * Define an inline tool with InlineToolBuilder from CoreDSL
      */
-    fun tool(name: String, description: String = "", config: SimpleToolBuilder.() -> Unit) {
-        val builder = SimpleToolBuilder(name, description)
+    fun tool(name: String, description: String = "", config: InlineToolBuilder.() -> Unit) {
+        val builder = InlineToolBuilder(name)
+        if (description.isNotEmpty()) {
+            builder.description = description
+        }
         builder.config()
         tools.add(builder.build())
     }
@@ -550,77 +553,4 @@ data class OptimizerConfig(
     val historyLimit: Int = 100
 )
 
-// =====================================
-// SIMPLE TOOL BUILDER
-// =====================================
-
-/**
- * 🔨 Simple Tool Builder for quick inline tool definition
- */
-class SimpleToolBuilder(
-    private val name: String,
-    private val description: String
-) {
-    private val parameters = mutableMapOf<String, ParameterSchema>()
-    private var executor: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
-
-    /**
-     * Add a parameter to the tool
-     */
-    fun parameter(
-        name: String,
-        type: String,
-        description: String,
-        required: Boolean = false
-    ) {
-        parameters[name] = ParameterSchema(
-            type = type,
-            description = description,
-            required = required
-        )
-    }
-
-    /**
-     * Define tool execution logic
-     */
-    fun execute(block: suspend (Map<String, Any>) -> ToolResult) {
-        executor = { params ->
-            SpiceResult.catchingSuspend {
-                block(params)
-            }
-        }
-    }
-
-    internal fun build(): Tool {
-        val schema = ToolSchema(
-            name = name,
-            description = description,
-            parameters = parameters.toMap()
-        )
-
-        val executorFn = executor ?: { _ ->
-            SpiceResult.success(ToolResult.error("Tool executor not defined"))
-        }
-
-        return object : BaseTool() {
-            override val name = this@SimpleToolBuilder.name
-            override val description = this@SimpleToolBuilder.description
-            override val schema = schema
-
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
-                // Validate parameters first
-                val validation = validateParameters(parameters)
-                if (!validation.valid) {
-                    return SpiceResult.success(
-                        ToolResult.error(
-                            "Parameter validation failed: ${validation.errors.joinToString(", ")}",
-                            metadata = mapOf("validation_errors" to validation.errors.joinToString("; "))
-                        )
-                    )
-                }
-
-                return executorFn(parameters)
-            }
-        }
-    }
-} 
+ 
