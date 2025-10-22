@@ -118,8 +118,9 @@ class SwarmAgentBuilder {
     fun swarmTools(block: SwarmToolBuilder.() -> Unit) {
         val toolBuilder = SwarmToolBuilder()
         toolBuilder.block()
-        // TODO: Integrate tools with swarm agent
-        // This will be added to SwarmAgent constructor in the future
+        swarmConfig = swarmConfig.copy(
+            swarmTools = toolBuilder.build()
+        )
     }
     
     /**

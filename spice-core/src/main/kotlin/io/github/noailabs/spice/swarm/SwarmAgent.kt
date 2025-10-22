@@ -266,8 +266,10 @@ class SwarmAgent(
     }
     
     override fun getTools(): List<Tool> {
-        // Aggregate all tools from member agents
-        return memberAgents.values.flatMap { it.getTools() }.distinctBy { it.name }
+        // Aggregate swarm-specific tools + all tools from member agents
+        val memberTools = memberAgents.values.flatMap { it.getTools() }
+        val allTools = config.swarmTools + memberTools
+        return allTools.distinctBy { it.name }
     }
     
     override fun canHandle(comm: Comm): Boolean = true // Swarm can handle any comm
@@ -495,7 +497,8 @@ data class SwarmConfig(
     val debugEnabled: Boolean = false,
     val maxConcurrentOperations: Int = 10,
     val timeoutMs: Long = 30000,
-    val retryAttempts: Int = 3
+    val retryAttempts: Int = 3,
+    val swarmTools: List<Tool> = emptyList()
 )
 
 /**
