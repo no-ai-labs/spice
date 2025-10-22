@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.mcp
 
 import io.github.noailabs.spice.*
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonObject
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
 import io.ktor.client.*
@@ -91,30 +92,3 @@ data class MCPTool(
     val parameters: JsonObject
 )
 
-/**
- * Extension to convert Map to JsonObject
- */
-fun Map<String, Any?>.toJsonObject(): JsonObject = buildJsonObject {
-    this@toJsonObject.forEach { (key, value) ->
-        when (value) {
-            null -> put(key, JsonNull)
-            is String -> put(key, value)
-            is Number -> put(key, value)
-            is Boolean -> put(key, value)
-            is Map<*, *> -> put(key, (value as Map<String, Any?>).toJsonObject())
-            is List<*> -> putJsonArray(key) {
-                value.forEach { item ->
-                    when (item) {
-                        null -> add(JsonNull)
-                        is String -> add(item)
-                        is Number -> add(item)
-                        is Boolean -> add(item)
-                        is Map<*, *> -> add((item as Map<String, Any?>).toJsonObject())
-                        else -> add(item.toString())
-                    }
-                }
-            }
-            else -> put(key, value.toString())
-        }
-    }
-}

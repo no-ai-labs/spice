@@ -3,6 +3,7 @@ package io.github.noailabs.spice.mcp
 import io.github.noailabs.spice.*
 import io.github.noailabs.spice.neo4j.*
 import io.github.noailabs.spice.serialization.SpiceSerializer.toJson
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonObject
 import kotlinx.serialization.json.*
 
 /**

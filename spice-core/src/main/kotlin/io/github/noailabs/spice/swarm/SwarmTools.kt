@@ -88,8 +88,8 @@ class SwarmToolBuilder {
     /**
      * Add strategy optimizer tool
      */
-    fun strategyOptimizer(config: OptimizerConfig = OptimizerConfig()) {
-        tools.add(StrategyOptimizerTool(config))
+    fun strategyOptimizer() {
+        tools.add(StrategyOptimizerTool())
     }
     
     /**
@@ -467,9 +467,7 @@ class ResultAggregatorTool(
 /**
  * ⚡ Strategy Optimizer Tool
  */
-class StrategyOptimizerTool(
-    private val config: OptimizerConfig
-) : Tool {
+class StrategyOptimizerTool : Tool {
     
     override val name: String = "strategy-optimizer"
     override val description: String = "Optimize swarm coordination strategy based on performance"
@@ -546,11 +544,6 @@ data class QualityConfig(
 data class AggregationConfig(
     val defaultStrategy: String = "synthesize",
     val maxResultLength: Int = 1000
-)
-
-data class OptimizerConfig(
-    val enableLearning: Boolean = true,
-    val historyLimit: Int = 100
 )
 
  

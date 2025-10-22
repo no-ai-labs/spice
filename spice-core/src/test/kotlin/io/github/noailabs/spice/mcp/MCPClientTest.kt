@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.mcp
 
+import io.github.noailabs.spice.serialization.SpiceSerializer.toJsonObject
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
