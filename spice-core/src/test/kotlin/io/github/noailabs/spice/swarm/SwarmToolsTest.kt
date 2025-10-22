@@ -25,7 +25,7 @@ class SwarmToolsTest {
                     parameter("b", "number", "Second number", required = true)
                     parameter("operation", "string", "Operation (+, -, *, /)", required = true)
 
-                    execute { params: Map<String, Any> ->
+                    execute(fun(params: Map<String, Any>): String {
                         val a = (params["a"] as Number).toDouble()
                         val b = (params["b"] as Number).toDouble()
                         val op = params["operation"] as String
@@ -38,8 +38,8 @@ class SwarmToolsTest {
                             else -> throw IllegalArgumentException("Unknown operation: $op")
                         }
 
-                        "Result: $result"
-                    }
+                        return "Result: $result"
+                    })
                 }
             }
 
@@ -68,11 +68,11 @@ class SwarmToolsTest {
                     parameter("x", "number", "First number", required = true)
                     parameter("y", "number", "Second number", required = true)
 
-                    execute { params: Map<String, Any> ->
+                    execute(fun(params: Map<String, Any>): String {
                         val x = (params["x"] as Number).toDouble()
                         val y = (params["y"] as Number).toDouble()
-                        "${x + y}"
-                    }
+                        return "${x + y}"
+                    })
                 }
             }
 
@@ -103,10 +103,10 @@ class SwarmToolsTest {
                 tool("greet", "Greeting tool") {
                     parameter("name", "string", "Name to greet", required = true)
 
-                    execute { params: Map<String, Any> ->
+                    execute(fun(params: Map<String, Any>): String {
                         val name = params["name"] as String
-                        "Hello, $name!"
-                    }
+                        return "Hello, $name!"
+                    })
                 }
             }
 
@@ -136,9 +136,9 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("swarm_tool", "Swarm's own tool") {
-                    execute { _: Map<String, Any> ->
-                        "Swarm tool executed"
-                    }
+                    execute(fun(_: Map<String, Any>): String {
+                        return "Swarm tool executed"
+                    })
                 }
             }
 
@@ -163,10 +163,14 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("tool1", "Tool 1") {
-                    execute { _: Map<String, Any> -> "Tool 1" }
+                    execute(fun(_: Map<String, Any>): String {
+                        return "Tool 1"
+                    })
                 }
                 tool("tool2", "Tool 2") {
-                    execute { _: Map<String, Any> -> "Tool 2" }
+                    execute(fun(_: Map<String, Any>): String {
+                        return "Tool 2"
+                    })
                 }
             }
 
@@ -194,10 +198,10 @@ class SwarmToolsTest {
                 tool("coordinate", "Coordination tool") {
                     parameter("action", "string", "Action to coordinate", required = true)
 
-                    execute { params: Map<String, Any> ->
+                    execute(fun(params: Map<String, Any>): String {
                         val action = params["action"] as String
-                        "Coordinating: $action"
-                    }
+                        return "Coordinating: $action"
+                    })
                 }
             }
 
@@ -235,7 +239,7 @@ class SwarmToolsTest {
                     parameter("numerator", "number", "Numerator", required = true)
                     parameter("denominator", "number", "Denominator", required = true)
 
-                    execute { params: Map<String, Any> ->
+                    execute(fun(params: Map<String, Any>): String {
                         val numerator = (params["numerator"] as Number).toDouble()
                         val denominator = (params["denominator"] as Number).toDouble()
 
@@ -243,8 +247,8 @@ class SwarmToolsTest {
                             throw ArithmeticException("Division by zero")
                         }
 
-                        "${numerator / denominator}"
-                    }
+                        return "${numerator / denominator}"
+                    })
                 }
             }
 

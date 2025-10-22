@@ -499,11 +499,22 @@ class InlineToolBuilder(private val name: String) {
      */
     fun execute(executor: (Map<String, Any>) -> Any?) {
         executeFunction = { params ->
-            try {
-                val result = executor(params)
-                SpiceResult.success(ToolResult(success = true, result = result?.toString() ?: ""))
-            } catch (e: Exception) {
-                SpiceResult.success(ToolResult(success = false, error = e.message ?: "Unknown error"))
+            // Validate required parameters
+            val missingParams = parametersMap
+                .filter { (_, schema) -> schema.required }
+                .filter { (name, _) -> !params.containsKey(name) || params[name] == null }
+                .keys
+
+            if (missingParams.isNotEmpty()) {
+                val errorMsg = "Parameter validation failed: Missing required parameter: ${missingParams.first()}"
+                SpiceResult.success(ToolResult(success = false, error = errorMsg))
+            } else {
+                try {
+                    val result = executor(params)
+                    SpiceResult.success(ToolResult(success = true, result = result?.toString() ?: ""))
+                } catch (e: Exception) {
+                    SpiceResult.success(ToolResult(success = false, error = e.message ?: "Unknown error"))
+                }
             }
         }
     }
