@@ -7,6 +7,251 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.2] - 2025-10-22
+
+### Added
+
+#### 🛠️ Swarm Tools DSL - Shared Tools for Agent Swarms
+
+**swarmTools Block** - Define tools once, share across all swarm members:
+```kotlin
+buildSwarmAgent {
+    swarmTools {
+        // Inline tool definition
+        tool("calculate", "Calculator") {
+            parameter("a", "number", required = true)
+            parameter("b", "number", required = true)
+            parameter("operation", "string", required = true)
+
+            execute(fun(params: Map<String, Any>): String {
+                val a = (params["a"] as Number).toDouble()
+                val b = (params["b"] as Number).toDouble()
+                val op = params["operation"] as String
+
+                return when (op) {
+                    "+" -> (a + b).toString()
+                    "-" -> (a - b).toString()
+                    "*" -> (a * b).toString()
+                    "/" -> (a / b).toString()
+                    else -> "Unknown operation"
+                }
+            })
+        }
+
+        // Add existing tools
+        tool(myExistingTool)
+        tools(tool1, tool2, tool3)
+    }
+}
+```
+
+**Built-in Coordination Tools**:
+- `aiConsensus()` - AI-powered consensus building
+- `conflictResolver()` - Resolve conflicts between agent responses
+- `qualityAssessor()` - Quality assessment with AI scoring
+- `resultAggregator()` - Intelligent result aggregation
+- `strategyOptimizer()` - Strategy optimization
+
+**Features**:
+- ✅ Tools automatically shared across all swarm members
+- ✅ Automatic deduplication by tool name
+- ✅ Seamless integration with existing tool system
+- ✅ Built-in parameter validation
+
+#### ✅ Automatic Parameter Validation
+
+InlineToolBuilder now automatically validates required parameters:
+- Checks all `required = true` parameters before execution
+- Returns clear error message: `"Parameter validation failed: Missing required parameter: <name>"`
+- Zero boilerplate validation code needed
+- Works with both simple and advanced execute methods
+
+**Example**:
+```kotlin
+tool("greet") {
+    parameter("name", "string", required = true)
+
+    // No manual validation needed!
+    execute(fun(params: Map<String, Any>): String {
+        val name = params["name"] as String
+        return "Hello, $name!"
+    })
+}
+
+// Missing parameter automatically caught:
+tool.execute(emptyMap())
+// Returns: ToolResult(success = false, error = "Parameter validation failed: Missing required parameter: name")
+```
+
+### Changed
+
+#### 📚 Documentation Updates (+566 lines)
+
+**orchestration/swarm.md** (+79 lines):
+- New "Swarm Tools" section with comprehensive examples
+- Inline tool definition patterns
+- Built-in coordination tools reference
+- Real-world use cases and benefits
+
+**dsl-guide/tools.md** (+152 lines):
+- Complete rewrite with modern patterns
+- "Simple Execute (Recommended)" section
+- Automatic parameter validation explained
+- Error handling with automatic exception catching
+- 6 best practices with code examples
+- Common patterns: Calculator and Data Processor
+
+**tools-extensions/creating-tools.md** (+335 lines):
+- Expanded from 19 to 338 lines
+- "Quick Start: Inline Tools" section
+- Tool patterns: Stateless, API, Database, Complex
+- 5 detailed best practices
+- Unit and integration testing examples
+- Real-world tool implementations
+
+### Removed
+
+#### 🧹 Eliminated Duplicate Code (-31 lines)
+
+**OptimizerConfig** (SwarmTools.kt):
+- Removed unused config class (4 lines)
+- `StrategyOptimizerTool` no longer takes unused config parameter
+- Simplified constructor and DSL method
+
+**toJsonObject()** (MCPClient.kt, MnemoMCPAdapter.kt):
+- Removed duplicate JSON serialization function (27 lines)
+- Now uses centralized `SpiceSerializer.toJsonObject()`
+- Consistent JSON conversion across entire framework
+- Single source of truth for serialization
+
+### Enhanced
+
+#### 🔧 InlineToolBuilder Improvements
+
+Added automatic parameter validation to `execute()` method:
+```kotlin
+fun execute(executor: (Map<String, Any>) -> Any?) {
+    executeFunction = { params ->
+        // NEW: Validate required parameters
+        val missingParams = parametersMap
+            .filter { (_, schema) -> schema.required }
+            .filter { (name, _) -> !params.containsKey(name) }
+            .keys
+
+        if (missingParams.isNotEmpty()) {
+            return SpiceResult.success(ToolResult(
+                success = false,
+                error = "Parameter validation failed: Missing required parameter: ${missingParams.first()}"
+            ))
+        }
+
+        try {
+            val result = executor(params)
+            SpiceResult.success(ToolResult(success = true, result = result?.toString() ?: ""))
+        } catch (e: Exception) {
+            SpiceResult.success(ToolResult(success = false, error = e.message ?: "Unknown error"))
+        }
+    }
+}
+```
+
+#### 🤖 SwarmAgent Tool Management
+
+Enhanced `getTools()` to include swarm-level tools:
+```kotlin
+override fun getTools(): List<Tool> {
+    val memberTools = memberAgents.values.flatMap { it.getTools() }
+    val allTools = config.swarmTools + memberTools
+    return allTools.distinctBy { it.name }  // Automatic deduplication
+}
+```
+
+### Testing
+
+**New Tests**:
+- ✅ SwarmToolsTest (7 tests) - All passing
+  - Inline tool definitions
+  - Tool execution with parameters
+  - Automatic parameter validation
+  - Error handling
+  - Tool deduplication by name
+  - Multiple agent access
+  - Coordination tools
+
+**Updated Tests**:
+- ✅ MCPClientTest - Now imports SpiceSerializer.toJsonObject()
+- ✅ All 95 tests passing (94 passed, 1 skipped)
+
+### Technical Details
+
+#### 🏗️ New Components
+- `SwarmToolBuilder.tool(name, description, config)` - Inline tool definition
+- `SwarmToolBuilder.tool(Tool)` - Add existing tool
+- `SwarmToolBuilder.tools(vararg Tool)` - Add multiple tools
+- Validation logic in InlineToolBuilder.execute()
+
+#### 🔄 Refactored Components
+- SwarmTools.kt - Removed SimpleToolBuilder (duplicate of InlineToolBuilder)
+- MCPClient.kt - Removed toJsonObject() duplicate
+- MnemoMCPAdapter.kt - Now imports SpiceSerializer.toJsonObject()
+- SwarmAgent.kt - Enhanced getTools() with swarm tools
+
+#### 📊 Impact
+- **Developer Experience**: -6 lines of boilerplate per tool
+- **Code Duplication**: -31 lines of duplicate code removed
+- **Documentation**: +566 lines of comprehensive docs
+- **Maintainability**: Single source of truth for JSON serialization
+
+### Migration Guide
+
+**No breaking changes** - All v0.2.1 code continues to work.
+
+**Opt-in to new features**:
+
+1. **Add swarm tools**:
+```kotlin
+buildSwarmAgent {
+    swarmTools {
+        tool("my_tool") { /* ... */ }
+    }
+}
+```
+
+2. **Benefit from automatic validation** (works automatically):
+```kotlin
+tool("my_tool") {
+    parameter("required_field", "string", required = true)
+
+    execute(fun(params: Map<String, Any>): String {
+        // No validation boilerplate needed!
+        val field = params["required_field"] as String
+        return "Result: $field"
+    })
+}
+```
+
+3. **Use explicit function syntax** to avoid overload ambiguity:
+```kotlin
+execute(fun(params: Map<String, Any>): String {  // ✅ Explicit
+    return "Result"
+})
+
+execute { params -> "Result" }  // ❌ May be ambiguous
+```
+
+### Benefits
+
+- ✅ **Zero Boilerplate** - Automatic parameter validation eliminates manual checks
+- ✅ **Tool Reusability** - Define once, use across entire swarm
+- ✅ **Consistent Behavior** - Single source of truth for JSON serialization
+- ✅ **Better Documentation** - 566 lines of production-ready examples
+- ✅ **Cleaner Code** - 31 lines of duplication removed
+- ✅ **Type Safety** - Explicit function syntax prevents overload ambiguity
+
+---
+
 ### Added
 
 #### 🤖 AI-Powered Swarm Coordinator (COMPLETED)

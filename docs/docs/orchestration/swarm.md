@@ -209,6 +209,85 @@ buildSwarmAgent {
 }
 ```
 
+## Swarm Tools
+
+Add custom tools that all swarm members can use:
+
+### Inline Tool Definition
+
+```kotlin
+val swarm = buildSwarmAgent {
+    name = "Tool-Enabled Swarm"
+
+    swarmTools {
+        // Simple inline tool
+        tool("calculate", "Calculator tool") {
+            parameter("a", "number", "First number", required = true)
+            parameter("b", "number", "Second number", required = true)
+            parameter("operation", "string", "Operation", required = true)
+
+            execute(fun(params: Map<String, Any>): String {
+                val a = (params["a"] as Number).toDouble()
+                val b = (params["b"] as Number).toDouble()
+                val op = params["operation"] as String
+
+                return when (op) {
+                    "+" -> (a + b).toString()
+                    "-" -> (a - b).toString()
+                    "*" -> (a * b).toString()
+                    "/" -> (a / b).toString()
+                    else -> "Unknown operation"
+                }
+            })
+        }
+    }
+
+    quickSwarm {
+        specialist("agent1", "Agent 1", "math")
+        specialist("agent2", "Agent 2", "analysis")
+    }
+}
+```
+
+### Adding Pre-built Tools
+
+```kotlin
+swarmTools {
+    // Add existing tools
+    tool(myExistingTool)
+    tools(tool1, tool2, tool3)
+}
+```
+
+### Coordination Tools
+
+Spice provides built-in coordination tools:
+
+```kotlin
+swarmTools {
+    // AI-powered consensus building
+    aiConsensus(scoringAgent = myLLM)
+
+    // Conflict resolution
+    conflictResolver()
+
+    // Quality assessment
+    qualityAssessor(scoringAgent = myLLM)
+
+    // Result aggregation
+    resultAggregator()
+
+    // Strategy optimization
+    strategyOptimizer()
+}
+```
+
+**Benefits:**
+- Tools are shared across all swarm members
+- Automatic parameter validation
+- Deduplication by tool name
+- Error handling built-in
+
 ## Observability
 
 Track swarm performance:
