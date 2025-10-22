@@ -111,7 +111,17 @@ abstract class BaseAgent(
     
     override suspend fun initialize(runtime: AgentRuntime) {
         this.runtime = runtime
+
+        // Call lifecycle callbacks if agent implements LifecycleAware
+        if (this is io.github.noailabs.spice.lifecycle.LifecycleAware) {
+            this.onBeforeInit()
+        }
+
         runtime.log(LogLevel.INFO, "Agent initialized: $id")
+
+        if (this is io.github.noailabs.spice.lifecycle.LifecycleAware) {
+            this.onAfterInit()
+        }
     }
     
     override suspend fun processComm(comm: Comm, runtime: AgentRuntime): SpiceResult<Comm> {

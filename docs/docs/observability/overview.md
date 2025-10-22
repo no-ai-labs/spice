@@ -52,7 +52,7 @@ OpenTelemetry is included in `spice-core`:
 
 ```kotlin
 dependencies {
-    implementation("io.github.no-ai-labs:spice-core:0.1.2")
+    implementation("io.github.no-ai-labs:spice-core:0.2.1")
 }
 ```
 

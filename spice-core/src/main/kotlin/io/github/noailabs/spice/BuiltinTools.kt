@@ -198,13 +198,19 @@ class SimpleTool(
     private val parameterSchemas: Map<String, ParameterSchema>,
     private val executor: suspend (Map<String, Any>) -> ToolResult
 ) : Tool {
-    
+
     override val schema: ToolSchema = ToolSchema(
         name = name,
         description = description,
         parameters = parameterSchemas
     )
-    
+
+    override fun canExecute(parameters: Map<String, Any>): Boolean {
+        // Check if all required parameters are present
+        val validation = validateParameters(parameters)
+        return validation.valid
+    }
+
     override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         return SpiceResult.success(executor(parameters))
     }

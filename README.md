@@ -785,9 +785,9 @@ cd spice-framework
 - ✅ Tenant-aware storage abstractions
 - ✅ Event Sourcing Module with Kafka and PostgreSQL
 - ✅ Saga Pattern for distributed transactions
+- ✅ CachedAgent (Performance optimization - response caching)
+- ✅ BatchingCommBackend (Performance optimization - message batching)
 - 🚧 Vector Store Integrations (Qdrant implemented, others in progress)
-- 🚧 CachedAgent (Performance optimization)
-- 🚧 BatchingCommHub (Message batching)
 
 ## 📄 License
 
