@@ -276,6 +276,226 @@ val message: String = result.fold(
 )
 ```
 
+## Choosing the Right Operator
+
+Understanding when to use each operator is crucial for clean, maintainable code.
+
+### Operators Comparison
+
+| Operator | Input | Output | Use Case |
+|----------|-------|--------|----------|
+| `map` | `SpiceResult<T>` | `SpiceResult<R>` | Transform success value, keep Result |
+| `flatMap` | `SpiceResult<T>` | `SpiceResult<R>` | Chain operations that return Results |
+| `mapError` | `SpiceResult<T>` | `SpiceResult<T>` | Transform error, keep Result |
+| `recover` | `SpiceResult<T>` | `SpiceResult<T>` | Provide fallback value, always succeeds |
+| `recoverWith` | `SpiceResult<T>` | `SpiceResult<T>` | Provide fallback Result |
+| `fold` | `SpiceResult<T>` | `R` | Extract final value, **exits Result context** |
+| `onSuccess` / `onFailure` | `SpiceResult<T>` | `SpiceResult<T>` | Side effects, keep Result |
+
+### When to Use `mapError`
+
+Use `mapError` when you want to **transform an error but keep the Result context** for further chaining:
+
+```kotlin
+// ✅ Use mapError: Transform error and continue chaining
+repository.fetchUser(id)
+    .mapError { error ->
+        // Transform low-level error to domain error
+        DomainError.UserNotFound("User $id not found", error.cause)
+    }
+    .recover { error ->
+        // Can still recover after mapping error
+        User.guest()
+    }
+
+// ✅ Use mapError: Add context to errors
+client.call()
+    .onFailure { error ->
+        logger.error { "API call failed: ${error.message}" }
+    }
+    .mapError { error ->
+        // Wrap with more context
+        ServiceError("OpenAI API failed", error.cause)
+    }
+```
+
+### When to Use `fold`
+
+Use `fold` when you need to **exit the Result context** and produce a final value:
+
+```kotlin
+// ✅ Use fold: Convert to HTTP response
+fun handleRequest(id: String): ResponseEntity<UserDto> {
+    return userService.getUser(id)
+        .fold(
+            onSuccess = { user -> ResponseEntity.ok(user.toDto()) },
+            onFailure = { error ->
+                ResponseEntity
+                    .status(error.toHttpStatus())
+                    .body(ErrorDto(error.message))
+            }
+        )
+}
+
+// ✅ Use fold: Final value needed, no more chaining
+val embedding: Embedding = embeddingService.generate(text)
+    .fold(
+        onSuccess = { it },
+        onFailure = { error ->
+            logger.error { "Embedding failed: ${error.message}" }
+            Embedding.ZERO  // Fallback value
+        }
+    )
+// embedding is Embedding, not SpiceResult<Embedding>
+```
+
+### When to Use `recover` / `recoverWith`
+
+Use `recover` when you want to **provide a fallback value** but keep the Result context:
+
+```kotlin
+// ✅ Use recover: Simple fallback value
+val data: SpiceResult<Data> = fetchFromCache()
+    .recover { error ->
+        Data.default()  // Always returns Success after this
+    }
+
+// ✅ Use recoverWith: Fallback chain
+val user: SpiceResult<User> = fetchFromPrimary()
+    .recoverWith { fetchFromBackup() }
+    .recoverWith { fetchFromCache() }
+    .recoverWith { SpiceResult.success(User.guest()) }
+```
+
+### Common Patterns
+
+#### Pattern 1: Error Transformation in Repository Layer
+
+```kotlin
+// Repository: Transform DB errors to domain errors
+class UserRepository {
+    fun findById(id: String): SpiceResult<User> {
+        return database.query(id)
+            .mapError { error ->
+                // Keep Result context for service layer
+                DomainError.DatabaseError("User query failed", error.cause)
+            }
+    }
+}
+```
+
+#### Pattern 2: Final Value Extraction in Controller
+
+```kotlin
+// Controller: Extract final HTTP response
+class UserController {
+    fun getUser(id: String): ResponseEntity<*> {
+        return userService.getUser(id)
+            .fold(
+                // Exit Result context here
+                onSuccess = { ResponseEntity.ok(it) },
+                onFailure = { ResponseEntity.status(500).body(it.message) }
+            )
+    }
+}
+```
+
+#### Pattern 3: Logging + Error Transformation
+
+```kotlin
+// ✅ Good: Separate concerns
+client.generateEmbedding(text)
+    .onFailure { error ->
+        // Side effect: logging
+        logger.error { "Embedding generation failed: ${error.message}" }
+    }
+    .mapError { error ->
+        // Transformation: wrap in domain error
+        DomainError.EmbeddingError("Failed to generate embedding", error.cause)
+    }
+
+// ❌ Avoid: Mixing concerns
+client.generateEmbedding(text)
+    .fold(
+        onSuccess = { it },
+        onFailure = { error ->
+            // Mixing logging and error handling
+            logger.error { "Failed: ${error.message}" }
+            throw DomainError.EmbeddingError("...", error.cause).toException()
+        }
+    )
+```
+
+#### Pattern 4: Multi-Layer Error Handling
+
+```kotlin
+// Layer 1: Infrastructure - Network errors
+fun callAPI(): SpiceResult<Response> {
+    return httpClient.get("/api")
+        .mapError { error ->
+            NetworkError("API call failed", error.cause)
+        }
+}
+
+// Layer 2: Service - Business errors
+fun processData(): SpiceResult<Data> {
+    return callAPI()
+        .map { response -> response.data }
+        .mapError { error ->
+            ServiceError("Data processing failed", error.cause)
+        }
+}
+
+// Layer 3: Controller - HTTP responses
+fun handleRequest(): ResponseEntity<*> {
+    return processData()
+        .fold(
+            onSuccess = { data -> ResponseEntity.ok(data) },
+            onFailure = { error -> ResponseEntity.status(500).build() }
+        )
+}
+```
+
+### Decision Tree
+
+```
+Need to transform the value?
+├─ Yes → Use `map` (stays in Result context)
+└─ No
+   ├─ Need to transform the error?
+   │  ├─ Yes → Use `mapError` (stays in Result context)
+   │  └─ No
+   │     ├─ Need a fallback value?
+   │     │  ├─ Yes → Use `recover` or `recoverWith` (stays in Result context)
+   │     │  └─ No
+   │     │     ├─ Need final value (no more chaining)?
+   │     │     │  ├─ Yes → Use `fold` (exits Result context)
+   │     │     │  └─ No → Use `onSuccess` / `onFailure` (side effects)
+```
+
+### Key Principle
+
+**Stay in Result context (`mapError`, `recover`) until you need a final value (`fold`)**
+
+```kotlin
+// ✅ Good: Stay in Result context through layers
+repository.fetch()
+    .mapError { /* domain error */ }      // Still SpiceResult
+    .recover { /* fallback */ }           // Still SpiceResult
+    .fold(                                // Exit to final value
+        onSuccess = { it },
+        onFailure = { throw it.toException() }
+    )
+
+// ❌ Bad: Exit too early
+repository.fetch()
+    .fold(                                // Exit too early!
+        onSuccess = { it },
+        onFailure = { throw DomainError(...).toException() }
+    )
+// Can't chain anymore after fold
+```
+
 ## Working with Collections
 
 ### Collecting Results
