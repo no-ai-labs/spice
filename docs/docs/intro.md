@@ -34,7 +34,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **Event Sourcing** - Complete event sourcing module with Kafka integration
 - **Observability** - OpenTelemetry integration for distributed tracing and metrics
 - **Performance Optimizations** - Response caching and message batching for production
-- **Type-Safe Error Handling** - Railway-Oriented Programming with SpiceResult<T>
+- **Type-Safe Error Handling** - Railway-Oriented Programming with `SpiceResult<T>`
 
 ## Quick Example
 
