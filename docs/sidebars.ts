@@ -80,8 +80,16 @@ const sidebars: SidebarsConfig = {
       label: '🔧 Tools & Extensions',
       items: [
         'tools-extensions/creating-tools',
+        'tools-extensions/tool-patterns',
         'tools-extensions/mcp',
         'tools-extensions/vector-stores',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🔥 Advanced',
+      items: [
+        'advanced/context-propagation',
       ],
     },
     {
