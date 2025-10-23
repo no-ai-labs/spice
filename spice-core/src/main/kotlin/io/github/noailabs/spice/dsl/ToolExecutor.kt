@@ -63,7 +63,27 @@ class ToolDSL(
     private val agentId: String,
     private val currentMessage: Comm
 ) {
-    
+
+    /**
+     * Get current AgentContext (if available)
+     *
+     * @since 0.4.0
+     */
+    suspend fun getContext(): io.github.noailabs.spice.AgentContext? {
+        return coroutineContext[io.github.noailabs.spice.AgentContext]
+    }
+
+    /**
+     * Get current AgentContext or throw exception
+     *
+     * @since 0.4.0
+     * @throws IllegalStateException if no AgentContext in coroutine scope
+     */
+    suspend fun requireContext(): io.github.noailabs.spice.AgentContext {
+        return coroutineContext[io.github.noailabs.spice.AgentContext]
+            ?: throw IllegalStateException("No AgentContext in coroutine scope")
+    }
+
     /**
      * Execute tool in current context
      */

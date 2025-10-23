@@ -97,7 +97,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.no-ai-labs"
             artifactId = "spice-core"
-            version = "0.1.2"
+            version = "0.4.0"
 
             pom {
                 name.set("Spice Core")
@@ -113,7 +113,7 @@ publishing {
                     developer {
                         id.set("spice-team")
                         name.set("Spice Framework Team")
-                        email.set("veryverybigdog@gmail.com")
+                        email.set("human@noailabs.ai")
                     }
                 }
                 scm {

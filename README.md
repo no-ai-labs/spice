@@ -34,6 +34,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **JSON Serialization** - Production-grade JSON conversion for all components
 
 ### Advanced Features
+- **🔄 Thread-Safe Context Propagation** ⭐ NEW in v0.4.0 - Automatic context flow through coroutines for multi-tenant systems
 - **Multi-LLM Support** - OpenAI, Anthropic, Google Vertex AI, and more
 - **Swarm Intelligence** - Coordinate multiple agents with 5 strategies
 - **AI-Powered Coordinator** - LLM-enhanced meta-coordination for swarms
@@ -44,8 +45,10 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **JSON Schema Support** - Export tools as standard JSON Schema for GUI/API integration
 - **PSI (Program Structure Interface)** - Convert DSL to LLM-friendly tree structures
 
-### Enterprise Features (New! 🎉)
-- **Multi-Tenant Support** - Full tenant isolation with ThreadLocal context propagation
+### Enterprise Features
+- **⭐ Automatic Multi-Tenancy** (v0.4.0) - Perfect tenant isolation with zero boilerplate via coroutine context
+- **Context-Aware Tools & Services** (v0.4.0) - Automatic tenantId/userId injection in all operations
+- **Context Extension System** (v0.4.0) - Runtime context enrichment with plugins
 - **Dynamic Platform Management** - Register and manage platforms at runtime
 - **Policy Versioning** - Version control for policies with rollback capability
 - **Event Sourcing** - Complete event sourcing module with Kafka integration
@@ -294,6 +297,74 @@ val observableSwarm = buildSwarmAgent {
 // Track metrics in Grafana
 // Monitor LLM costs in real-time
 ```
+
+### Context Propagation (v0.4.0) ⭐ NEW
+
+Automatic context flow through all operations - perfect for multi-tenant systems:
+
+```kotlin
+import io.github.noailabs.spice.context.*
+
+// Set context once at HTTP boundary
+suspend fun handleRequest(request: HttpRequest) {
+    withAgentContext(
+        "tenantId" to request.tenantId,
+        "userId" to request.userId,
+        "correlationId" to UUID.randomUUID().toString()
+    ) {
+        // ✅ Context flows automatically through ALL operations!
+        agent.processComm(request.toComm())
+    }
+}
+
+// Create context-aware tools
+val agent = buildAgent {
+    id = "order-agent"
+    val orderService = OrderService()  // Context-aware service
+
+    contextAwareTool("create_order") {
+        description = "Create new order"
+        param("items", "array", "Order items")
+
+        execute { params, context ->
+            // ✅ Context automatically injected!
+            val tenantId = context.tenantId!!
+            val userId = context.userId!!
+
+            // Service call automatically scoped to tenant!
+            orderService.createOrder(params["items"] as List<*>)
+        }
+    }
+}
+
+// Context-aware services
+class OrderRepository : BaseContextAwareService() {
+
+    // Automatic tenant scoping - no manual parameters!
+    suspend fun findOrders() = withTenant { tenantId ->
+        database.query("WHERE tenant_id = ?", tenantId)
+    }
+
+    // Automatic tenant + user scoping
+    suspend fun createOrder(items: List<String>) = withTenantAndUser { tenantId, userId ->
+        Order(
+            tenantId = tenantId,   // ✅ From context
+            userId = userId,       // ✅ From context
+            items = items
+        )
+    }
+}
+
+// Result: -20 lines of boilerplate per operation! 🚀
+```
+
+**Benefits**:
+- ✅ Zero manual parameter passing
+- ✅ Perfect tenant isolation
+- ✅ Thread-safe coroutine context
+- ✅ Type-safe property access
+
+See [Context API Documentation](docs/api/context.md) and [Production Examples](docs/examples/context-production.md).
 
 ### Multi-Agent Collaboration
 

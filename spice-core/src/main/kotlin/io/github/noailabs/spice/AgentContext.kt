@@ -6,103 +6,131 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.AbstractCoroutineContextElement
 
 /**
  * 🎯 Agent 실행 컨텍스트
- * 
- * Agent가 실행되는 환경과 필요한 리소스를 제공
- * 완전히 유연한 구조로 어떤 타입의 데이터도 저장 가능
+ *
+ * Agent가 실행되는 환경과 필요한 리소스를 제공.
+ * CoroutineContext Element로 구현되어 코루틴 간 자동 전파됨.
+ *
+ * **Immutable**: 모든 수정 작업은 새로운 AgentContext 인스턴스를 반환
+ *
+ * @since 0.4.0 - AbstractCoroutineContextElement로 전환 (Breaking Change)
  */
-class AgentContext(
-    private val data: MutableMap<String, Any> = mutableMapOf()
-) {
-    /**
-     * 값 설정
-     */
-    operator fun set(key: String, value: Any) {
-        data[key] = value
-    }
-    
-    /**
-     * 값 조회
-     */
-    operator fun get(key: String): Any? = data[key]
-    
-    /**
-     * 타입 안전한 값 조회
-     */
-    fun <T> getAs(key: String): T? = data[key] as? T
-    
-    /**
-     * 값 존재 여부 확인
-     */
-    fun has(key: String): Boolean = data.containsKey(key)
-    
-    /**
-     * 값 제거
-     */
-    fun remove(key: String): Any? = data.remove(key)
-    
-    /**
-     * 모든 키 조회
-     */
-    fun keys(): Set<String> = data.keys
-    
-    /**
-     * 컨텍스트 복사
-     */
-    fun copy(): AgentContext = AgentContext(data.toMutableMap())
-    
-    /**
-     * 빌더 스타일로 값 추가
-     */
-    fun with(key: String, value: Any): AgentContext {
-        val newContext = copy()
-        newContext[key] = value
-        return newContext
-    }
-    
-    /**
-     * 여러 값을 한번에 추가
-     */
-    fun withAll(vararg pairs: Pair<String, Any>): AgentContext {
-        val newContext = copy()
-        pairs.forEach { (key, value) -> newContext[key] = value }
-        return newContext
-    }
-    
-    /**
-     * Map으로 변환
-     */
-    fun toMap(): Map<String, Any> = data.toMap()
-    
-    override fun toString(): String = "AgentContext($data)"
-    
-    companion object {
+data class AgentContext(
+    private val data: Map<String, Any> = emptyMap()
+) : AbstractCoroutineContextElement(AgentContext) {
+
+    companion object Key : CoroutineContext.Key<AgentContext> {
         /**
          * 빈 컨텍스트 생성
          */
         fun empty() = AgentContext()
-        
+
         /**
          * 초기 데이터로 생성
          */
-        fun of(vararg pairs: Pair<String, Any>) = AgentContext().apply {
-            pairs.forEach { (key, value) -> set(key, value) }
-        }
-        
+        fun of(vararg pairs: Pair<String, Any>) = AgentContext(mapOf(*pairs))
+
         /**
          * Map으로부터 생성
          */
-        fun from(map: Map<String, Any>) = AgentContext(map.toMutableMap())
+        fun from(map: Map<String, Any>) = AgentContext(map)
     }
-}
 
-/**
- * AgentContext DSL
- */
-fun agentContext(builder: AgentContext.() -> Unit): AgentContext {
-    return AgentContext().apply(builder)
+    /**
+     * 값 조회
+     */
+    operator fun get(key: String): Any? = data[key]
+
+    /**
+     * 타입 안전한 값 조회
+     */
+    fun <T> getAs(key: String): T? = data[key] as? T
+
+    /**
+     * 값 존재 여부 확인
+     */
+    fun has(key: String): Boolean = data.containsKey(key)
+
+    /**
+     * 모든 키 조회
+     */
+    fun keys(): Set<String> = data.keys
+
+    /**
+     * 빌더 스타일로 값 추가 (새 인스턴스 반환)
+     */
+    fun with(key: String, value: Any): AgentContext {
+        return AgentContext(data + (key to value))
+    }
+
+    /**
+     * 여러 값을 한번에 추가 (새 인스턴스 반환)
+     */
+    fun withAll(vararg pairs: Pair<String, Any>): AgentContext {
+        return AgentContext(data + pairs)
+    }
+
+    /**
+     * Map으로 변환
+     */
+    fun toMap(): Map<String, Any> = data
+
+    // =========================================
+    // Type-safe Accessors for Common Keys
+    // =========================================
+
+    /**
+     * Tenant ID (멀티테넌트 환경에서 사용)
+     */
+    val tenantId: String?
+        get() = get(ContextKeys.TENANT_ID)?.toString()
+
+    /**
+     * User ID
+     */
+    val userId: String?
+        get() = get(ContextKeys.USER_ID)?.toString()
+
+    /**
+     * Session ID
+     */
+    val sessionId: String?
+        get() = get(ContextKeys.SESSION_ID)?.toString()
+
+    /**
+     * Correlation ID (분산 추적용)
+     */
+    val correlationId: String?
+        get() = get(ContextKeys.CORRELATION_ID)?.toString()
+
+    /**
+     * Request ID
+     */
+    val requestId: String?
+        get() = get(ContextKeys.REQUEST_ID)?.toString()
+
+    /**
+     * Trace ID (OpenTelemetry 등)
+     */
+    val traceId: String?
+        get() = get(ContextKeys.TRACE_ID)?.toString()
+
+    /**
+     * Locale (언어/지역 설정)
+     */
+    val locale: String?
+        get() = get(ContextKeys.LOCALE)?.toString()
+
+    /**
+     * Timezone
+     */
+    val timezone: String?
+        get() = get(ContextKeys.TIMEZONE)?.toString()
+
+    override fun toString(): String = "AgentContext($data)"
 }
 
 /**

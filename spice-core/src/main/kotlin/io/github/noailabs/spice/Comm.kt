@@ -79,25 +79,29 @@ data class Comm(
     val content: String,
     val from: String,
     val to: String? = null,
-    
+
     // Type and role
     val type: CommType = CommType.TEXT,
     val role: CommRole = CommRole.USER,
-    
+
     // Timing and threading
     val timestamp: Long = Instant.now().toEpochMilli(),
     val conversationId: String? = null,
     val thread: String? = null,
     val parentId: String? = null,
-    
+
     // Flexible metadata (replaces rigid fields)
     val data: Map<String, String> = emptyMap(),
-    
+
+    // Agent Context (since 0.4.0)
+    @kotlinx.serialization.Transient
+    val context: AgentContext? = null,
+
     // Rich content features
     val media: List<MediaItem> = emptyList(),
     val mentions: List<String> = emptyList(),
     val reactions: List<Reaction> = emptyList(),
-    
+
     // Control features
     val priority: Priority = Priority.NORMAL,
     val encrypted: Boolean = false,
@@ -222,6 +226,58 @@ data class Comm(
         ttl = ttlMs,
         expiresAt = Instant.now().toEpochMilli() + ttlMs
     )
+
+    // =========================================
+    // Context Integration (since 0.4.0)
+    // =========================================
+
+    /**
+     * Get value from context first, then fall back to data
+     *
+     * Example:
+     * ```kotlin
+     * val tenantId = comm.getContextValue("tenantId")
+     * ```
+     *
+     * @since 0.4.0
+     */
+    fun getContextValue(key: String): String? {
+        return context?.get(key)?.toString() ?: data[key]
+    }
+
+    /**
+     * Create new Comm with AgentContext
+     *
+     * Example:
+     * ```kotlin
+     * val contextualComm = comm.withContext(
+     *     AgentContext.of("tenantId" to "CHIC", "userId" to "user-123")
+     * )
+     * ```
+     *
+     * @since 0.4.0
+     */
+    fun withContext(context: AgentContext): Comm {
+        return copy(context = context)
+    }
+
+    /**
+     * Create new Comm with context values merged
+     *
+     * Example:
+     * ```kotlin
+     * val enrichedComm = comm.withContextValues(
+     *     "tenantId" to "CHIC",
+     *     "userId" to "user-123"
+     * )
+     * ```
+     *
+     * @since 0.4.0
+     */
+    fun withContextValues(vararg pairs: Pair<String, Any>): Comm {
+        val newContext = context?.withAll(*pairs) ?: AgentContext.of(*pairs)
+        return copy(context = newContext)
+    }
     
     /**
      * Check if expired

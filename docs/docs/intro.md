@@ -26,6 +26,7 @@ Spice Framework is a modern, type-safe, coroutine-first framework for building A
 - **JSON Serialization** - Production-grade JSON conversion for all components
 
 ### Advanced Features
+- **🔄 Thread-Safe Context Propagation** ⭐ NEW in v0.4.0 - Automatic context flow through coroutines for multi-tenant systems
 - **Multi-LLM Support** - OpenAI, Anthropic, Google Vertex AI, and more
 - **Swarm Intelligence** - Coordinate multiple agents for complex tasks
 - **Vector Store Integration** - Built-in RAG support with multiple providers
