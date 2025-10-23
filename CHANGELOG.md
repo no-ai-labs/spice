@@ -9,6 +9,222 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2025-10-23
+
+### 🎯 Major Release: Unified Flow Orchestration
+
+This is a **BREAKING CHANGE** release that removes the incomplete `CoreFlow` abstraction and unifies flow orchestration under `MultiAgentFlow`.
+
+### Added
+
+#### 🔀 Conditional Step Execution
+
+Execute agents based on runtime conditions:
+
+```kotlin
+val flow = buildFlow {
+    name = "Conditional Pipeline"
+
+    step("validate", "validator")
+
+    // Only execute if validated
+    step("process", "processor") { comm ->
+        comm.data["valid"] == "true"
+    }
+
+    // Only execute if processed
+    step("store", "storage") { comm ->
+        comm.data["processed"] == "true"
+    }
+}
+```
+
+**Features**:
+- ✅ Lambda-based condition evaluation at runtime
+- ✅ Access to current `Comm` state in conditions
+- ✅ Skip agents that don't meet conditions
+- ✅ Reduce unnecessary agent invocations
+
+#### ⚡ Four Execution Strategies
+
+Choose how agents execute in your flow:
+
+**1. SEQUENTIAL** (Default) - Agents execute one by one: A → B → C
+```kotlin
+buildFlow {
+    strategy = FlowStrategy.SEQUENTIAL
+    step("step1", "agent1")
+    step("step2", "agent2")
+}
+```
+
+**2. PARALLEL** - All agents execute simultaneously
+```kotlin
+buildFlow {
+    strategy = FlowStrategy.PARALLEL
+    step("task1", "agent1")
+    step("task2", "agent2")
+}
+```
+
+**3. COMPETITION** - First successful response wins
+```kotlin
+buildFlow {
+    strategy = FlowStrategy.COMPETITION
+    step("gpt", "gpt-4")
+    step("claude", "claude-3")
+}
+```
+
+**4. PIPELINE** - Output flows through agents: A output → B input → C input
+```kotlin
+buildFlow {
+    strategy = FlowStrategy.PIPELINE
+    step("extract", "extractor")
+    step("transform", "transformer")
+    step("load", "loader")
+}
+```
+
+#### 🎛️ Dynamic Strategy Selection
+
+Select execution strategy at runtime based on message content:
+
+```kotlin
+val flow = buildFlow {
+    step("agent1", "agent1")
+    step("agent2", "agent2")
+}
+
+flow.setStrategyResolver { comm, agents ->
+    when {
+        comm.data["urgent"] == "true" -> FlowStrategy.COMPETITION
+        comm.data["parallel"] == "true" -> FlowStrategy.PARALLEL
+        else -> FlowStrategy.SEQUENTIAL
+    }
+}
+```
+
+#### 🛠️ Convenience Functions & Operators
+
+Quick flow creation with helper functions:
+
+```kotlin
+// Convenience functions
+val seq = sequentialFlow(agent1, agent2, agent3)
+val par = parallelFlow(agent1, agent2, agent3)
+val comp = competitionFlow(agent1, agent2, agent3)
+val pipe = pipelineFlow(agent1, agent2, agent3)
+
+// Operators
+val flow1 = agent1 + agent2           // Sequential
+val flow2 = agent1 parallelWith agent2 // Parallel
+val flow3 = agent1 competesWith agent2 // Competition
+```
+
+#### 📊 Flow Execution Metadata
+
+Flows now include detailed execution metadata in results:
+
+```kotlin
+val result = flow.process(comm)
+
+// Access metadata
+println("Strategy: ${result.data["flow_strategy"]}")
+println("Time: ${result.data["execution_time_ms"]}ms")
+println("Agents: ${result.data["agent_count"]}")
+println("Steps: ${result.data["completed_steps"]}")
+```
+
+#### 🔗 Enhanced Integration Support
+
+- **Neo4j**: Flow graphs now include step relationships and conditions
+- **PSI**: Includes step metadata (index, agentId, hasCondition)
+- **Mnemo**: Captures complete flow structure and execution patterns
+
+### Changed
+
+#### 🌊 buildFlow Returns MultiAgentFlow
+
+`buildFlow` DSL now returns `MultiAgentFlow` instead of `CoreFlow`:
+
+**Before (v0.2.x)**:
+```kotlin
+val flow = buildFlow { /* ... */ }
+// Type: CoreFlow
+// No execute() method!
+```
+
+**After (v0.3.0)**:
+```kotlin
+val flow = buildFlow { /* ... */ }
+// Type: MultiAgentFlow
+runBlocking {
+    val result = flow.process(comm)  // ✅ Works!
+}
+```
+
+#### 📋 FlowRegistry Type Changed
+
+`FlowRegistry` now stores `MultiAgentFlow` instead of `CoreFlow`:
+
+```kotlin
+// Register and retrieve
+FlowRegistry.register(flow)  // flow is MultiAgentFlow
+val retrieved: MultiAgentFlow = FlowRegistry.get("my-flow")!!
+```
+
+#### 🔧 MultiAgentFlow API Enhancements
+
+New methods added to `MultiAgentFlow`:
+- `addStep(agent, condition)` - Add agent with execution condition
+- `getStepCount()` - Get total number of steps
+- `getSteps()` - Get all steps with conditions
+- `clearSteps()` - Remove all steps
+- Implements `Identifiable` interface
+
+### Removed
+
+#### ❌ CoreFlow Removed
+
+The following classes and types have been **completely removed**:
+
+- `CoreFlow` class
+- `CoreFlowBuilder` class
+- `FlowStep` data class
+
+**Migration**:
+- Change type annotations from `CoreFlow` to `MultiAgentFlow`
+- Use `flow.process(comm)` to execute flows
+- No functionality is lost - everything is now in `MultiAgentFlow`
+
+See [Migration Guide](docs/MIGRATION_GUIDE_v0.3.md) for complete migration instructions.
+
+### Documentation
+
+#### 📚 Complete Documentation Rewrite
+
+- **build-flow.md** (+230 lines) - Complete buildFlow guide with examples
+- **flows.md** (+324 lines) - Flow orchestration patterns and strategies
+- **api/dsl.md** (+275 lines) - Flow DSL API reference
+- **MIGRATION_GUIDE_v0.3.md** (NEW, 350 lines) - Step-by-step migration guide
+- **Blog post** (NEW, 450 lines) - Release announcement with examples
+
+**Total**: 1,629 lines of new/updated documentation
+
+### Migration
+
+All users must migrate from `CoreFlow` to `MultiAgentFlow`. The migration is straightforward:
+
+1. Add `strategy` parameter to `buildFlow` (optional, defaults to SEQUENTIAL)
+2. Use `flow.process(comm)` instead of expecting `execute()`
+3. Update type annotations from `CoreFlow` to `MultiAgentFlow`
+4. Conditions and step definitions work unchanged
+
+See [MIGRATION_GUIDE_v0.3.md](docs/MIGRATION_GUIDE_v0.3.md) for detailed instructions.
+
+---
+
 ## [0.2.2] - 2025-10-22
 
 ### Added
