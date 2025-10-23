@@ -7,6 +7,7 @@ Domain-Specific Language for building agents, tools, and multi-agent systems in 
 Spice Framework provides an intuitive, type-safe DSL for:
 
 - **Building agents** - Create LLM-powered and custom agents
+- **Creating flows** - Multi-agent workflows with conditional execution
 - **Defining tools** - Inline tool definitions with automatic validation
 - **Creating swarms** - Multi-agent coordination systems
 - **Managing communications** - Type-safe message construction
@@ -374,6 +375,283 @@ val result = dataProcessingSwarm.processComm(Comm(
     content = "Process this JSON data: {\"user\": \"Alice\", \"action\": \"login\"}",
     from = "data-source"
 ))
+```
+
+## Flow DSL
+
+### buildFlow { } - Multi-Agent Flow
+
+Create multi-agent workflows with conditional execution and various strategies:
+
+```kotlin
+val flow = buildFlow {
+    // Identity
+    id = "data-pipeline"
+    name = "Data Processing Pipeline"
+    description = "Multi-stage data processing"
+
+    // Execution strategy
+    strategy = FlowStrategy.SEQUENTIAL  // or PARALLEL, COMPETITION, PIPELINE
+
+    // Define steps
+    step("validate", "validator-agent")
+
+    step("process", "processor-agent") { comm ->
+        // Conditional execution
+        comm.data["validated"] == "true"
+    }
+
+    step("store", "storage-agent") { comm ->
+        comm.data["processed"] == "true"
+    }
+}
+
+// Execute flow
+runBlocking {
+    val result = flow.process(
+        Comm(content = "Process this data", from = "user")
+    )
+
+    println("Strategy: ${result.data["flow_strategy"]}")
+    println("Time: ${result.data["execution_time_ms"]}ms")
+}
+```
+
+**Parameters:**
+
+- `id: String` - Flow ID (auto-generated if not specified)
+- `name: String` - Flow name (required)
+- `description: String` - Flow description
+- `strategy: FlowStrategy` - Execution strategy (default: SEQUENTIAL)
+
+**Flow Strategies:**
+
+```kotlin
+// Sequential: A → B → C
+strategy = FlowStrategy.SEQUENTIAL
+
+// Parallel: A, B, C simultaneously
+strategy = FlowStrategy.PARALLEL
+
+// Competition: First successful response wins
+strategy = FlowStrategy.COMPETITION
+
+// Pipeline: A output → B input → C input
+strategy = FlowStrategy.PIPELINE
+```
+
+**Step Definition:**
+
+```kotlin
+// Registry-based (agent ID)
+step("step-id", "agent-id")
+
+// With condition
+step("step-id", "agent-id") { comm ->
+    comm.content.isNotEmpty() && comm.data["ready"] == "true"
+}
+
+// Direct agent reference
+val myAgent = buildAgent { /* ... */ }
+step("step-id", myAgent)
+
+step("step-id", myAgent) { comm ->
+    comm.data["priority"] == "high"
+}
+```
+
+**Dynamic Strategy Selection:**
+
+```kotlin
+val flow = buildFlow {
+    id = "adaptive-flow"
+    name = "Adaptive Flow"
+
+    step("agent1", "agent1")
+    step("agent2", "agent2")
+    step("agent3", "agent3")
+}
+
+// Resolve strategy at runtime
+flow.setStrategyResolver { comm, agents ->
+    when {
+        comm.data["urgent"] == "true" -> FlowStrategy.COMPETITION
+        comm.data["parallel"] == "true" -> FlowStrategy.PARALLEL
+        agents.size > 5 -> FlowStrategy.PIPELINE
+        else -> FlowStrategy.SEQUENTIAL
+    }
+}
+```
+
+**Complete Flow Example:**
+
+```kotlin
+// Register agents
+AgentRegistry.register(buildAgent {
+    id = "validator"
+    name = "Input Validator"
+    handle { comm ->
+        val valid = comm.content.length >= 10
+        SpiceResult.success(
+            comm.reply(
+                content = if (valid) "Valid" else "Invalid",
+                from = id,
+                data = mapOf("valid" to valid.toString())
+            )
+        )
+    }
+})
+
+AgentRegistry.register(buildAgent {
+    id = "processor"
+    name = "Data Processor"
+    handle { comm ->
+        SpiceResult.success(
+            comm.reply(
+                content = "Processed: ${comm.content.uppercase()}",
+                from = id,
+                data = mapOf("processed" to "true")
+            )
+        )
+    }
+})
+
+// Create flow
+val flow = buildFlow {
+    id = "validation-flow"
+    name = "Validation Pipeline"
+    strategy = FlowStrategy.SEQUENTIAL
+
+    step("validate", "validator")
+
+    step("process", "processor") { comm ->
+        comm.data["valid"] == "true"
+    }
+}
+
+// Register flow (optional)
+FlowRegistry.register(flow)
+
+// Execute
+runBlocking {
+    val result = flow.process(
+        Comm(content = "This is valid input", from = "user")
+    )
+    println(result.content)
+}
+```
+
+**Flow Convenience Functions:**
+
+Create flows quickly using helper functions:
+
+```kotlin
+import io.github.noailabs.spice.sequentialFlow
+import io.github.noailabs.spice.parallelFlow
+import io.github.noailabs.spice.competitionFlow
+import io.github.noailabs.spice.pipelineFlow
+
+// Create flows directly
+val seq = sequentialFlow(agent1, agent2, agent3)
+val par = parallelFlow(agent1, agent2, agent3)
+val comp = competitionFlow(agent1, agent2, agent3)
+val pipe = pipelineFlow(agent1, agent2, agent3)
+
+// Use immediately
+runBlocking {
+    val result = seq.process(comm)
+}
+```
+
+**Flow Operators:**
+
+Use operators for fluent flow composition:
+
+```kotlin
+// Sequential: A then B
+val flow1 = agent1 + agent2
+
+// Parallel: A and B
+val flow2 = agent1 parallelWith agent2
+
+// Competition: A vs B
+val flow3 = agent1 competesWith agent2
+
+// Execute
+runBlocking {
+    val result = flow1.process(comm)
+}
+```
+
+**MultiAgentFlow Direct Usage:**
+
+For programmatic flow creation without DSL:
+
+```kotlin
+val flow = MultiAgentFlow(
+    flowId = "programmatic-flow",
+    defaultStrategy = FlowStrategy.PARALLEL
+)
+    .addAgent(agent1)
+    .addAgent(agent2)
+    .addStep(agent3) { comm -> comm.data["include_agent3"] == "true" }
+
+// Dynamic strategy resolver
+flow.setStrategyResolver { comm, agents ->
+    if (comm.data["fast"] == "true") FlowStrategy.COMPETITION
+    else FlowStrategy.SEQUENTIAL
+}
+
+// Execute
+runBlocking {
+    val result = flow.process(comm)
+}
+```
+
+**Flow Metadata:**
+
+Flows automatically include execution metadata:
+
+```kotlin
+runBlocking {
+    val result = flow.process(comm)
+
+    // Access metadata
+    val strategy = result.data["flow_strategy"]           // "SEQUENTIAL"
+    val execTime = result.data["execution_time_ms"]       // "1234"
+    val agentCount = result.data["agent_count"]           // "3"
+    val completedSteps = result.data["completed_steps"]   // "3"
+    val sequentialSteps = result.data["sequential_steps"] // "Step 1: OK; Step 2: OK"
+}
+```
+
+**Best Practices:**
+
+```kotlin
+// ✅ Good - Clear flow with meaningful step IDs
+val flow = buildFlow {
+    name = "User Registration Flow"
+    strategy = FlowStrategy.SEQUENTIAL
+
+    step("validate-email", "email-validator")
+    step("check-duplicates", "duplicate-checker") { comm ->
+        comm.data["email_valid"] == "true"
+    }
+    step("create-account", "account-creator") { comm ->
+        comm.data["no_duplicates"] == "true"
+    }
+    step("send-welcome", "email-sender") { comm ->
+        comm.data["account_created"] == "true"
+    }
+}
+
+// ❌ Bad - Unclear steps, no conditions
+val flow = buildFlow {
+    name = "Flow"
+    step("s1", "a1")
+    step("s2", "a2")
+    step("s3", "a3")
+}
 ```
 
 ## Tool DSL

@@ -1,7 +1,6 @@
 package io.github.noailabs.spice
 
 import io.github.noailabs.spice.chains.ModernToolChain
-import io.github.noailabs.spice.dsl.CoreFlow
 import io.github.noailabs.spice.model.AgentTool
 import java.util.concurrent.ConcurrentHashMap
 
@@ -392,6 +391,6 @@ object ToolChainRegistry : Registry<ModernToolChain>("toolchains")
 /**
  * 🌊 Flow Registry
  */
-object FlowRegistry : Registry<CoreFlow>("flows")
+object FlowRegistry : Registry<MultiAgentFlow>("flows")
 
 

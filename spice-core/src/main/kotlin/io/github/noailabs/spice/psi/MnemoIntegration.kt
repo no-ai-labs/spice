@@ -31,13 +31,13 @@ object MnemoIntegration {
      * Save flow execution pattern
      */
     fun saveFlowExecution(
-        flow: CoreFlow,
+        flow: MultiAgentFlow,
         input: Comm,
         output: Comm,
         mnemo: MnemoClient
     ) {
         val flowPsi = SpicePsiBuilder.run { flow.toPsi() }
-        
+
         val executionPsi = psiNode("FlowExecution") {
             prop("flowId", flow.id)
             prop("timestamp", System.currentTimeMillis())

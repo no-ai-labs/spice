@@ -45,6 +45,15 @@ data class AgentCompetitionResult(
 )
 
 /**
+ * 🔀 Conditional Agent Step
+ * Represents an agent with an optional execution condition
+ */
+data class ConditionalAgentStep(
+    val agent: Agent,
+    val condition: (suspend (Comm) -> Boolean)? = null
+)
+
+/**
  * 📊 Group Metadata for tracking execution
  */
 data class GroupMetadata(
@@ -74,27 +83,37 @@ class MultiAgentFlow(
     private val defaultStrategy: FlowStrategy = FlowStrategy.SEQUENTIAL,
     private val coroutineContext: CoroutineContext = Dispatchers.Default,
     private val maxRetries: Int = 3
-) {
-    
-    private val agentPool = CopyOnWriteArrayList<Agent>()
+) : Identifiable {
+
+    override val id: String get() = flowId
+
+    private val steps = CopyOnWriteArrayList<ConditionalAgentStep>()
     private var strategyResolver: ((Comm, List<Agent>) -> FlowStrategy)? = null
-    
+
     /**
-     * Add agent to the flow
+     * Add agent to the flow (without condition)
      */
     fun addAgent(agent: Agent): MultiAgentFlow {
-        agentPool.add(agent)
+        steps.add(ConditionalAgentStep(agent, null))
         return this
     }
-    
+
+    /**
+     * Add agent with optional execution condition
+     */
+    fun addStep(agent: Agent, condition: (suspend (Comm) -> Boolean)? = null): MultiAgentFlow {
+        steps.add(ConditionalAgentStep(agent, condition))
+        return this
+    }
+
     /**
      * Add multiple agents at once
      */
     fun addAgents(vararg agents: Agent): MultiAgentFlow {
-        agentPool.addAll(agents)
+        agents.forEach { addAgent(it) }
         return this
     }
-    
+
     /**
      * Set custom strategy resolver for dynamic strategy selection
      */
@@ -107,23 +126,36 @@ class MultiAgentFlow(
      * Process comm through agent flow
      */
     suspend fun process(comm: Comm): Comm {
-        if (agentPool.isEmpty()) {
+        if (steps.isEmpty()) {
             return comm.reply(
                 content = "No agents available for processing",
                 from = "multi-agent-flow",
                 type = CommType.ERROR
             ).withData("error", "empty_agent_pool")
         }
-        
-        val activeAgents = agentPool.filter { it.isReady() }
+
+        // Evaluate conditions and filter active steps
+        val activeSteps = steps.filter { step ->
+            step.condition == null || step.condition.invoke(comm)
+        }
+
+        if (activeSteps.isEmpty()) {
+            return comm.reply(
+                content = "No agents passed condition checks",
+                from = "multi-agent-flow",
+                type = CommType.ERROR
+            ).withData("error", "no_active_agents")
+        }
+
+        val activeAgents = activeSteps.map { it.agent }.filter { it.isReady() }
         if (activeAgents.isEmpty()) {
             return comm.reply(
                 content = "No ready agents available",
-                from = "multi-agent-flow", 
+                from = "multi-agent-flow",
                 type = CommType.ERROR
             ).withData("error", "no_ready_agents")
         }
-        
+
         val executionStrategy = strategyResolver?.invoke(comm, activeAgents) ?: defaultStrategy
         val startTime = System.currentTimeMillis()
         
@@ -364,20 +396,25 @@ class MultiAgentFlow(
     }
     
     /**
-     * Get current agent pool size
+     * Get current step count
      */
-    fun getAgentCount(): Int = agentPool.size
-    
+    fun getStepCount(): Int = steps.size
+
     /**
-     * Get all agents in the pool
+     * Get all agents in the flow
      */
-    fun getAgents(): List<Agent> = agentPool.toList()
-    
+    fun getAgents(): List<Agent> = steps.map { it.agent }
+
     /**
-     * Clear all agents from the pool
+     * Get all steps (agents with conditions)
      */
-    fun clearAgents(): MultiAgentFlow {
-        agentPool.clear()
+    fun getSteps(): List<ConditionalAgentStep> = steps.toList()
+
+    /**
+     * Clear all steps from the flow
+     */
+    fun clearSteps(): MultiAgentFlow {
+        steps.clear()
         return this
     }
 }

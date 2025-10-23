@@ -208,28 +208,26 @@ object SpicePsiBuilder {
     }
     
     // ===== Flow Conversions =====
-    
+
     /**
-     * Convert CoreFlowBuilder to PSI
+     * Convert MultiAgentFlow to PSI
      */
-    fun CoreFlowBuilder.toPsi(): PsiNode = psiNode(PsiTypes.FLOW) {
+    fun MultiAgentFlow.toPsi(): PsiNode = psiNode(PsiTypes.FLOW) {
         prop("id", id)
-        prop("name", name)
-        prop("description", description)
-        
-        // Flow steps are private, so we just indicate they exist
+        prop("type", "MultiAgentFlow")
+        prop("stepCount", getStepCount())
+
+        // Add steps information
         add(psiNode("FlowSteps") {
-            meta("hasSteps", true)
+            meta("stepCount", getStepCount())
+            getSteps().forEachIndexed { index, step ->
+                add(psiNode("Step") {
+                    prop("index", index)
+                    prop("agentId", step.agent.id)
+                    prop("hasCondition", step.condition != null)
+                })
+            }
         })
-    }
-    
-    /**
-     * Convert CoreFlow to PSI
-     */
-    fun CoreFlow.toPsi(): PsiNode = psiNode(PsiTypes.FLOW) {
-        prop("id", id)
-        prop("name", name)
-        prop("description", description)
     }
     
     // ===== Swarm Conversions =====
@@ -300,12 +298,8 @@ class CompletePsiBuilder {
         tools.add(SpicePsiBuilder.run { tool.toPsi() })
     }
     
-    fun flow(flow: CoreFlow) {
+    fun flow(flow: MultiAgentFlow) {
         flows.add(SpicePsiBuilder.run { flow.toPsi() })
-    }
-    
-    fun flowBuilder(flowBuilder: CoreFlowBuilder) {
-        flows.add(SpicePsiBuilder.run { flowBuilder.toPsi() })
     }
     
     fun config(key: String, value: Any) {

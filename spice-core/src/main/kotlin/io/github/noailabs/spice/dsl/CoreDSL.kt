@@ -637,40 +637,37 @@ class InlineTool(
 // =====================================
 
 /**
- * Flow step definition
+ * Flow builder - builds MultiAgentFlow with Registry-based agent references
  */
-data class FlowStep(
-    val id: String,
-    val agentId: String,
-    val condition: (suspend (Comm) -> Boolean)? = null
-)
-
-/**
- * Simple flow implementation
- */
-class CoreFlow(
-    override val id: String,
-    val name: String,
-    val description: String,
-    private val steps: List<FlowStep>
-) : Identifiable
-
-/**
- * Flow builder
- */
-class CoreFlowBuilder {
+class FlowBuilder {
     var id: String = "flow-${System.currentTimeMillis()}"
     var name: String = ""
     var description: String = ""
-    private val steps = mutableListOf<FlowStep>()
-    
+    var strategy: FlowStrategy = FlowStrategy.SEQUENTIAL
+
+    private val steps = mutableListOf<ConditionalAgentStep>()
+
+    /**
+     * Add a step with agent ID (Registry-based lookup)
+     */
     fun step(stepId: String, agentId: String, condition: (suspend (Comm) -> Boolean)? = null) {
-        steps.add(FlowStep(stepId, agentId, condition))
+        val agent = AgentRegistry.get(agentId)
+            ?: throw IllegalArgumentException("Agent not found in registry: $agentId")
+        steps.add(ConditionalAgentStep(agent, condition))
     }
-    
-    internal fun build(): CoreFlow {
+
+    /**
+     * Add a step with agent instance (direct reference)
+     */
+    fun step(stepId: String, agent: Agent, condition: (suspend (Comm) -> Boolean)? = null) {
+        steps.add(ConditionalAgentStep(agent, condition))
+    }
+
+    internal fun build(): MultiAgentFlow {
         require(name.isNotEmpty()) { "Flow name is required" }
-        return CoreFlow(id, name, description, steps.toList())
+        val flow = MultiAgentFlow(flowId = id, defaultStrategy = strategy)
+        steps.forEach { flow.addStep(it.agent, it.condition) }
+        return flow
     }
 }
 
@@ -689,9 +686,10 @@ fun buildAgent(config: CoreAgentBuilder.() -> Unit): Agent {
 
 /**
  * Build flow with DSL
+ * Returns MultiAgentFlow with conditional step support
  */
-fun buildFlow(config: CoreFlowBuilder.() -> Unit): CoreFlow {
-    val builder = CoreFlowBuilder()
+fun buildFlow(config: FlowBuilder.() -> Unit): MultiAgentFlow {
+    val builder = FlowBuilder()
     builder.config()
     return builder.build()
 }
