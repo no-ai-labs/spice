@@ -32,3 +32,63 @@ architecture:
   label: Architecture
   permalink: /architecture
   description: Architecture patterns and design decisions
+
+breaking-change:
+  label: Breaking Change
+  permalink: /breaking-change
+  description: Breaking changes and migration guides
+
+flow:
+  label: Flow
+  permalink: /flow
+  description: Multi-agent flow orchestration
+
+orchestration:
+  label: Orchestration
+  permalink: /orchestration
+  description: Agent coordination and orchestration
+
+swarm-tools:
+  label: Swarm Tools
+  permalink: /swarm-tools
+  description: Tools for swarm coordination
+
+developer-experience:
+  label: Developer Experience
+  permalink: /developer-experience
+  description: Developer experience improvements
+
+documentation:
+  label: Documentation
+  permalink: /documentation
+  description: Documentation updates and improvements
+
+code-quality:
+  label: Code Quality
+  permalink: /code-quality
+  description: Code quality and maintainability
+
+performance:
+  label: Performance
+  permalink: /performance
+  description: Performance optimizations
+
+observability:
+  label: Observability
+  permalink: /observability
+  description: Monitoring and observability
+
+opentelemetry:
+  label: OpenTelemetry
+  permalink: /opentelemetry
+  description: OpenTelemetry integration
+
+caching:
+  label: Caching
+  permalink: /caching
+  description: Caching strategies
+
+batching:
+  label: Batching
+  permalink: /batching
+  description: Request batching optimization
