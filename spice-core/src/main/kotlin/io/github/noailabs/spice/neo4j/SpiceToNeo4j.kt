@@ -191,27 +191,41 @@ object SpiceToNeo4j {
     }
     
     /**
-     * Convert Flow to Neo4j
-     * Note: Due to private steps field, we can only create basic flow node
+     * Convert MultiAgentFlow to Neo4j
      */
-    fun CoreFlow.toNeo4jGraph(): Neo4jGraph {
+    fun MultiAgentFlow.toNeo4jGraph(): Neo4jGraph {
         val nodes = mutableListOf<Neo4jNode>()
         val relationships = mutableListOf<Neo4jRelationship>()
-        
+
         // Create flow node
         val flowId = "flow:$id"
         nodes.add(Neo4jNode(
             id = flowId,
-            labels = listOf("Flow", "SpiceComponent", "Workflow"),
+            labels = listOf("Flow", "SpiceComponent", "Workflow", "MultiAgentFlow"),
             properties = mapOf(
                 "id" to id,
-                "name" to name,
-                "description" to description
+                "type" to "MultiAgentFlow",
+                "stepCount" to getStepCount()
             )
         ))
-        
-        // TODO: Add steps when accessible via public API
-        
+
+        // Add steps and agent relationships
+        getSteps().forEachIndexed { index, step ->
+            val agent = step.agent
+            val agentId = "agent:${agent.id}"
+
+            // Add CONTAINS relationship to agent
+            relationships.add(Neo4jRelationship(
+                fromId = flowId,
+                toId = agentId,
+                type = "CONTAINS_STEP",
+                properties = mapOf(
+                    "stepIndex" to index,
+                    "hasCondition" to (step.condition != null)
+                )
+            ))
+        }
+
         return Neo4jGraph(nodes, relationships)
     }
     
@@ -246,20 +260,19 @@ object SpiceToNeo4j {
      */
     fun buildApplicationGraph(
         agents: List<Agent> = emptyList(),
-        flows: List<CoreFlow> = emptyList(),
+        flows: List<MultiAgentFlow> = emptyList(),
         swarms: List<SwarmAgent> = emptyList()
     ): Neo4jGraph {
         var graph = Neo4jGraph(emptyList(), emptyList())
-        
+
         // Add all agents
         agents.forEach { agent ->
             graph = graph.merge(agent.toNeo4jGraph())
         }
-        
+
         // Add all flows
         flows.forEach { flow ->
-            // Note: CoreFlow doesn't have toNeo4jGraph, would need CoreFlowBuilder
-            // This is a limitation of the current design
+            graph = graph.merge(flow.toNeo4jGraph())
         }
         
         // Add all swarms
@@ -363,7 +376,7 @@ object SpiceToNeo4j {
 fun Agent.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
 fun CoreAgentBuilder.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
 fun Tool.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
-fun CoreFlow.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
+fun MultiAgentFlow.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
 fun SwarmAgent.toNeo4jGraph() = SpiceToNeo4j.run { toNeo4jGraph() }
 
 private fun Map<String, Any?>.toJsonObject(): JsonObject = buildJsonObject {

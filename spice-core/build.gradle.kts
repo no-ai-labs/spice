@@ -27,7 +27,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     
     // 🌐 HTTP Client - API 호출용
-    implementation("io.ktor:ktor-client-core:2.3.7")
+    implementation("io.ktor:ktor-client-core:2.3.13")
     implementation("io.ktor:ktor-client-cio:2.3.7")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.7")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
@@ -41,7 +41,7 @@ dependencies {
     implementation("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:2.1.0")
     
     // 🚀 Kafka Support (Optional)
-    compileOnly("org.apache.kafka:kafka-clients:3.7.0")
+    compileOnly("org.apache.kafka:kafka-clients:3.7.1")
     
     // 🧪 Testing
     testImplementation("org.jetbrains.kotlin:kotlin-test")
