@@ -2,6 +2,7 @@ package io.github.noailabs.spice
 
 import io.github.noailabs.spice.error.SpiceResult
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 /**
  * 🌶️ Core Agent interface of Spice Framework
@@ -129,18 +130,22 @@ abstract class BaseAgent(
         metrics.recordRequest()
 
         val startTime = System.currentTimeMillis()
-        return processComm(comm)
-            .onSuccess {
-                metrics.recordSuccess(System.currentTimeMillis() - startTime)
-            }
-            .onFailure { error ->
-                metrics.recordError()
-                runtime.log(LogLevel.ERROR, "Error processing comm", mapOf(
-                    "error" to error.message,
-                    "error_code" to error.code,
-                    "commId" to comm.id
-                ))
-            }
+
+        // ✅ Inject AgentContext into CoroutineContext for automatic propagation
+        return withContext(runtime.context) {
+            processComm(comm)
+                .onSuccess {
+                    metrics.recordSuccess(System.currentTimeMillis() - startTime)
+                }
+                .onFailure { error ->
+                    metrics.recordError()
+                    runtime.log(LogLevel.ERROR, "Error processing comm", mapOf(
+                        "error" to error.message,
+                        "error_code" to error.code,
+                        "commId" to comm.id
+                    ))
+                }
+        }
     }
     
     override fun canHandle(comm: Comm): Boolean {

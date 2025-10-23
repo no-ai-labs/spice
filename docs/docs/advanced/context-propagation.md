@@ -1,6 +1,7 @@
 # Context Propagation
 
-Complete guide to context propagation in distributed agent systems - ensuring data flows correctly across agents, tools, and async boundaries.
+> **v0.4.0 - Context Revolution**
+> Complete guide to automatic context propagation in distributed agent systems - ensuring data flows correctly across agents, tools, and async boundaries.
 
 ## Overview
 
@@ -12,18 +13,20 @@ Context propagation is **critical** for production systems. It enables:
 - **Observability** - Correlate logs, metrics, and traces
 - **State management** - Maintain session and user context
 
-In Spice Framework, context flows through three layers:
+**v0.4.0 introduces automatic context propagation** using Kotlin's CoroutineContext system:
 
 ```
 User Request
-    ↓ (AgentContext)
+    ↓ (withAgentContext)
+AgentContext (as CoroutineContext.Element)
+    ↓ (automatic propagation)
 SwarmAgent
-    ↓ (propagates to)
+    ↓ (coroutineContext[AgentContext])
 Member Agents
-    ↓ (ToolContext)
+    ↓ (automatic injection)
 Tools
-    ↓ (trace spans)
-External Services
+    ↓ (coroutineContext[AgentContext])
+Services & Repositories
 ```
 
 **Without proper context propagation:**
@@ -33,29 +36,49 @@ External Services
 - ❌ Security vulnerabilities
 - ❌ Debugging nightmares
 
-**With proper context propagation:**
-- ✅ End-to-end tracing
-- ✅ Perfect tenant isolation
+**With v0.4.0 automatic context propagation:**
+- ✅ End-to-end tracing with zero boilerplate
+- ✅ Perfect tenant isolation automatically
 - ✅ Complete audit logs
 - ✅ Security compliance
 - ✅ Easy debugging
+- ✅ No manual parameter passing!
 
 ## Context Types
 
 ### AgentContext
 
-Runtime context for agent execution:
+> **v0.4.0** - Now extends `AbstractCoroutineContextElement` for automatic propagation!
+
+**Immutable** runtime context that propagates automatically through coroutine scopes:
 
 ```kotlin
 data class AgentContext(
-    private val data: MutableMap<String, Any> = mutableMapOf()
-) {
+    private val data: Map<String, Any> = emptyMap()
+) : AbstractCoroutineContextElement(AgentContext) {
+
+    companion object Key : CoroutineContext.Key<AgentContext> {
+        fun empty(): AgentContext
+        fun of(vararg pairs: Pair<String, Any>): AgentContext
+        fun from(map: Map<String, Any>): AgentContext
+    }
+
+    // Access methods
     operator fun get(key: String): Any?
-    operator fun set(key: String, value: Any)
     fun <T> getAs(key: String): T?
     fun has(key: String): Boolean
+
+    // Immutable updates (returns new instance)
     fun with(key: String, value: Any): AgentContext
-    fun copy(): AgentContext
+    fun withAll(vararg pairs: Pair<String, Any>): AgentContext
+
+    // Type-safe accessors for common keys
+    val tenantId: String?
+    val userId: String?
+    val sessionId: String?
+    val correlationId: String?
+    val traceId: String?
+    val spanId: String?
 }
 ```
 
@@ -89,30 +112,129 @@ object ContextKeys {
 }
 ```
 
-**Usage:**
+**Creating Context (v0.4.0):**
 
 ```kotlin
+// Create context
 val context = AgentContext.of(
-    ContextKeys.USER_ID to "user-123",
-    ContextKeys.TENANT_ID to "tenant-456",
-    ContextKeys.TRACE_ID to "trace-789",
-    ContextKeys.PERMISSIONS to listOf("read", "write")
+    "userId" to "user-123",
+    "tenantId" to "tenant-456",
+    "traceId" to "trace-789",
+    "permissions" to listOf("read", "write")
 )
 
 // Access values
-val userId = context.getAs<String>(ContextKeys.USER_ID)
-val permissions = context.getAs<List<String>>(ContextKeys.PERMISSIONS)
+val userId = context.userId  // ✅ Type-safe accessor
+val permissions = context.getAs<List<String>>("permissions")
 
-// Add values
-context[ContextKeys.CORRELATION_ID] = "corr-abc"
+// ✅ Immutable updates (returns new context)
+val newContext = context.with("sessionId", "sess-xyz")
 
-// Immutable update
-val newContext = context.with(ContextKeys.SESSION_ID, "sess-xyz")
+// ✅ Bulk updates
+val enriched = context.withAll(
+    "locale" to "en-US",
+    "timezone" to "America/New_York"
+)
+
+// ❌ No more mutable operations!
+// context["key"] = "value"  // Removed in v0.4.0
+```
+
+**Automatic Propagation (v0.4.0):**
+
+```kotlin
+suspend fun processRequest() {
+    // Set context for entire scope
+    withAgentContext(
+        "userId" to "user-123",
+        "tenantId" to "CHIC"
+    ) {
+        // Context automatically available in all child operations
+        agent.processComm(comm)  // ✅ Has context
+
+        launch {
+            // ✅ Context propagated to child coroutine
+            val tenant = currentAgentContext()?.tenantId  // "CHIC"
+        }
+
+        async {
+            // ✅ Context propagated here too
+            repository.findByTenant()  // Uses context automatically
+        }
+    }
+}
+```
+
+### Context DSL Functions (v0.4.0)
+
+New convenient DSL functions for working with AgentContext:
+
+```kotlin
+// Set context for scope
+suspend fun <T> withAgentContext(
+    vararg pairs: Pair<String, Any>,
+    block: suspend () -> T
+): T
+
+// Set context using existing AgentContext
+suspend fun <T> withAgentContext(
+    context: AgentContext,
+    block: suspend () -> T
+): T
+
+// Enrich existing context
+suspend fun <T> withEnrichedContext(
+    vararg pairs: Pair<String, Any>,
+    block: suspend () -> T
+): T
+
+// Get current context
+suspend fun currentAgentContext(): AgentContext?
+
+// Get current context or throw
+suspend fun requireAgentContext(): AgentContext
+
+// Convenience accessors
+suspend fun currentTenantId(): String?
+suspend fun currentUserId(): String?
+suspend fun currentSessionId(): String?
+suspend fun currentCorrelationId(): String?
+```
+
+**Example Usage:**
+
+```kotlin
+// Set context for entire operation
+withAgentContext(
+    "userId" to "user-123",
+    "tenantId" to "CHIC",
+    "sessionId" to "sess-456"
+) {
+    // All operations here have access to context
+    agent.processComm(comm)
+
+    // Access context anywhere
+    val tenantId = currentTenantId()  // "CHIC"
+    val userId = currentUserId()      // "user-123"
+}
+
+// Enrich existing context
+withAgentContext("tenantId" to "CHIC") {
+    // Parent context has tenantId
+
+    withEnrichedContext("sessionId" to "sess-456") {
+        // Now has both tenantId and sessionId
+        val tenant = currentTenantId()   // "CHIC"
+        val session = currentSessionId() // "sess-456"
+    }
+}
 ```
 
 ### ToolContext
 
-Context for tool execution:
+> **v0.4.0 Note:** Tools now access `AgentContext` directly via `coroutineContext[AgentContext]`. ToolContext still exists for compatibility but is no longer required.
+
+Legacy context for tool execution (still supported):
 
 ```kotlin
 data class ToolContext(
@@ -124,17 +246,25 @@ data class ToolContext(
 )
 ```
 
-**Conversion from AgentContext:**
+**Migration to v0.4.0:**
 
 ```kotlin
-fun AgentContext.toToolContext(agentId: String): ToolContext {
-    return ToolContext(
-        agentId = agentId,
-        userId = getAs<String>(ContextKeys.USER_ID),
-        tenantId = getAs<String>(ContextKeys.TENANT_ID),
-        correlationId = getAs<String>(ContextKeys.CORRELATION_ID),
-        metadata = getAs<Map<String, Any>>(ContextKeys.METADATA) ?: emptyMap()
-    )
+// ❌ Old way (v0.3.0)
+override suspend fun execute(
+    parameters: Map<String, Any>,
+    context: ToolContext
+): SpiceResult<ToolResult> {
+    val tenantId = context.tenantId
+    // ...
+}
+
+// ✅ New way (v0.4.0) - Direct AgentContext access
+override suspend fun execute(
+    parameters: Map<String, Any>
+): SpiceResult<ToolResult> {
+    val context = coroutineContext[AgentContext]
+    val tenantId = context?.tenantId
+    // ...
 }
 ```
 
@@ -804,6 +934,254 @@ class DebugAgent : BaseAgent(...) {
                 append("$key=${get(key)}, ")
             }
             append("}")
+        }
+    }
+}
+```
+
+## What's New in v0.4.0 🎯
+
+### ContextAware Tool DSL
+
+Create tools that automatically receive AgentContext without manual parameter passing:
+
+```kotlin
+// Define context-aware tool
+val policyLookup = contextAwareTool("policy_lookup") {
+    description = "Look up policy by type"
+    param("policyType", "string", "Policy type")
+
+    execute { params, context ->
+        // ✅ Context automatically injected!
+        val tenantId = context.tenantId ?: "CHIC"
+        val userId = context.userId ?: "unknown"
+        val policyType = params["policyType"] as String
+
+        policyService.lookup(tenantId, policyType)
+    }
+}
+
+// Use in agent
+buildAgent {
+    id = "policy-agent"
+
+    contextAwareTool("policy_lookup") {
+        description = "Look up policy"
+        param("policyType", "string", "Policy type")
+
+        execute { params, context ->
+            // ✅ tenantId and userId automatically from AgentContext!
+            val tenantId = context.tenantId ?: "CHIC"
+            policyService.lookup(tenantId, params["policyType"] as String)
+        }
+    }
+}
+
+// Simple context tool
+simpleContextTool("get_tenant") { params, context ->
+    "Current tenant: ${context.tenantId}"
+}
+```
+
+### Service Layer Context Support
+
+Base interfaces for services to access context automatically:
+
+```kotlin
+// Implement ContextAwareService interface
+class PolicyService : BaseContextAwareService() {
+
+    // Access tenant ID automatically
+    suspend fun lookup(policyType: String): Policy = withTenant { tenantId ->
+        // tenantId automatically from context!
+        repository.find(tenantId, policyType)
+    }
+
+    // Access both tenant and user
+    suspend fun create(policy: Policy): Policy = withTenantAndUser { tenantId, userId ->
+        // Both IDs automatically from context
+        repository.save(policy.copy(
+            tenantId = tenantId,
+            createdBy = userId
+        ))
+    }
+
+    // Optional tenant with default
+    suspend fun track(event: String) = withTenantOrDefault("global") { tenantId ->
+        // Falls back to "global" if no tenantId in context
+        analytics.record(tenantId, event)
+    }
+}
+
+// Usage in tools/agents
+withAgentContext("tenantId" to "CHIC", "userId" to "user-123") {
+    val policy = policyService.lookup("auto")  // ✅ Context automatic!
+}
+```
+
+**Helper Methods:**
+
+```kotlin
+abstract class BaseContextAwareService : ContextAwareService {
+    protected suspend fun <T> withTenant(block: suspend (String) -> T): T
+    protected suspend fun <T> withUser(block: suspend (String) -> T): T
+    protected suspend fun <T> withSession(block: suspend (String) -> T): T
+    protected suspend fun <T> withTenantAndUser(block: suspend (String, String) -> T): T
+    protected suspend fun <T> withTenantOrDefault(default: String, block: suspend (String) -> T): T
+}
+```
+
+### Context Extension System
+
+Runtime context enrichment with plugins:
+
+```kotlin
+// Define tenant extension
+val tenantExtension = TenantContextExtension { tenantId ->
+    mapOf(
+        "features" to listOf("feature1", "feature2"),
+        "limits" to mapOf("max_requests" to 1000),
+        "config" to loadTenantConfig(tenantId)
+    )
+}
+
+// Register extension
+ContextExtensionRegistry.register(tenantExtension)
+
+// Extensions automatically enrich context
+val baseContext = AgentContext.of("tenantId" to "CHIC")
+val enriched = ContextExtensionRegistry.enrichContext(baseContext)
+
+// enriched now has:
+// - tenantId: "CHIC"
+// - tenant_config: { ... }
+// - tenant_features: ["feature1", "feature2"]
+```
+
+**Custom Extensions:**
+
+```kotlin
+class UserContextExtension(
+    private val userLoader: suspend (String) -> Map<String, Any>
+) : ContextExtension {
+    override val key = "user"
+
+    override suspend fun enrich(context: AgentContext): AgentContext {
+        val userId = context.userId ?: return context
+
+        val userData = userLoader(userId)
+        return context.with("user_profile", userData)
+                     .with("user_permissions", userData["permissions"] ?: emptyList<String>())
+    }
+}
+
+// Register
+ContextExtensionRegistry.register(UserContextExtension { userId ->
+    database.loadUserProfile(userId)
+})
+```
+
+### Comm Context Integration
+
+Comm now carries AgentContext:
+
+```kotlin
+// Create comm with context
+val comm = Comm(
+    content = "Hello",
+    from = "user"
+).withContext(
+    AgentContext.of(
+        "tenantId" to "CHIC",
+        "userId" to "user-123"
+    )
+)
+
+// Access context from comm
+val tenantId = comm.getContextValue("tenantId")  // "CHIC"
+
+// Enrich comm context
+val enriched = comm.withContextValues(
+    "sessionId" to "sess-456",
+    "traceId" to "trace-789"
+)
+```
+
+### Access Context from Tools
+
+Tools can now access AgentContext directly via coroutineContext:
+
+```kotlin
+class MyTool : Tool {
+    override suspend fun execute(
+        parameters: Map<String, Any>
+    ): SpiceResult<ToolResult> {
+        // ✅ Access context from coroutineContext
+        val context = coroutineContext[AgentContext]
+            ?: return SpiceResult.success(ToolResult.error("No context"))
+
+        val tenantId = context.tenantId
+        val userId = context.userId
+
+        // Use context for tenant-scoped operations
+        val data = database.query(tenantId, parameters)
+
+        return SpiceResult.success(ToolResult.success(
+            result = data.toString(),
+            metadata = mapOf(
+                "tenant_id" to (tenantId ?: "none"),
+                "user_id" to (userId ?: "none")
+            )
+        ))
+    }
+}
+```
+
+### Migration from v0.3.0
+
+**Before (v0.3.0):**
+
+```kotlin
+// Manual context passing
+class OldAgent : BaseAgent(...) {
+    override suspend fun processComm(
+        comm: Comm,
+        runtime: AgentRuntime
+    ): SpiceResult<Comm> {
+        val context = runtime.context
+        val tenantId = context.getAs<String>("tenantId")
+
+        // Manually create ToolContext
+        val toolContext = ToolContext(
+            agentId = id,
+            tenantId = tenantId,
+            userId = context.getAs("userId")
+        )
+
+        // Pass context manually
+        val result = myTool.execute(params, toolContext)
+    }
+}
+```
+
+**After (v0.4.0):**
+
+```kotlin
+// Automatic context propagation
+class NewAgent : BaseAgent(...) {
+    override suspend fun processComm(
+        comm: Comm,
+        runtime: AgentRuntime
+    ): SpiceResult<Comm> {
+        // ✅ Context automatically propagated via coroutineContext!
+        // Tools access via: coroutineContext[AgentContext]
+
+        // Or use context-aware tools
+        contextAwareTool("my_tool") {
+            execute { params, context ->
+                // ✅ context automatically injected!
+                val tenantId = context.tenantId
+            }
         }
     }
 }

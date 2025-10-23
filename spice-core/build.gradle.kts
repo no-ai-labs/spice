@@ -113,7 +113,7 @@ publishing {
                     developer {
                         id.set("spice-team")
                         name.set("Spice Framework Team")
-                        email.set("veryverybigdog@gmail.com")
+                        email.set("human@noailabs.ai")
                     }
                 }
                 scm {
