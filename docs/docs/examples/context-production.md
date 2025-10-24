@@ -303,7 +303,440 @@ data class InventoryCheckResult(
     val available: Boolean,
     val unavailableItems: List<String>
 )
+```
 
+#### 3.1. Production Error Handling with SpiceResult
+
+Real-world services should return `SpiceResult<T>` for type-safe error handling:
+
+```kotlin
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.SpiceError
+
+class InventoryServiceWithErrors : BaseContextAwareService() {
+    private val productRepo = ProductRepository()
+    private val auditService = AuditService()
+
+    /**
+     * Check product availability with proper error handling
+     */
+    suspend fun checkAvailability(
+        items: List<OrderItem>
+    ): SpiceResult<InventoryCheckResult> = withTenant { tenantId ->
+
+        try {
+            val productIds = items.map { it.productId }
+            val products = productRepo.findByIds(productIds)
+
+            val unavailableItems = mutableListOf<String>()
+
+            items.forEach { item ->
+                val product = products.find { it.id == item.productId }
+
+                if (product == null) {
+                    // Product not found - validation error
+                    return@withTenant SpiceResult.failure(
+                        SpiceError.validationError(
+                            message = "Product not found",
+                            field = "productId",
+                            actualValue = item.productId
+                        ).withContext(
+                            "tenantId" to tenantId,
+                            "requestedProducts" to productIds.size
+                        )
+                    )
+                } else if (product.stockQuantity < item.quantity) {
+                    unavailableItems.add(
+                        "Product ${product.name}: requested ${item.quantity}, " +
+                        "available ${product.stockQuantity}"
+                    )
+                }
+            }
+
+            auditService.log(
+                "INVENTORY_CHECK",
+                mapOf(
+                    "items" to items.size,
+                    "available" to (unavailableItems.isEmpty())
+                )
+            )
+
+            SpiceResult.success(
+                InventoryCheckResult(
+                    available = unavailableItems.isEmpty(),
+                    unavailableItems = unavailableItems
+                )
+            )
+
+        } catch (e: Exception) {
+            // Database or unexpected errors
+            SpiceResult.failure(
+                SpiceError.agentError(
+                    message = "Inventory check failed: ${e.message}",
+                    cause = e
+                ).withContext(
+                    "tenantId" to tenantId,
+                    "itemCount" to items.size
+                )
+            )
+        }
+    }
+
+    /**
+     * Reserve stock with atomic rollback on failure
+     */
+    suspend fun reserveStock(
+        items: List<OrderItem>
+    ): SpiceResult<ReservationResult> = withTenant { tenantId ->
+
+        val reservations = mutableListOf<Pair<String, Int>>()
+
+        try {
+            items.forEach { item ->
+                val reserved = productRepo.reserveStock(item.productId, item.quantity)
+
+                if (!reserved) {
+                    // Rollback all reservations
+                    reservations.forEach { (productId, quantity) ->
+                        productRepo.updateStock(productId, quantity)
+                    }
+
+                    auditService.log(
+                        "STOCK_RESERVATION_FAILED",
+                        mapOf("productId" to item.productId)
+                    )
+
+                    return@withTenant SpiceResult.failure(
+                        SpiceError.validationError(
+                            message = "Insufficient stock for product ${item.productId}",
+                            field = "stockQuantity",
+                            actualValue = item.quantity
+                        ).withContext(
+                            "tenantId" to tenantId,
+                            "productId" to item.productId,
+                            "requestedQuantity" to item.quantity
+                        )
+                    )
+                }
+
+                reservations.add(item.productId to item.quantity)
+            }
+
+            auditService.log(
+                "STOCK_RESERVED",
+                mapOf("items" to items.size)
+            )
+
+            SpiceResult.success(
+                ReservationResult(
+                    reservedItems = reservations.size,
+                    reservations = reservations
+                )
+            )
+
+        } catch (e: Exception) {
+            // Rollback on exception
+            reservations.forEach { (productId, quantity) ->
+                productRepo.updateStock(productId, quantity)
+            }
+
+            SpiceResult.failure(
+                SpiceError.agentError(
+                    message = "Stock reservation failed",
+                    cause = e
+                ).withContext(
+                    "tenantId" to tenantId,
+                    "reservedBeforeFailure" to reservations.size
+                )
+            )
+        }
+    }
+}
+
+data class ReservationResult(
+    val reservedItems: Int,
+    val reservations: List<Pair<String, Int>>
+)
+```
+
+#### 3.2. Payment Service with Error Handling
+
+```kotlin
+class PaymentServiceWithErrors : BaseContextAwareService() {
+    private val paymentRepo = PaymentRepository()
+    private val auditService = AuditService()
+
+    suspend fun processPayment(
+        paymentMethodId: String,
+        amount: Double,
+        orderId: String
+    ): SpiceResult<PaymentResult> = withTenantAndUser { tenantId, userId ->
+
+        try {
+            // Validate payment method
+            val paymentMethod = paymentRepo.findById(paymentMethodId)
+            if (paymentMethod == null) {
+                return@withTenantAndUser SpiceResult.failure(
+                    SpiceError.validationError(
+                        message = "Payment method not found",
+                        field = "paymentMethodId",
+                        actualValue = paymentMethodId
+                    ).withContext(
+                        "tenantId" to tenantId,
+                        "userId" to userId
+                    )
+                )
+            }
+
+            // Validate ownership
+            if (paymentMethod.userId != userId) {
+                auditService.log(
+                    "PAYMENT_UNAUTHORIZED",
+                    mapOf(
+                        "paymentMethodId" to paymentMethodId,
+                        "attemptedUserId" to userId,
+                        "actualUserId" to paymentMethod.userId
+                    )
+                )
+
+                return@withTenantAndUser SpiceResult.failure(
+                    SpiceError.authError(
+                        message = "Payment method belongs to different user",
+                        provider = "internal"
+                    ).withContext(
+                        "tenantId" to tenantId,
+                        "userId" to userId,
+                        "paymentMethodId" to paymentMethodId
+                    )
+                )
+            }
+
+            // Process payment via external gateway
+            val gatewayResult = processWithPaymentGateway(
+                paymentMethod = paymentMethod,
+                amount = amount,
+                orderId = orderId
+            )
+
+            if (!gatewayResult.success) {
+                auditService.log(
+                    "PAYMENT_FAILED",
+                    mapOf(
+                        "orderId" to orderId,
+                        "amount" to amount,
+                        "reason" to gatewayResult.errorMessage
+                    )
+                )
+
+                return@withTenantAndUser SpiceResult.failure(
+                    SpiceError.networkError(
+                        message = "Payment gateway error: ${gatewayResult.errorMessage}",
+                        statusCode = gatewayResult.statusCode,
+                        endpoint = "payment-gateway"
+                    ).withContext(
+                        "tenantId" to tenantId,
+                        "userId" to userId,
+                        "orderId" to orderId,
+                        "amount" to amount
+                    )
+                )
+            }
+
+            auditService.log(
+                "PAYMENT_PROCESSED",
+                mapOf(
+                    "orderId" to orderId,
+                    "amount" to amount,
+                    "transactionId" to gatewayResult.transactionId
+                )
+            )
+
+            SpiceResult.success(
+                PaymentResult(
+                    success = true,
+                    transactionId = gatewayResult.transactionId!!,
+                    amount = amount
+                )
+            )
+
+        } catch (e: Exception) {
+            SpiceResult.failure(
+                SpiceError.agentError(
+                    message = "Payment processing failed: ${e.message}",
+                    cause = e
+                ).withContext(
+                    "tenantId" to tenantId,
+                    "userId" to userId,
+                    "orderId" to orderId
+                )
+            )
+        }
+    }
+
+    private suspend fun processWithPaymentGateway(
+        paymentMethod: PaymentMethod,
+        amount: Double,
+        orderId: String
+    ): GatewayResult {
+        // Simulate payment gateway call
+        return GatewayResult(
+            success = true,
+            transactionId = "txn_${System.currentTimeMillis()}",
+            statusCode = 200
+        )
+    }
+}
+
+data class PaymentResult(
+    val success: Boolean,
+    val transactionId: String,
+    val amount: Double
+)
+
+data class GatewayResult(
+    val success: Boolean,
+    val transactionId: String? = null,
+    val errorMessage: String? = null,
+    val statusCode: Int? = null
+)
+```
+
+#### 3.3. Order Service with Complete Error Handling
+
+```kotlin
+class OrderServiceWithErrors : BaseContextAwareService() {
+    private val orderRepo = OrderRepository()
+    private val inventoryService = InventoryServiceWithErrors()
+    private val paymentService = PaymentServiceWithErrors()
+    private val auditService = AuditService()
+
+    /**
+     * Create order with complete error handling and context propagation
+     */
+    suspend fun createOrder(
+        items: List<OrderItem>,
+        paymentMethodId: String
+    ): SpiceResult<Order> = withTenantAndUser { tenantId, userId ->
+
+        auditService.log(
+            "ORDER_CREATION_STARTED",
+            mapOf("items" to items.size, "userId" to userId)
+        )
+
+        try {
+            // Step 1: Check inventory availability
+            val inventoryResult = inventoryService.checkAvailability(items)
+            if (inventoryResult.isFailure) {
+                auditService.log(
+                    "ORDER_CREATION_FAILED",
+                    mapOf("step" to "inventory_check", "reason" to "INVENTORY_ERROR")
+                )
+                return@withTenantAndUser inventoryResult.mapSuccess { Order() }  // Convert type
+            }
+
+            val inventoryCheck = inventoryResult.getOrThrow()
+            if (!inventoryCheck.available) {
+                return@withTenantAndUser SpiceResult.failure(
+                    SpiceError.validationError(
+                        message = "Items unavailable: ${inventoryCheck.unavailableItems.joinToString()}",
+                        field = "items"
+                    ).withContext(
+                        "tenantId" to tenantId,
+                        "unavailableItems" to inventoryCheck.unavailableItems.size
+                    )
+                )
+            }
+
+            // Step 2: Reserve stock
+            val reservationResult = inventoryService.reserveStock(items)
+            if (reservationResult.isFailure) {
+                auditService.log(
+                    "ORDER_CREATION_FAILED",
+                    mapOf("step" to "stock_reservation", "reason" to "RESERVATION_FAILED")
+                )
+                return@withTenantAndUser reservationResult.mapSuccess { Order() }
+            }
+
+            // Step 3: Calculate total
+            val totalAmount = items.sumOf { it.quantity * it.priceAtPurchase }
+
+            // Step 4: Process payment
+            val orderId = "ord_${System.currentTimeMillis()}"
+            val paymentResult = paymentService.processPayment(
+                paymentMethodId = paymentMethodId,
+                amount = totalAmount,
+                orderId = orderId
+            )
+
+            if (paymentResult.isFailure) {
+                // Rollback stock reservation
+                items.forEach { item ->
+                    // Release reserved stock (implementation omitted)
+                }
+
+                auditService.log(
+                    "ORDER_CREATION_FAILED",
+                    mapOf("step" to "payment", "reason" to "PAYMENT_FAILED")
+                )
+
+                return@withTenantAndUser paymentResult.mapSuccess { Order() }
+            }
+
+            // Step 5: Create order
+            val order = Order(
+                id = orderId,
+                tenantId = tenantId,
+                userId = userId,
+                items = items,
+                totalAmount = totalAmount,
+                status = OrderStatus.CONFIRMED,
+                createdAt = Instant.now(),
+                createdBy = userId
+            )
+
+            val createdOrder = orderRepo.create(order)
+
+            auditService.log(
+                "ORDER_CREATED",
+                mapOf(
+                    "orderId" to orderId,
+                    "totalAmount" to totalAmount,
+                    "items" to items.size
+                )
+            )
+
+            SpiceResult.success(createdOrder)
+
+        } catch (e: Exception) {
+            auditService.log(
+                "ORDER_CREATION_FAILED",
+                mapOf("reason" to "UNEXPECTED_ERROR", "error" to e.message)
+            )
+
+            SpiceResult.failure(
+                SpiceError.agentError(
+                    message = "Order creation failed: ${e.message}",
+                    cause = e
+                ).withContext(
+                    "tenantId" to tenantId,
+                    "userId" to userId,
+                    "itemCount" to items.size
+                )
+            )
+        }
+    }
+}
+```
+
+**Key Patterns:**
+
+1. **Return SpiceResult** - All service methods return `SpiceResult<T>`
+2. **Use Specific Errors** - `validationError`, `authError`, `networkError`, etc.
+3. **Add Context** - Always use `.withContext()` to add debugging info
+4. **Audit Trail** - Log all important operations with tenant/user context
+5. **Rollback on Failure** - Clean up partial state when operations fail
+
+```kotlin
 class OrderService : BaseContextAwareService() {
     private val orderRepo = OrderRepository()
     private val productRepo = ProductRepository()
@@ -1971,6 +2404,236 @@ class AuditService : BaseContextAwareService() {
                 timestamp = Instant.now()
             ))
         }
+}
+```
+
+## API Quick Reference
+
+### Common Mistakes vs Correct Usage
+
+#### SpiceError Factory Functions
+
+```kotlin
+// ❌ WRONG - These functions don't exist!
+SpiceError.configurationError("message", "field")  // ❌ NO!
+SpiceError.toolError("message", cause = e)         // ❌ Wrong signature!
+
+// ✅ CORRECT - Use these instead
+SpiceError.configError("message", field = "apiKey")           // ✅ YES
+SpiceError.toolError("message", toolName = "calculator")      // ✅ YES
+SpiceError.agentError("message", agentId = "my-agent")        // ✅ YES
+SpiceError.validationError("message", field = "username")     // ✅ YES
+SpiceError.networkError("message", statusCode = 500)          // ✅ YES
+SpiceError.timeoutError("message", timeoutMs = 5000L)         // ✅ YES
+SpiceError.authError("message", provider = "oauth")           // ✅ YES
+SpiceError.rateLimitError("message", retryAfterMs = 60000L)   // ✅ YES
+```
+
+#### Logger with SpiceError
+
+```kotlin
+val error = SpiceError.configError("Config failed")
+
+// ❌ WRONG - SpiceError is not Throwable
+logger.error(error) { "Config failed" }  // ❌ Compile error!
+
+// ✅ CORRECT - Use these instead
+logger.error { "Config failed: ${error.message}" }            // ✅ Option 1
+logger.error { "Error: $error" }                              // ✅ Option 2
+logger.error(error.toException()) { "Config failed" }         // ✅ Option 3
+
+// If error has cause
+if (error.cause != null) {
+    logger.error(error.cause) { error.message }               // ✅ Option 4
+}
+```
+
+#### ContextExtension Signature
+
+```kotlin
+// ❌ WRONG - Incorrect parameter/return type
+class MyExtension : ContextExtension {
+    override suspend fun enrich(context: Map<String, Any>): Map<String, Any> {  // ❌ NO!
+        return context
+    }
+}
+
+// ✅ CORRECT - Use AgentContext
+class MyExtension : ContextExtension {
+    override val key = "my-extension"
+
+    override suspend fun enrich(context: AgentContext): AgentContext {  // ✅ YES!
+        return context.with("extra", "value")
+    }
+}
+```
+
+#### currentAgentContext() Usage
+
+```kotlin
+// ❌ WRONG - Non-existent functions
+val context = getCurrentContext()           // ❌ NO!
+val context = AgentContext.current()        // ❌ NO!
+
+// ✅ CORRECT - Use these instead
+val context = currentAgentContext()         // ✅ Nullable
+val context = requireAgentContext()         // ✅ Throws if missing
+val tenantId = currentTenantId()            // ✅ Convenience function
+val userId = currentUserId()                // ✅ Convenience function
+```
+
+#### Import Paths
+
+```kotlin
+// ❌ WRONG - These packages don't exist
+import io.github.noailabs.spice.flow.*                // ❌ NO!
+import io.github.noailabs.spice.context.current       // ❌ NO!
+
+// ✅ CORRECT - Use these instead
+import io.github.noailabs.spice.*                     // ✅ Core types
+import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.dsl.withAgentContext
+import io.github.noailabs.spice.dsl.currentAgentContext
+import io.github.noailabs.spice.context.ContextExtension
+import io.github.noailabs.spice.error.SpiceError
+import io.github.noailabs.spice.error.SpiceResult
+```
+
+#### BaseContextAwareService Helpers
+
+```kotlin
+class MyService : BaseContextAwareService() {
+
+    // ✅ Require tenant ID (throws if missing)
+    suspend fun getTenantData() = withTenant { tenantId ->
+        // tenantId is String (non-null)
+        database.query("SELECT * FROM data WHERE tenant_id = ?", tenantId)
+    }
+
+    // ✅ Require both tenant and user ID
+    suspend fun getUserData() = withTenantAndUser { tenantId, userId ->
+        // Both are String (non-null)
+        database.query(
+            "SELECT * FROM data WHERE tenant_id = ? AND user_id = ?",
+            tenantId, userId
+        )
+    }
+
+    // ✅ Access full context
+    suspend fun getFullContext(): AgentContext {
+        return getContext()  // Returns AgentContext
+    }
+}
+```
+
+#### SpiceResult Handling
+
+```kotlin
+// ✅ Creating results
+val success = SpiceResult.success(myValue)
+val failure = SpiceResult.failure(SpiceError.configError("Failed"))
+
+// ✅ Checking results
+if (result.isSuccess) { /* ... */ }
+if (result.isFailure) { /* ... */ }
+
+// ✅ Getting values
+result.fold(
+    onSuccess = { value -> println("Success: $value") },
+    onFailure = { error -> println("Error: ${error.message}") }
+)
+
+val value = result.getOrNull()      // Nullable
+val value = result.getOrThrow()     // Throws if failure
+val value = result.getOrElse { defaultValue }
+
+// ✅ Transforming results
+val mapped = result.map { it.toString() }
+val recovered = result.recover { error -> defaultValue }
+```
+
+### Complete Example: All Patterns Together
+
+```kotlin
+import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.dsl.withAgentContext
+import io.github.noailabs.spice.dsl.currentAgentContext
+import io.github.noailabs.spice.error.SpiceError
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.context.BaseContextAwareService
+
+class ProductionService : BaseContextAwareService() {
+    private val logger = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * ✅ Production-ready method with all best practices
+     */
+    suspend fun processOrder(orderId: String): SpiceResult<Order> =
+        withTenantAndUser { tenantId, userId ->
+
+        logger.info { "Processing order: $orderId for tenant: $tenantId, user: $userId" }
+
+        try {
+            // Business logic here
+            val order = loadOrder(orderId)
+
+            if (order == null) {
+                return@withTenantAndUser SpiceResult.failure(
+                    SpiceError.validationError(
+                        message = "Order not found",
+                        field = "orderId",
+                        actualValue = orderId
+                    ).withContext(
+                        "tenantId" to tenantId,
+                        "userId" to userId
+                    )
+                )
+            }
+
+            // Success
+            logger.info { "Order processed successfully: $orderId" }
+            SpiceResult.success(order)
+
+        } catch (e: Exception) {
+            logger.error(e) { "Failed to process order: $orderId" }
+
+            SpiceResult.failure(
+                SpiceError.agentError(
+                    message = "Order processing failed: ${e.message}",
+                    cause = e
+                ).withContext(
+                    "tenantId" to tenantId,
+                    "userId" to userId,
+                    "orderId" to orderId
+                )
+            )
+        }
+    }
+}
+
+// ✅ Usage at HTTP boundary
+@PostMapping("/orders/{orderId}/process")
+suspend fun processOrder(
+    @PathVariable orderId: String,
+    @RequestHeader("X-Tenant-ID") tenantId: String,
+    @RequestHeader("X-User-ID") userId: String
+): ResponseEntity<OrderResponse> = withAgentContext(
+    "tenantId" to tenantId,
+    "userId" to userId,
+    "requestId" to UUID.randomUUID().toString()
+) {
+    val service = ProductionService()
+
+    service.processOrder(orderId).fold(
+        onSuccess = { order ->
+            ResponseEntity.ok(OrderResponse.from(order))
+        },
+        onFailure = { error ->
+            ResponseEntity
+                .status(mapErrorToHttpStatus(error))
+                .body(ErrorResponse.from(error))
+        }
+    )
 }
 ```
 
