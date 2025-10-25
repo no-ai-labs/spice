@@ -7,9 +7,9 @@ plugins {
 }
 
 allprojects {
-    group = "io.github.no-ai-labs"
-    version = "0.1.2"
-    
+    group = "io.github.noailabs"
+    version = "0.4.1"
+
     repositories {
         mavenCentral()
         maven { url = uri("https://jitpack.io") }

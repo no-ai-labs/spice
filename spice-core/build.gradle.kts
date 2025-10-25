@@ -95,9 +95,9 @@ publishing {
     publications {
         create<MavenPublication>("core") {
             from(components["java"])
-            groupId = "io.github.no-ai-labs"
+            groupId = "io.github.noailabs"
             artifactId = "spice-core"
-            version = "0.4.0"
+            version = "0.4.1"
 
             pom {
                 name.set("Spice Core")
