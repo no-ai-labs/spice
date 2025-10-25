@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "io.github.noailabs"
-version = "0.4.1"
+version = "0.4.3"
 
 repositories {
     mavenCentral()
@@ -85,11 +85,14 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
-            
+            groupId = "io.github.noailabs"
+            artifactId = "spice-eventsourcing"
+            version = "0.4.3"
+
             pom {
                 name.set("Spice EventSourcing")
                 description.set("Event Sourcing module for Spice Framework")
-                url.set("https://github.com/noailabs/spice-framework")
+                url.set("https://github.com/no-ai-labs/spice")
                 
                 licenses {
                     license {
@@ -100,10 +103,16 @@ publishing {
                 
                 developers {
                     developer {
-                        id.set("noailabs")
-                        name.set("Noai Labs")
-                        email.set("dev@noailabs.com")
+                        id.set("spice-team")
+                        name.set("Spice Framework Team")
+                        email.set("human@noailabs.ai")
                     }
+                }
+
+                scm {
+                    connection.set("scm:git:git://github.com/no-ai-labs/spice.git")
+                    developerConnection.set("scm:git:ssh://github.com/no-ai-labs/spice.git")
+                    url.set("https://github.com/no-ai-labs/spice")
                 }
             }
         }

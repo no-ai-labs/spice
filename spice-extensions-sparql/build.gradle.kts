@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.github.noailabs"
-version = "0.4.1"
+version = "0.4.3"
 
 repositories {
     mavenCentral()
@@ -55,11 +55,14 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
+            groupId = "io.github.noailabs"
+            artifactId = "spice-extensions-sparql"
+            version = "0.4.3"
 
             pom {
                 name.set("Spice Extensions - SPARQL")
                 description.set("SPARQL extension for Spice Framework with RDF4J and Handlebars support")
-                url.set("https://github.com/no-ai-labs/spice-framework")
+                url.set("https://github.com/no-ai-labs/spice")
 
                 licenses {
                     license {
@@ -77,9 +80,9 @@ publishing {
                 }
 
                 scm {
-                    connection.set("scm:git:git://github.com/no-ai-labs/spice-framework.git")
-                    developerConnection.set("scm:git:ssh://github.com/no-ai-labs/spice-framework.git")
-                    url.set("https://github.com/no-ai-labs/spice-framework")
+                    connection.set("scm:git:git://github.com/no-ai-labs/spice.git")
+                    developerConnection.set("scm:git:ssh://github.com/no-ai-labs/spice.git")
+                    url.set("https://github.com/no-ai-labs/spice")
                 }
             }
         }
