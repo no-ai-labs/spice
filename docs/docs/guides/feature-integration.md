@@ -608,7 +608,7 @@ fun monitorApiGateway() {
 
 1. **Cost Reduction**: Cache hit rates of 80%+ reduce API costs by 80%
 2. **Reliability**: Validation catches malformed API responses before they propagate
-3. **Performance**: Cached responses return in <1ms vs. 200-500ms for API calls
+3. **Performance**: Cached responses return in &lt;1ms vs. 200-500ms for API calls
 4. **Type Safety**: Output validation ensures downstream consumers get expected data
 5. **Observability**: Cache metrics track API gateway health
 

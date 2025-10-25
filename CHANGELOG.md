@@ -9,6 +9,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2025-10-25
+
+### 🔧 Patch Release: API Enhancements & Bug Fixes
+
+This patch release adds convenient DSL enhancements based on documentation examples and fixes critical bugs in the SPARQL extension.
+
+### Added
+
+#### 📝 Enhanced Tool DSL - `parameters {}` Block
+
+New structured DSL for defining tool parameters with better readability:
+
+```kotlin
+contextAwareTool("process_data") {
+    description = "Process data with structured params"
+
+    parameters {
+        string("name", "User name", required = true)
+        number("age", "User age", required = false)
+        boolean("active", "Is active", required = false)
+        integer("count", "Item count", required = false)
+        array("tags", "Tags list", required = false)
+    }
+
+    execute { params, context ->
+        // Implementation
+    }
+}
+```
+
+**Features**:
+- ✅ Cleaner syntax for multiple parameters
+- ✅ Type-safe parameter definitions
+- ✅ Can be mixed with individual `param()` calls
+- ✅ Full IDE autocomplete support
+
+#### ✅ Validation DSL - `custom()` Alias
+
+Added `custom()` as a more intuitive alias for `rule()` in output validation:
+
+```kotlin
+contextAwareTool("submit_order") {
+    validate {
+        requireField("items")
+
+        // New: More intuitive than rule()
+        custom("order must have at least one item") { output ->
+            val items = (output as? Map<*, *>)?.get("items") as? List<*>
+            items != null && items.isNotEmpty()
+        }
+    }
+
+    execute { params, context ->
+        mapOf("items" to listOf("item1", "item2"))
+    }
+}
+```
+
+**Features**:
+- ✅ Identical functionality to `rule()`
+- ✅ More descriptive naming
+- ✅ Supports both simple and context-aware validators
+
+#### 📊 Cache Metrics - `metrics` Property
+
+Added convenient property-style access to cache statistics:
+
+```kotlin
+val cachedTool = tool.cached(ttl = 300, maxSize = 100)
+
+// New: Property access (cleaner)
+println("Hit rate: ${cachedTool.metrics.hitRate}")
+println("Hits: ${cachedTool.metrics.hits}")
+
+// Still supported: Method access
+val stats = cachedTool.getCacheStats()
+```
+
+**Features**:
+- ✅ Property-style access for cleaner code
+- ✅ Returns same `ToolCacheStats` as `getCacheStats()`
+- ✅ Real-time metrics without overhead
+
+### Fixed
+
+#### 🔧 SPARQL Extension - HTML Escaping Bug
+
+Fixed critical bug in `spice-extensions-sparql` where Handlebars was HTML-escaping SPARQL queries:
+
+**Issue**:
+- Named graphs rendered as `FROM &lt;http://example.com/graph1&gt;`
+- URIs in SPARQL queries were incorrectly escaped
+- 3 test failures in `HandlebarsTemplateEngineTest`
+
+**Fix**:
+- Modified `buildNamedGraphsClause()` to return `Handlebars.SafeString`
+- Updated `namedGraphs` and `uri` helpers to prevent HTML escaping
+- All SPARQL templates now render correctly
+
+**Impact**: SPARQL queries now work correctly with named graphs and URIs
+
+#### 🐛 Parameter Extraction Regex
+
+Fixed `extractParameters()` method in Handlebars template engine:
+
+**Issue**:
+- Regex couldn't extract parameter names from block helpers
+- `{{#if includeEmail}}` only captured "if", not "includeEmail"
+- Parameter validation failed for conditional templates
+
+**Fix**:
+- Rewrote regex to extract all words from Handlebars blocks
+- Now correctly identifies parameters in `{{#if param}}`, `{{#each items}}`, etc.
+- Filters out helper keywords while preserving parameter names
+
+#### 📚 Documentation - MDX Compilation Errors
+
+Fixed MDX compilation errors preventing documentation builds:
+
+**Issue**:
+- `<1ms` in markdown was parsed as invalid HTML tag
+- Build failed on Cloudflare Pages with MDX syntax errors
+
+**Fix**:
+- Escaped `<` as `&lt;` in markdown files
+- All documentation now builds successfully
+
+### Changed
+
+#### 📖 Documentation Updates
+
+- Updated `docs/api/tool.md` with new `parameters {}` DSL
+- Added `custom()` to validation rules table
+- Documented `metrics` property usage
+- Fixed `FieldType` enum documentation (added `INTEGER`, corrected `ANY`)
+
+### Testing
+
+- ✅ Added 6 comprehensive tests for new APIs
+- ✅ All 240+ core tests passing
+- ✅ All 11 SPARQL extension tests passing
+- ✅ Full project build verified
+
+---
+
 ## [0.4.0] - 2025-10-23
 
 ### 🎯 Major Release: Thread-Safe Context Propagation

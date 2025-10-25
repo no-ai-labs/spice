@@ -65,7 +65,7 @@ Total: ~100ms (66% faster!)
 - Real-time data (stock prices, live updates)
 - User-specific writes (mutations should invalidate)
 - One-time operations (no repeated access)
-- Tiny operations (<1ms execution time)
+- Tiny operations (&lt;1ms execution time)
 
 ## Quick Start
 
