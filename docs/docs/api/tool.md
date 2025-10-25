@@ -158,6 +158,253 @@ tool("weather_search", "Search weather data") {
 }
 ```
 
+### Context-Aware Tools with Caching and Validation
+
+**New in 0.4.1:** Use `contextAwareTool()` for advanced features like caching and output validation:
+
+```kotlin
+val productSearchTool = contextAwareTool("product-search") {
+    description = "Search products with caching and validation"
+
+    // Parameters using DSL block (recommended)
+    parameters {
+        string("query", "Search query", required = true)
+        number("limit", "Max results", required = false)
+    }
+
+    // Alternative: Individual param() calls
+    // param("query", "string", "Search query", required = true)
+    // param("limit", "number", "Max results", required = false)
+
+    // Tool-level caching with context-aware keys
+    cache {
+        ttl = 1800 // 30 minutes
+        maxSize = 1000
+        enableMetrics = true
+
+        // Custom cache key builder (includes tenant context)
+        keyBuilder = { params, context ->
+            val query = params["query"] as? String ?: ""
+            val limit = params["limit"]?.toString() ?: "10"
+            val tenantId = context?.get("tenantId") as? String ?: "default"
+            "$tenantId:search:$query:$limit"
+        }
+    }
+
+    // Output validation ensures data quality
+    validate {
+        requireField("products", "Products array is required")
+        fieldType("products", FieldType.ARRAY)
+
+        rule("non-empty results") { output, _ ->
+            val products = (output as? Map<*, *>)?.get("products") as? List<*>
+            products?.isNotEmpty() == true
+        }
+    }
+
+    execute { params, context ->
+        val query = params["query"] as String
+        val limit = (params["limit"] as? Number)?.toInt() ?: 10
+
+        // Execute search
+        val products = searchEngine.search(query, limit)
+
+        // Result automatically validated and cached
+        ToolResult.success(mapOf(
+            "products" to products,
+            "count" to products.size
+        ))
+    }
+}
+
+// Usage in agent
+val agent = buildAgent {
+    tools {
+        +productSearchTool
+    }
+}
+```
+
+#### Cache DSL Block
+
+Configure intelligent caching for expensive operations:
+
+```kotlin
+contextAwareTool("api-call") {
+    cache {
+        ttl = 300 // Time-to-live in seconds (5 minutes)
+        maxSize = 500 // Maximum cache entries
+        enableMetrics = true // Track hit rate, evictions
+
+        // Optional: Custom cache key builder
+        keyBuilder = { params, context ->
+            val endpoint = params["endpoint"] as? String ?: ""
+            val tenantId = context?.get("tenantId") as? String ?: "default"
+            "$tenantId:api:$endpoint"
+        }
+    }
+
+    execute { params, context ->
+        // Implementation
+    }
+}
+```
+
+**Cache Key Builder Options:**
+
+```kotlin
+// Default builder (uses all parameters)
+keyBuilder = null // Auto-generates from params
+
+// Tenant-aware builder (multi-tenant isolation)
+keyBuilder = { params, context ->
+    val tenantId = context?.get("tenantId") as? String ?: "default"
+    "$tenantId:${params.hashCode()}"
+}
+
+// User-specific builder
+keyBuilder = { params, context ->
+    val userId = context?.get("userId") as? String ?: "anonymous"
+    "user:$userId:${params["query"]}"
+}
+
+// Custom logic builder
+keyBuilder = { params, context ->
+    val query = params["query"] as? String ?: ""
+    val hash = query.hashCode()
+    "search:$hash"
+}
+```
+
+**Cache Metrics:**
+
+```kotlin
+val tool = contextAwareTool("cached-tool") {
+    cache { ttl = 600 }
+    execute { /* ... */ }
+}
+
+// Access metrics using property (recommended)
+val metrics = (tool as CachedTool).metrics
+println("Hit rate: ${metrics.hitRate * 100}%")
+println("Hits: ${metrics.hits}")
+println("Misses: ${metrics.misses}")
+println("Current size: ${metrics.size}")
+
+// Alternative: Using getCacheStats() method
+val stats = (tool as CachedTool).getCacheStats()
+println("Max size: ${stats.maxSize}")
+println("TTL: ${stats.ttl}s")
+```
+
+#### Validate DSL Block
+
+Enforce output schema and business rules:
+
+```kotlin
+contextAwareTool("user-lookup") {
+    validate {
+        // Required fields
+        requireField("userId", "User ID is required")
+        requireField("email", "Email is required")
+
+        // Type validation
+        fieldType("userId", FieldType.STRING)
+        fieldType("email", FieldType.STRING)
+        fieldType("age", FieldType.NUMBER)
+
+        // Pattern validation
+        pattern("email", Regex("^[^@]+@[^@]+\\.[^@]+$"), "Invalid email format")
+
+        // Range validation
+        range("age", min = 0.0, max = 150.0, "Invalid age")
+
+        // Custom rules
+        rule("email domain whitelist") { output, context ->
+            val email = (output as? Map<*, *>)?.get("email") as? String
+            email?.endsWith("@company.com") == true
+        }
+
+        // Context-aware validation
+        rule("tenant match") { output, context ->
+            val outputTenant = (output as? Map<*, *>)?.get("tenantId") as? String
+            val contextTenant = context?.get("tenantId") as? String
+            outputTenant == contextTenant
+        }
+    }
+
+    execute { params, context ->
+        // Implementation
+    }
+}
+```
+
+**Validation Rules:**
+
+| Rule | Purpose | Example |
+|------|---------|---------|
+| `requireField(field, message?)` | Ensure field exists | `requireField("userId")` |
+| `fieldType(field, type, message?)` | Validate field type | `fieldType("age", FieldType.NUMBER)` |
+| `range(field, min, max, message?)` | Validate numeric range | `range("age", 0.0, 150.0)` |
+| `pattern(field, regex, message?)` | Validate string format | `pattern("email", Regex("..."))` |
+| `rule(description, validator)` | Custom validation logic | `rule("custom") { output, ctx -> ... }` |
+| `custom(description, validator)` | Alias for rule() | `custom("custom") { output -> ... }` |
+
+**Field Types:**
+
+- `FieldType.STRING` - String values
+- `FieldType.NUMBER` - Numeric values (Int, Long, Double, Float, etc.)
+- `FieldType.INTEGER` - Integer values only (Int, Long)
+- `FieldType.BOOLEAN` - Boolean values
+- `FieldType.ARRAY` - List/Array values
+- `FieldType.OBJECT` - Map/Object values
+- `FieldType.ANY` - Any type (no type checking)
+
+**Combining Cache and Validation:**
+
+```kotlin
+contextAwareTool("evidence-search") {
+    description = "Search with caching and citation validation"
+
+    cache {
+        ttl = 1800
+        maxSize = 500
+        keyBuilder = { params, context ->
+            val query = params["query"] as? String ?: ""
+            "evidence:${query.hashCode()}"
+        }
+    }
+
+    validate {
+        requireField("claim")
+        requireField("sources")
+        fieldType("sources", FieldType.ARRAY)
+
+        rule("sources must have citations") { output, _ ->
+            val sources = (output as? Map<*, *>)?.get("sources") as? List<*>
+            sources?.all { source ->
+                val s = source as? Map<*, *>
+                s?.containsKey("url") == true && s.containsKey("title") == true
+            } == true
+        }
+    }
+
+    execute { params, context ->
+        // Search implementation
+        val results = searchEngine.search(params["query"] as String)
+
+        ToolResult.success(mapOf(
+            "claim" to params["query"],
+            "sources" to results
+        ))
+    }
+}
+```
+
+**See Also:**
+- [Tool-Level Caching Guide](../performance/tool-caching) - Complete caching documentation
+- [Output Validation Guide](../dsl-guide/output-validation) - Complete validation documentation
+
 ### Swarm Tools
 
 Share tools across all swarm members:
