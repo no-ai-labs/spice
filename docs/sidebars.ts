@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
         'dsl-guide/build-agent',
         'dsl-guide/build-flow',
         'dsl-guide/tools',
+        'dsl-guide/output-validation',
         'dsl-guide/vector-store',
       ],
     },
@@ -62,7 +63,9 @@ const sidebars: SidebarsConfig = {
       items: [
         'orchestration/flows',
         'orchestration/swarm',
+        'orchestration/swarm-strategies',
         'orchestration/multi-agent',
+        'orchestration/tool-pipeline',
       ],
     },
     {
@@ -72,6 +75,8 @@ const sidebars: SidebarsConfig = {
         'error-handling/overview',
         'error-handling/spice-result',
         'error-handling/spice-error',
+        'error-handling/context-patterns',
+        'error-handling/inline-functions',
         'error-handling/best-practices',
       ],
     },
@@ -87,9 +92,61 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: '🔌 Extensions',
+      items: [
+        'extensions/sparql-features',
+      ],
+    },
+    {
+      type: 'category',
+      label: '⚡ Performance',
+      items: [
+        'performance/overview',
+        'performance/tool-caching',
+        'performance/cached-agent',
+        'performance/batching-backend',
+        'performance/production',
+      ],
+    },
+    {
+      type: 'category',
+      label: '📊 Observability',
+      items: [
+        'observability/overview',
+        'observability/setup',
+        'observability/tracing',
+        'observability/metrics',
+        'observability/visualization',
+      ],
+    },
+    {
+      type: 'category',
+      label: '📖 Guides',
+      items: [
+        'guides/feature-integration',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🧪 Testing',
+      items: [
+        'core-concepts/testing',
+        'testing/context-testing',
+      ],
+    },
+    {
+      type: 'category',
+      label: '🔒 Security',
+      items: [
+        'security/multi-tenancy',
+      ],
+    },
+    {
+      type: 'category',
       label: '🔥 Advanced',
       items: [
         'advanced/context-propagation',
+        'guides/context-propagation',
       ],
     },
     {
