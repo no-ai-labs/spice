@@ -139,14 +139,14 @@ Line 2 with "quotes" and \backslash"""
 
         assertEquals(
             "FROM <http://example.com/graph1>\nFROM <http://example.com/graph2>\nFROM <http://example.com/graph3>",
-            clause
+            clause.toString()
         )
     }
 
     @Test
     fun `test empty named graphs`() {
         val clause = buildNamedGraphsClause(emptyList())
-        assertEquals("", clause)
+        assertEquals("", clause.toString())
     }
 
     @Test

@@ -521,4 +521,73 @@ class OutputValidatorTest {
             assertEquals(1, callCount)  // Still 1 because cached
         }
     }
+
+    /**
+     * Test: custom() alias for rule() should work identically
+     */
+    @Test
+    fun `custom validation alias works same as rule`() = runTest {
+        // Given: Tool using custom() alias
+        val tool = contextAwareTool("test-custom-alias") {
+            validate {
+                custom("value must be positive") { output ->
+                    val value = (output as? Map<*, *>)?.get("value") as? Number
+                    (value?.toDouble() ?: 0.0) > 0.0
+                }
+
+                custom("description required") { output, _ ->
+                    val desc = (output as? Map<*, *>)?.get("description") as? String
+                    desc != null && desc.isNotBlank()
+                }
+            }
+
+            execute { _, _ ->
+                mapOf(
+                    "value" to 10,
+                    "description" to "Test"
+                )
+            }
+        }
+
+        // When: Execute with valid output
+        val result = withAgentContext("tenantId" to "TEST") {
+            tool.execute(emptyMap())
+        }
+
+        // Then: Should pass validation
+        assertTrue(result.isSuccess)
+        val toolResult = result.getOrNull()!!
+        assertTrue(toolResult.success)
+    }
+
+    /**
+     * Test: custom() validation failure
+     */
+    @Test
+    fun `custom validation should fail on invalid output`() = runTest {
+        // Given: Tool with custom validation
+        val tool = contextAwareTool("test-custom-fail") {
+            validate {
+                custom("array must not be empty") { output ->
+                    val items = (output as? Map<*, *>)?.get("items") as? List<*>
+                    items?.isNotEmpty() == true
+                }
+            }
+
+            execute { _, _ ->
+                mapOf("items" to emptyList<String>())
+            }
+        }
+
+        // When: Execute with empty array
+        val result = withAgentContext("tenantId" to "TEST") {
+            tool.execute(emptyMap())
+        }
+
+        // Then: Should fail validation
+        assertTrue(result.isSuccess)
+        val toolResult = result.getOrNull()!!
+        assertFalse(toolResult.success)
+        assertTrue(toolResult.error!!.contains("array must not be empty"))
+    }
 }

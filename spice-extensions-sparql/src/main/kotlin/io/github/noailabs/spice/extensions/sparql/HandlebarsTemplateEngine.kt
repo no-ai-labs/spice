@@ -55,14 +55,18 @@ class HandlebarsTemplateEngine(
 
         // Register helper for URI generation
         registerHelper("uri") { value: Any?, _ ->
-            "<${value?.toString() ?: ""}>"
+            val uri = "<" + (value?.toString() ?: "") + ">"
+            Handlebars.SafeString(uri)
         }
 
         // Register helper for named graphs
         registerHelper("namedGraphs") { graphs: Any?, _ ->
             when (graphs) {
-                is List<*> -> graphs.filterIsInstance<String>()
-                    .joinToString("\n") { "FROM <$it>" }
+                is List<*> -> {
+                    val clause = graphs.filterIsInstance<String>()
+                        .joinToString("\n") { "FROM <$it>" }
+                    Handlebars.SafeString(clause)
+                }
                 else -> ""
             }
         }
@@ -145,9 +149,14 @@ class HandlebarsTemplateEngine(
      */
     fun extractParameters(template: String): List<String> {
         // Match {{paramName}} or {{#if paramName}} etc.
-        val pattern = Regex("""\{\{[#/]?(\w+)(?:\s|\}\}|\})""")
-        return pattern.findAll(template)
-            .map { it.groupValues[1] }
+        // First, extract all {{...}} blocks
+        val handlebarsBlocks = Regex("""\{\{([^}]+)\}\}""").findAll(template)
+
+        // Then extract all words from each block
+        return handlebarsBlocks
+            .flatMap { match ->
+                Regex("""\w+""").findAll(match.groupValues[1]).map { it.value }
+            }
             .distinct()
             .filter { it !in setOf("if", "unless", "each", "with") } // Exclude helpers
             .toList()
@@ -193,8 +202,9 @@ class MissingParameterException(
  * // Result: "FROM <http://example.com/graph1>\nFROM <http://example.com/graph2>"
  * ```
  */
-fun buildNamedGraphsClause(graphs: List<String>): String {
-    return graphs.joinToString("\n") { "FROM <$it>" }
+fun buildNamedGraphsClause(graphs: List<String>): com.github.jknack.handlebars.Handlebars.SafeString {
+    val clause = graphs.joinToString("\n") { "FROM <$it>" }
+    return com.github.jknack.handlebars.Handlebars.SafeString(clause)
 }
 
 /**
