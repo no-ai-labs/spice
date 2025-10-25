@@ -443,4 +443,79 @@ class ContextAwareToolTest {
         val toolResult = result.getOrNull()!!
         assertEquals("Async result for ASYNC", toolResult.result)
     }
+
+    /**
+     * Test: parameters {} DSL block should work
+     */
+    @Test
+    fun `parameters DSL block should create tool with correct schema`() = runTest {
+        // Given: Tool with parameters DSL
+        val tool = contextAwareTool("test-params-dsl") {
+            description = "Test parameters DSL"
+
+            parameters {
+                string("name", "User name", required = true)
+                number("age", "User age", required = false)
+                boolean("active", "Is active", required = false)
+                integer("count", "Count", required = false)
+                array("tags", "Tags", required = false)
+            }
+
+            execute { params, _ ->
+                "OK: ${params.keys.joinToString()}"
+            }
+        }
+
+        // Then: Schema should have all parameters
+        assertEquals(5, tool.schema.parameters.size)
+        assertTrue(tool.schema.parameters.containsKey("name"))
+        assertTrue(tool.schema.parameters.containsKey("age"))
+        assertTrue(tool.schema.parameters.containsKey("active"))
+        assertTrue(tool.schema.parameters.containsKey("count"))
+        assertTrue(tool.schema.parameters.containsKey("tags"))
+
+        // And: Required flags should be correct
+        assertEquals(true, tool.schema.parameters["name"]?.required)
+        assertEquals(false, tool.schema.parameters["age"]?.required)
+
+        // And: Types should be correct
+        assertEquals("string", tool.schema.parameters["name"]?.type)
+        assertEquals("number", tool.schema.parameters["age"]?.type)
+        assertEquals("boolean", tool.schema.parameters["active"]?.type)
+        assertEquals("integer", tool.schema.parameters["count"]?.type)
+        assertEquals("array", tool.schema.parameters["tags"]?.type)
+
+        // When: Execute tool
+        val result = withAgentContext("tenantId" to "TEST") {
+            tool.execute(mapOf("name" to "John"))
+        }
+
+        // Then: Should execute successfully
+        assertTrue(result.isSuccess)
+    }
+
+    /**
+     * Test: parameters {} DSL mixed with param() should work
+     */
+    @Test
+    fun `parameters DSL can be mixed with individual param calls`() = runTest {
+        // Given: Tool using both DSL and individual param
+        val tool = contextAwareTool("mixed-params") {
+            parameters {
+                string("email", "Email", required = true)
+                number("age", "Age", required = false)
+            }
+
+            // Additional param using individual call
+            param("country", "string", "Country", required = false)
+
+            execute { params, _ -> "OK" }
+        }
+
+        // Then: Should have all 3 parameters
+        assertEquals(3, tool.schema.parameters.size)
+        assertTrue(tool.schema.parameters.containsKey("email"))
+        assertTrue(tool.schema.parameters.containsKey("age"))
+        assertTrue(tool.schema.parameters.containsKey("country"))
+    }
 }

@@ -292,4 +292,69 @@ class CachedToolTest {
         assertEquals(3, stats.misses) // 3 cache misses
         assertEquals(0.5, stats.hitRate)  // 3/(3+3) = 0.5
     }
+
+    @Test
+    fun `test metrics property provides convenient access`() = runBlocking {
+        // Given: Cached tool
+        val baseTool = SimpleTool(
+            name = "base",
+            description = "Base tool",
+            parameterSchemas = emptyMap()
+        ) { params ->
+            ToolResult.success("result_${params["id"]}")
+        }
+        val cachedTool = CachedTool(baseTool, CachedTool.ToolCacheConfig(ttl = 300))
+
+        // When: Execute multiple times
+        cachedTool.execute(mapOf("id" to "1"))  // Miss
+        cachedTool.execute(mapOf("id" to "1"))  // Hit
+        cachedTool.execute(mapOf("id" to "2"))  // Miss
+        cachedTool.execute(mapOf("id" to "1"))  // Hit
+
+        // Then: metrics property should work identically to getCacheStats()
+        val metricsProperty = cachedTool.metrics
+        val getCacheStatsMethod = cachedTool.getCacheStats()
+
+        // Both should return same values
+        assertEquals(getCacheStatsMethod.hits, metricsProperty.hits)
+        assertEquals(getCacheStatsMethod.misses, metricsProperty.misses)
+        assertEquals(getCacheStatsMethod.hitRate, metricsProperty.hitRate)
+        assertEquals(getCacheStatsMethod.size, metricsProperty.size)
+
+        // Verify actual values
+        assertEquals(2, metricsProperty.hits)
+        assertEquals(2, metricsProperty.misses)
+        assertEquals(0.5, metricsProperty.hitRate)
+        assertEquals(2, metricsProperty.size)
+    }
+
+    @Test
+    fun `test metrics property can be accessed directly`() = runBlocking {
+        // Given: Cached tool created via contextAwareTool
+        val tool = contextAwareTool("metrics-test") {
+            cache {
+                ttl = 300
+                maxSize = 100
+            }
+
+            execute { params, _ ->
+                "result"
+            }
+        }
+
+        withAgentContext("tenantId" to "TEST") {
+            // When: Execute tool
+            tool.execute(mapOf("id" to "1"))
+            tool.execute(mapOf("id" to "1"))
+
+            // Then: Can access metrics via property
+            val cachedTool = tool as CachedTool
+            val metrics = cachedTool.metrics
+
+            // Verify metrics
+            assertEquals(1, metrics.hits)
+            assertEquals(1, metrics.misses)
+            assertEquals(0.5, metrics.hitRate)
+        }
+    }
 }
