@@ -1,5 +1,7 @@
 jdk:
   - openjdk21
+before_install:
+  - sdk install java 21.0.2-open
+  - sdk use java 21.0.2-open
 install:
-  - ./gradlew :spice-core:publishToMavenLocal
-  - ./gradlew :spice-springboot:publishToMavenLocal
+  - ./gradlew :spice-core:publishToMavenLocal :spice-springboot:publishToMavenLocal :spice-extensions-sparql:publishToMavenLocal :spice-eventsourcing:publishToMavenLocal -x test
