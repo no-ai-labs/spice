@@ -18,6 +18,16 @@ const sidebars: SidebarsConfig = {
     'intro',
     {
       type: 'category',
+      label: '🗺️ Roadmap & Migration',
+      items: [
+        'roadmap/overview',
+        'roadmap/af-architecture',
+        'roadmap/migration-guide',
+        'roadmap/implementation-timeline',
+      ],
+    },
+    {
+      type: 'category',
       label: '🚀 Getting Started',
       items: [
         'getting-started/installation',
