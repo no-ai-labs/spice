@@ -24,10 +24,11 @@ class AgentNode(
             else -> ""
         }
 
-        // Create Comm from input
+        // Create Comm from input (with AgentContext if available)
         val comm = Comm(
             content = inputContent,
-            from = "graph-${ctx.graphId}"
+            from = "graph-${ctx.graphId}",
+            context = ctx.agentContext  // ✨ Context propagation!
         )
 
         // Execute agent (returns SpiceResult<Comm>)
@@ -41,7 +42,9 @@ class AgentNode(
             data = response.content,
             metadata = mapOf(
                 "agentId" to agent.id,
-                "agentName" to (agent.name ?: "unknown")
+                "agentName" to (agent.name ?: "unknown"),
+                "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
+                "userId" to (ctx.agentContext?.userId ?: "none")
             )
         )
     }

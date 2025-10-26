@@ -1,9 +1,11 @@
 package io.github.noailabs.spice.graph.runner
 
+import io.github.noailabs.spice.AgentContext
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.NodeContext
 import java.time.Duration
 import java.time.Instant
+import kotlin.coroutines.coroutineContext
 
 /**
  * Interface for executing graphs.
@@ -23,9 +25,13 @@ class DefaultGraphRunner : GraphRunner {
         graph: Graph,
         input: Map<String, Any?>
     ): RunReport {
+        // ✨ Get AgentContext from coroutine context (auto-propagated!)
+        val agentContext = coroutineContext[AgentContext]
+
         val ctx = NodeContext(
             graphId = graph.id,
-            state = input.toMutableMap()
+            state = input.toMutableMap(),
+            agentContext = agentContext  // Pass context to all nodes
         )
 
         val nodeReports = mutableListOf<NodeReport>()

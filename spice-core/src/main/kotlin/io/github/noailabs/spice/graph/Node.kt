@@ -1,5 +1,7 @@
 package io.github.noailabs.spice.graph
 
+import io.github.noailabs.spice.AgentContext
+
 /**
  * Core abstraction for a node in the execution graph.
  * Every node represents a unit of work that can be executed.
@@ -12,11 +14,14 @@ interface Node {
 /**
  * Execution context passed to each node.
  * Contains the current state and metadata for the graph execution.
+ *
+ * @property agentContext Optional AgentContext for multi-tenant support and context propagation
  */
 data class NodeContext(
     val graphId: String,
     val state: MutableMap<String, Any?>,
-    val metadata: MutableMap<String, Any> = mutableMapOf()
+    val metadata: MutableMap<String, Any> = mutableMapOf(),
+    val agentContext: AgentContext? = null  // ✨ Context propagation support!
 )
 
 /**
