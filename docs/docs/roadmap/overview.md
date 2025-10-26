@@ -27,22 +27,29 @@ Unified graph runtime with nodes, middleware, checkpoints, and OpenTelemetry-nat
 4. **Enhanced Observability** - OpenTelemetry native
 5. **Typed Edges & Validation** - Schema validation on edges
 
-## Timeline
+## Development Approach
 
-| Phase | Duration | Focus |
-|-------|----------|-------|
-| **Week 1-2** | Core Engine | Node/Graph/Runner + Middleware |
-| **Week 3-4** | Checkpoint | CheckpointStore + Resume API |
-| **Week 5** | Migration | Auto-migration tool + guide |
-| **Week 6** | Validation | Port all examples to 0.5.0 |
-| **Week 7** | RFC | Public feedback period |
-| **Week 8** | Beta | 0.5.0-beta release |
-| **Week 10** | GA | 0.5.0 stable release |
+**빠르게 간다!** 🚀 Star 8짜리에 긴 타임라인은 의미 없음.
+
+### Phase 1: Core Engine (NOW!)
+- Node/Graph/Runner 추상화
+- GraphBuilder DSL
+- Basic execution
+
+### Phase 2: Advanced Features
+- Middleware pipeline
+- Checkpoint system
+- Parallel execution
+
+### Phase 3: Polish & Release
+- Migration tools
+- Documentation
+- 0.5.0 GA!
 
 ## Next Steps
 
 1. Read: [AF-Style Architecture Spec](./af-architecture.md)
 2. Read: [Migration Guide](./migration-guide.md)
-3. Read: [Implementation Timeline](./implementation-timeline.md)
+3. Start implementing: `spice-core/graph/` module
 
 **Let's build the future of agent orchestration together!** 🚀
