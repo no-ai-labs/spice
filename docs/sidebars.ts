@@ -23,7 +23,6 @@ const sidebars: SidebarsConfig = {
         'roadmap/overview',
         'roadmap/af-architecture',
         'roadmap/migration-guide',
-        'roadmap/implementation-timeline',
       ],
     },
     {
