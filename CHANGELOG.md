@@ -208,6 +208,15 @@ val returnComm = handoffComm.returnFromHandoff(
 
 ### Changed
 
+#### 📦 Registry Updates
+
+**FlowRegistry Deprecation**:
+- `FlowRegistry` is now deprecated with `@Deprecated` annotation
+- Migration path: Use `GraphRegistry` instead
+- Deprecation level: WARNING (still works, but shows warning)
+- ReplaceWith suggestion provided for seamless IDE migration
+- Will be removed in v0.6.0 (6 months)
+
 #### 🚨 Breaking Changes - Swarm/Flow → Graph
 
 **Swarm orchestration** replaced with Graph:
@@ -298,9 +307,14 @@ val result = runner.run(
 - `HandoffTaskType` - RESPOND, APPROVE, REVIEW, INVESTIGATE, ESCALATE, CUSTOM
 - `HandoffPriority` - LOW, NORMAL, HIGH, URGENT
 
+**Registry System**:
+- `GraphRegistry` - Registry for Graph instances with registration and retrieval
+- `Graph` now implements `Identifiable` interface for registry compatibility
+- Consistent registry pattern across AgentRegistry, ToolRegistry, and GraphRegistry
+
 ### Testing
 
-**New Tests** (24 tests for 0.5.0 features):
+**New Tests** (30 tests for 0.5.0 features):
 
 **HumanNodeTest.kt** (10 tests - All passing):
 - Basic approval workflow
@@ -324,9 +338,29 @@ val result = runner.run(
 - Checkpoint save/restore
 - Error handling
 
+**GraphContextIntegrationTest.kt** (6 tests - All passing):
+- Graph with contextAwareTool propagating AgentContext automatically
+- Graph with Agent propagating AgentContext through Comm
+- Graph with multiple nodes maintaining AgentContext throughout execution
+- Graph without AgentContext (backward compatibility)
+- GraphRegistry registration and retrieval
+- Graph with nested service calls maintaining context
+
 **Test Results**:
-- ✅ 316 tests completed, 14 failed (pre-existing), 1 skipped
-- ✅ All 24 new 0.5.0 tests passing
+- ✅ 322 tests completed, 14 failed (pre-existing), 1 skipped
+- ✅ All 30 new 0.5.0 tests passing
+- ✅ Graph + Context integration fully verified
+
+### Fixed
+
+#### 🔧 Performance Improvements
+
+**CachedTool LRU Eviction**:
+- Fixed non-deterministic LRU eviction behavior in `CachedTool`
+- Changed from `minByOrNull` to `minWithOrNull` with composite comparator
+- Now uses `lastAccessed` (primary) + `key` (secondary) for deterministic ordering
+- Eliminates flaky test failures in high-concurrency scenarios
+- Improves cache predictability in production workloads
 
 ### Migration Required
 

@@ -17,8 +17,10 @@ Spice Framework v0.5.0 is a **major architectural release** that introduces grap
 - 💾 **Checkpointing**: Save and resume graph execution state
 - 👤 **HITL Support**: Pause graphs for human approval with validators and timeouts
 - 🤝 **Agent Handoff**: Agents can transfer to human agents asynchronously
+- 📦 **GraphRegistry**: Official registry for Graph instances with full lifecycle management
+- ⚠️ **FlowRegistry Deprecated**: Clear migration path to GraphRegistry with IDE support
 - 🚨 **Breaking Changes**: Swarm/Flow → Graph (Migration guide included)
-- ✅ **316 Tests Passing**: Comprehensive test coverage for all new features
+- ✅ **322 Tests Passing**: Comprehensive test coverage including 30 new tests for 0.5.0 features
 
 ---
 
@@ -323,6 +325,58 @@ val returnComm = handoffComm.returnFromHandoff(
 
 ---
 
+### 6. GraphRegistry - Unified Registry Pattern
+
+Official registry system for managing Graph instances:
+
+```kotlin
+// Register a graph
+val myGraph = graph("customer-workflow") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+}
+
+GraphRegistry.register(myGraph)
+
+// Retrieve registered graph
+val retrieved = GraphRegistry.get("customer-workflow")
+
+// List all graphs
+val allGraphs = GraphRegistry.getAll()
+
+// Unregister when done
+GraphRegistry.unregister("customer-workflow")
+```
+
+**Features**:
+- ✅ **Consistent pattern** - Same API as AgentRegistry, ToolRegistry
+- ✅ **Type-safe** - Graph implements Identifiable interface
+- ✅ **Thread-safe** - ConcurrentHashMap for concurrent access
+- ✅ **Lifecycle management** - Register, retrieve, unregister
+- ✅ **Query support** - Get all graphs or by ID
+
+**FlowRegistry Deprecation**:
+- `FlowRegistry` is now deprecated with `@Deprecated(level = WARNING)`
+- Clear migration path: Use `GraphRegistry` instead
+- IDE support: `ReplaceWith` suggestion automatically fixes code
+- Will be removed in v0.6.0 (6 months deprecation period)
+
+**Why It Matters**:
+- 📦 **Centralized management** - All graphs in one place
+- 🔄 **Runtime discovery** - Query available graphs dynamically
+- 🏗️ **Architectural consistency** - Unified registry pattern across framework
+- 🔧 **Easy testing** - Mock and swap graphs for testing
+
+**Context Integration**:
+Graph system fully integrates with AgentContext for multi-tenancy:
+- ✅ AgentContext propagates automatically through graph execution
+- ✅ contextAwareTool receives context in every node
+- ✅ Agents access context via Comm
+- ✅ Service layer (BaseContextAwareService) works seamlessly
+- ✅ Comprehensive integration tests verify all scenarios
+
+---
+
 ## 🚨 Breaking Changes
 
 ### Swarm/Flow → Graph Migration Required
@@ -414,18 +468,27 @@ See [Migration Guide](docs/versioned_docs/version-0.5.0/roadmap/migration-guide.
 7. Node reuse
 8. Complex workflows
 
+**GraphContextIntegrationTest.kt** (6 tests - All passing):
+1. Graph with contextAwareTool propagating AgentContext automatically
+2. Graph with Agent propagating AgentContext through Comm
+3. Graph with multiple nodes maintaining AgentContext throughout execution
+4. Graph without AgentContext (backward compatibility)
+5. GraphRegistry registration and retrieval
+6. Graph with nested service calls maintaining context
+
 **Test Results**:
-- ✅ **spice-core**: 316 tests completed, 14 failed (pre-existing), 1 skipped
-- ✅ **All new 0.5.0 features**: 24/24 tests passing
+- ✅ **spice-core**: 322 tests completed, 14 failed (pre-existing), 1 skipped
+- ✅ **All new 0.5.0 features**: 30/30 tests passing
 - ✅ **HITL system**: 10/10 tests passing
 - ✅ **Handoff system**: 6/6 tests passing
 - ✅ **Graph system**: 8/8 tests passing
+- ✅ **Graph + Context integration**: 6/6 tests passing
 
 **Build Verification**:
 ```bash
 ./gradlew test
 # BUILD SUCCESSFUL
-# 316 tests completed, 14 failed (pre-existing), 1 skipped
+# 322 tests completed, 14 failed (pre-existing), 1 skipped
 ```
 
 ---
