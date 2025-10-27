@@ -17,7 +17,8 @@
       "items": [
         "getting-started/installation",
         "getting-started/first-agent",
-        "getting-started/quick-start"
+        "getting-started/quick-start",
+        "getting-started/graph-quick-start"
       ]
     },
     {
@@ -132,7 +133,12 @@
       "type": "category",
       "label": "📖 Guides",
       "items": [
-        "guides/feature-integration"
+        "guides/migration-0.4-to-0.5",
+        "guides/graph-spring-boot",
+        "guides/graph-patterns",
+        "guides/troubleshooting",
+        "guides/feature-integration",
+        "guides/context-propagation"
       ]
     },
     {
@@ -154,8 +160,7 @@
       "type": "category",
       "label": "🔥 Advanced",
       "items": [
-        "advanced/context-propagation",
-        "guides/context-propagation"
+        "advanced/context-propagation"
       ]
     },
     {
