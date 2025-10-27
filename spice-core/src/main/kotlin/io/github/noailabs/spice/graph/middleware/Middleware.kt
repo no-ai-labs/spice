@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.graph.middleware
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.graph.runner.RunReport
 
@@ -19,8 +20,9 @@ interface Middleware {
     /**
      * Called before/after each node execution.
      * Chain pattern allows middleware to wrap node execution.
+     * Works with SpiceResult for consistent error handling.
      */
-    suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> NodeResult): NodeResult {
+    suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> SpiceResult<NodeResult>): SpiceResult<NodeResult> {
         return next(req)
     }
 

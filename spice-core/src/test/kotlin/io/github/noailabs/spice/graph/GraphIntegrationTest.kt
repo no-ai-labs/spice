@@ -45,7 +45,7 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        val report = runner.run(graph, mapOf("input" to "World"))
+        val report = runner.run(graph, mapOf("input" to "World")).getOrThrow()
 
         // Then: Check result
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -96,7 +96,7 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        val report = runner.run(graph, mapOf("input" to "Start"))
+        val report = runner.run(graph, mapOf("input" to "Start")).getOrThrow()
 
         // Then: Verify execution
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -132,7 +132,7 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        val report = runner.run(graph, mapOf("input" to "hello world"))
+        val report = runner.run(graph, mapOf("input" to "hello world")).getOrThrow()
 
         // Then: Verify result
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -183,7 +183,7 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        val report = runner.run(graph, mapOf("input" to "data"))
+        val report = runner.run(graph, mapOf("input" to "data")).getOrThrow()
 
         // Then: Verify result
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -250,7 +250,7 @@ class GraphIntegrationTest {
         // ✨ Execute within AgentContext!
         val report = withContext(agentContext) {
             runner.run(graph, mapOf("input" to "test"))
-        }
+        }.getOrThrow()
 
         // Then: Verify context was propagated
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -313,7 +313,7 @@ class GraphIntegrationTest {
         // ✨ Execute within AgentContext!
         val report = withContext(agentContext) {
             runner.run(graph, mapOf("input" to "test"))
-        }
+        }.getOrThrow()
 
         // Then: Verify context was propagated to tool
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -336,8 +336,8 @@ class GraphIntegrationTest {
 
             override suspend fun onNode(
                 req: io.github.noailabs.spice.graph.middleware.NodeRequest,
-                next: suspend (io.github.noailabs.spice.graph.middleware.NodeRequest) -> io.github.noailabs.spice.graph.NodeResult
-            ): io.github.noailabs.spice.graph.NodeResult {
+                next: suspend (io.github.noailabs.spice.graph.middleware.NodeRequest) -> SpiceResult<io.github.noailabs.spice.graph.NodeResult>
+            ): SpiceResult<io.github.noailabs.spice.graph.NodeResult> {
                 executionLog.add("middleware1-node-${req.nodeId}-before")
                 val result = next(req)
                 executionLog.add("middleware1-node-${req.nodeId}-after")
@@ -358,8 +358,8 @@ class GraphIntegrationTest {
 
             override suspend fun onNode(
                 req: io.github.noailabs.spice.graph.middleware.NodeRequest,
-                next: suspend (io.github.noailabs.spice.graph.middleware.NodeRequest) -> io.github.noailabs.spice.graph.NodeResult
-            ): io.github.noailabs.spice.graph.NodeResult {
+                next: suspend (io.github.noailabs.spice.graph.middleware.NodeRequest) -> SpiceResult<io.github.noailabs.spice.graph.NodeResult>
+            ): SpiceResult<io.github.noailabs.spice.graph.NodeResult> {
                 executionLog.add("middleware2-node-${req.nodeId}-before")
                 val result = next(req)
                 executionLog.add("middleware2-node-${req.nodeId}-after")
@@ -396,7 +396,7 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        val report = runner.run(graph, mapOf("input" to "test"))
+        val report = runner.run(graph, mapOf("input" to "test")).getOrThrow()
 
         // Then: Verify middleware execution order
         assertEquals(RunStatus.SUCCESS, report.status)
@@ -454,8 +454,8 @@ class GraphIntegrationTest {
         }
 
         val runner = DefaultGraphRunner()
-        runner.run(graph, mapOf("input" to "test1"))
-        runner.run(graph, mapOf("input" to "test2"))
+        runner.run(graph, mapOf("input" to "test1")).getOrThrow()
+        runner.run(graph, mapOf("input" to "test2")).getOrThrow()
 
         // Then: Verify metrics collected
         val metrics = metricsMiddleware.getMetrics()

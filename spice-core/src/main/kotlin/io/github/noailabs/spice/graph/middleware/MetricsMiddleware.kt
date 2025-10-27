@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.graph.middleware
 
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.graph.runner.RunReport
 import java.time.Duration
@@ -19,7 +20,7 @@ class MetricsMiddleware : Middleware {
         next()
     }
 
-    override suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> NodeResult): NodeResult {
+    override suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> SpiceResult<NodeResult>): SpiceResult<NodeResult> {
         val startTime = Instant.now()
 
         val result = next(req)

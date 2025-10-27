@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.graph.nodes
 
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
@@ -12,11 +13,13 @@ class OutputNode(
     override val id: String,
     val selector: (NodeContext) -> Any? = { it.state["result"] }
 ) : Node {
-    override suspend fun run(ctx: NodeContext): NodeResult {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
         val output = selector(ctx)
-        return NodeResult(
-            data = output,
-            metadata = mapOf("isOutput" to true)
+        return SpiceResult.success(
+            NodeResult(
+                data = output,
+                metadata = mapOf("isOutput" to true)
+            )
         )
     }
 }

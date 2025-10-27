@@ -2,6 +2,7 @@ package io.github.noailabs.spice.graph.nodes
 
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolContext
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
@@ -15,7 +16,7 @@ class ToolNode(
     val tool: Tool,
     val paramMapper: (NodeContext) -> Map<String, Any?> = { it.state }
 ) : Node {
-    override suspend fun run(ctx: NodeContext): NodeResult {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
         // Map context to tool parameters
         val params = paramMapper(ctx)
 
@@ -23,7 +24,7 @@ class ToolNode(
         val nonNullParams = params.filterValues { it != null }
             .mapValues { it.value!! }
 
-        // Execute tool with context if available
+        // Execute tool with context if available, then map to NodeResult
         val spiceResult = if (ctx.agentContext != null) {
             // ✨ Context-aware tool execution!
             val toolContext = ToolContext(
@@ -38,18 +39,17 @@ class ToolNode(
             tool.execute(nonNullParams)
         }
 
-        // Extract ToolResult
-        val toolResult = spiceResult.getOrThrow()
-
-        // Return result
-        return NodeResult(
-            data = toolResult.result,
-            metadata = mapOf(
-                "toolName" to tool.name,
-                "toolSuccess" to toolResult.success,
-                "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
-                "userId" to (ctx.agentContext?.userId ?: "none")
+        // Chain SpiceResult
+        return spiceResult.map { toolResult ->
+            NodeResult(
+                data = toolResult.result,
+                metadata = mapOf(
+                    "toolName" to tool.name,
+                    "toolSuccess" to toolResult.success,
+                    "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
+                    "userId" to (ctx.agentContext?.userId ?: "none")
+                )
             )
-        )
+        }
     }
 }

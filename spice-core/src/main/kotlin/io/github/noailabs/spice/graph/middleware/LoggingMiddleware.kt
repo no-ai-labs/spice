@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.graph.middleware
 
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.graph.runner.RunReport
 import org.slf4j.LoggerFactory
@@ -15,12 +16,14 @@ class LoggingMiddleware : Middleware {
         next()
     }
 
-    override suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> NodeResult): NodeResult {
+    override suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> SpiceResult<NodeResult>): SpiceResult<NodeResult> {
         logger.debug("▶️  Executing node: nodeId={}, runId={}", req.nodeId, req.context.runId)
 
         val result = next(req)
 
-        logger.debug("✅ Node completed: nodeId={}, output={}", req.nodeId, result.data)
+        result.onSuccess { nodeResult ->
+            logger.debug("✅ Node completed: nodeId={}, output={}", req.nodeId, nodeResult.data)
+        }
 
         return result
     }

@@ -2,6 +2,7 @@ package io.github.noailabs.spice.graph.nodes
 
 import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.Comm
+import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
@@ -15,7 +16,7 @@ class AgentNode(
     val agent: Agent,
     val inputKey: String? = null  // If null, use "input" or last node's result
 ) : Node {
-    override suspend fun run(ctx: NodeContext): NodeResult {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
         // Get input: use inputKey, or "_previous", or "input"
         val inputContent = when {
             inputKey != null -> ctx.state[inputKey]?.toString() ?: ""
@@ -31,21 +32,18 @@ class AgentNode(
             context = ctx.agentContext  // ✨ Context propagation!
         )
 
-        // Execute agent (returns SpiceResult<Comm>)
-        val spiceResult = agent.processComm(comm)
-
-        // Extract Comm
-        val response = spiceResult.getOrThrow()
-
-        // Return result
-        return NodeResult(
-            data = response.content,
-            metadata = mapOf(
-                "agentId" to agent.id,
-                "agentName" to (agent.name ?: "unknown"),
-                "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
-                "userId" to (ctx.agentContext?.userId ?: "none")
-            )
-        )
+        // Execute agent and map to NodeResult (chain SpiceResult)
+        return agent.processComm(comm)
+            .map { response ->
+                NodeResult(
+                    data = response.content,
+                    metadata = mapOf(
+                        "agentId" to agent.id,
+                        "agentName" to (agent.name ?: "unknown"),
+                        "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
+                        "userId" to (ctx.agentContext?.userId ?: "none")
+                    )
+                )
+            }
     }
 }

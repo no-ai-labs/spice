@@ -1,14 +1,17 @@
 package io.github.noailabs.spice.graph
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.error.SpiceResult
 
 /**
  * Core abstraction for a node in the execution graph.
  * Every node represents a unit of work that can be executed.
+ *
+ * Returns SpiceResult for consistent error handling across Spice framework.
  */
 interface Node {
     val id: String
-    suspend fun run(ctx: NodeContext): NodeResult
+    suspend fun run(ctx: NodeContext): SpiceResult<NodeResult>
 }
 
 /**
