@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'roadmap/overview',
         'roadmap/af-architecture',
         'roadmap/migration-guide',
+        'roadmap/hitl-design',
       ],
     },
     {
@@ -75,6 +76,20 @@ const sidebars: SidebarsConfig = {
         'orchestration/swarm-strategies',
         'orchestration/multi-agent',
         'orchestration/tool-pipeline',
+        'orchestration/agent-handoff',
+        {
+          type: 'category',
+          label: '🕸️ Graph System (v0.5.0)',
+          collapsed: false,
+          items: [
+            'orchestration/graph-system',
+            'orchestration/graph-nodes',
+            'orchestration/graph-middleware',
+            'orchestration/graph-checkpoint',
+            'orchestration/graph-validation',
+            'orchestration/graph-hitl',
+          ],
+        },
       ],
     },
     {
@@ -200,6 +215,7 @@ const sidebars: SidebarsConfig = {
         'api/context',
         'api/registry',
         'api/dsl',
+        'api/graph',
       ],
     },
   ],

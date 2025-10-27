@@ -1,6 +1,7 @@
 package io.github.noailabs.spice
 
 import io.github.noailabs.spice.chains.ModernToolChain
+import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.model.AgentTool
 import java.util.concurrent.ConcurrentHashMap
 
@@ -389,8 +390,24 @@ object ToolRegistry : Registry<ToolWrapper>("tools") {
 object ToolChainRegistry : Registry<ModernToolChain>("toolchains")
 
 /**
- * 🌊 Flow Registry
+ * 🕸️ Graph Registry
+ *
+ * Registry for DAG-based graphs introduced in v0.5.0.
+ * Graphs are the new orchestration pattern replacing Swarm/Flow.
  */
+object GraphRegistry : Registry<Graph>("graphs")
+
+/**
+ * 🌊 Flow Registry
+ *
+ * @deprecated Flow has been replaced by Graph in v0.5.0.
+ * Use GraphRegistry instead. See migration guide for details.
+ */
+@Deprecated(
+    message = "Flow has been replaced by Graph in v0.5.0. Use GraphRegistry instead.",
+    replaceWith = ReplaceWith("GraphRegistry", "io.github.noailabs.spice.GraphRegistry"),
+    level = DeprecationLevel.WARNING
+)
 object FlowRegistry : Registry<MultiAgentFlow>("flows")
 
 

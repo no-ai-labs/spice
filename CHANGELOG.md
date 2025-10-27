@@ -9,6 +9,386 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2025-10-27
+
+### 🎯 Major Release: Graph-Based Orchestration & Human-in-the-Loop
+
+This is a **major architectural release** that introduces graph-based orchestration inspired by Microsoft's Agent Framework. This release replaces Swarm/Flow patterns with a unified Graph system that provides more flexibility, better composability, and enterprise features like checkpointing and Human-in-the-Loop (HITL).
+
+### Added
+
+#### 🕸️ Graph System - Microsoft Agent Framework Inspired
+
+Complete rewrite of orchestration using Directed Acyclic Graphs (DAG):
+
+```kotlin
+val myGraph = graph("customer-support") {
+    agent("classifier", classifierAgent)
+    agent("technical", technicalAgent)
+    agent("billing", billingAgent)
+
+    // Conditional edges
+    edge("classifier", "technical") { result ->
+        val comm = result.data as? Comm
+        comm?.data?.get("category") == "technical"
+    }
+}
+
+val runner = DefaultGraphRunner()
+val result = runner.run(
+    graph = myGraph,
+    input = mapOf("comm" to initialComm)
+).getOrThrow()
+```
+
+**Features**:
+- ✅ DAG-based execution with conditional routing
+- ✅ Multiple node types: Agent, Tool, Output, Decision, HumanNode
+- ✅ Reusable agents across multiple nodes
+- ✅ Detailed execution reports with node history
+- ✅ Flexible graph composition and execution
+
+#### 🔄 Middleware System
+
+Intercept and observe graph execution at every stage:
+
+```kotlin
+class LoggingMiddleware : Middleware {
+    override suspend fun onGraphStart(context: GraphContext) {
+        println("🚀 Graph started: ${context.graphId}")
+    }
+
+    override suspend fun onNodeExecute(
+        node: Node,
+        context: NodeContext
+    ): SpiceResult<NodeResult> {
+        println("⚙️ Executing node: ${node.id}")
+        return middleware.next(node, context)
+    }
+}
+
+val monitoredGraph = graph("workflow") {
+    agent("step1", agent1)
+    middleware(LoggingMiddleware())
+}
+```
+
+**Features**:
+- ✅ Lifecycle hooks: onGraphStart, onNodeExecute, onError, onGraphFinish
+- ✅ Error handling with custom actions: PROPAGATE, RETRY, SKIP, CONTINUE
+- ✅ Composable middleware chains
+- ✅ Thread-safe implementation
+
+#### 💾 Checkpointing - Durable Graph Execution
+
+Save and resume graph execution state:
+
+```kotlin
+val checkpointStore = InMemoryCheckpointStore()
+
+// Run with checkpoint
+val result = runner.runWithCheckpoint(
+    graph = myGraph,
+    input = mapOf("data" to myData),
+    store = checkpointStore,
+    config = CheckpointConfig(saveEveryNNodes = 5)
+).getOrThrow()
+
+// Resume later
+val resumed = runner.resume(
+    graph = myGraph,
+    checkpointId = result.checkpointId!!,
+    store = checkpointStore
+).getOrThrow()
+```
+
+**Features**:
+- ✅ Save/restore execution state
+- ✅ Configurable checkpoint frequency
+- ✅ Multiple storage backends (InMemory, File, Database)
+- ✅ Automatic checkpointing for HITL workflows
+- ✅ Complete execution metadata tracking
+
+#### 👤 Human-in-the-Loop (HITL)
+
+Pause graph execution for human approval, review, or input:
+
+```kotlin
+val approvalGraph = graph("approval-workflow") {
+    agent("draft", draftAgent)
+
+    // Pause for human review
+    humanNode(
+        id = "review",
+        prompt = "Please review and approve",
+        options = listOf(
+            HumanOption("approve", "Approve"),
+            HumanOption("reject", "Reject")
+        ),
+        timeout = Duration.ofMinutes(30),
+        validator = { response ->
+            response.selectedOption in setOf("approve", "reject")
+        }
+    )
+
+    agent("publish", publishAgent)
+
+    edge("review", "publish") { result ->
+        (result.data as? HumanResponse)?.selectedOption == "approve"
+    }
+}
+
+// Start and pause at HumanNode
+val pausedResult = runner.runWithCheckpoint(
+    graph = approvalGraph,
+    input = mapOf("content" to "Draft"),
+    store = checkpointStore
+).getOrThrow()
+
+// Provide human response
+val humanResponse = HumanResponse.choice("review", "approve")
+
+// Resume execution
+val finalResult = runner.resumeWithHumanResponse(
+    graph = approvalGraph,
+    checkpointId = pausedResult.checkpointId!!,
+    response = humanResponse,
+    store = checkpointStore
+).getOrThrow()
+```
+
+**Features**:
+- ✅ Choice-based approval with options
+- ✅ Free text input for open-ended feedback
+- ✅ Response validators for quality control
+- ✅ Timeout support with automatic failure
+- ✅ Multi-stage approval workflows
+- ✅ Conditional routing based on human decisions
+
+**Real-World Use Cases**:
+- Content moderation and approval
+- Financial transaction authorization
+- Legal document review
+- Healthcare decision support
+
+#### 🤝 Agent Handoff Pattern
+
+Agents can transfer control to human agents asynchronously:
+
+```kotlin
+// Agent hands off to human
+val handoffComm = comm.handoff(fromAgentId = "bot-agent") {
+    reason = "Customer requests human agent"
+    priority = HandoffPriority.HIGH
+
+    task(
+        id = "resolve-issue",
+        description = "Customer has billing dispute",
+        type = HandoffTaskType.INVESTIGATE,
+        required = true
+    )
+}
+
+// Human agent processes and returns
+val returnComm = handoffComm.returnFromHandoff(
+    fromAgentId = "human-agent",
+    results = mapOf("resolve-issue" to "Issued refund")
+)
+```
+
+**Features**:
+- ✅ Task assignment with priorities (LOW, NORMAL, HIGH, URGENT)
+- ✅ Task types: RESPOND, APPROVE, REVIEW, INVESTIGATE, ESCALATE, CUSTOM
+- ✅ Context preservation with conversation history
+- ✅ Bidirectional communication (Agent → Human → Agent)
+
+**HITL vs Handoff**:
+- **HITL**: Graph pauses synchronously, waits for human, resumes via API
+- **Handoff**: Agent transfers asynchronously, graph continues, human returns Comm
+
+### Changed
+
+#### 📦 Registry Updates
+
+**FlowRegistry Deprecation**:
+- `FlowRegistry` is now deprecated with `@Deprecated` annotation
+- Migration path: Use `GraphRegistry` instead
+- Deprecation level: WARNING (still works, but shows warning)
+- ReplaceWith suggestion provided for seamless IDE migration
+- Will be removed in v0.6.0 (6 months)
+
+#### 🚨 Breaking Changes - Swarm/Flow → Graph
+
+**Swarm orchestration** replaced with Graph:
+
+**Before (0.4.x):**
+```kotlin
+val mySwarm = swarm("workflow") {
+    agent("classifier", classifierAgent)
+    agent("processor", processorAgent)
+}
+val result = mySwarm.run(comm)
+```
+
+**After (0.5.0):**
+```kotlin
+val myGraph = graph("workflow") {
+    agent("classifier", classifierAgent)
+    agent("processor", processorAgent)
+    edge("classifier", "processor")
+}
+
+val runner = DefaultGraphRunner()
+val result = runner.run(
+    graph = myGraph,
+    input = mapOf("comm" to comm)
+).getOrThrow()
+```
+
+**What Changed**:
+1. `swarm {}` → `graph {}`
+2. `flow {}` → `graph {}`
+3. Execution uses `GraphRunner` instead of direct calls
+4. Context access via `ctx.state["key"]` instead of `ctx["key"]`
+
+**What Didn't Change**:
+- ✅ Agent interface (no changes to implementations)
+- ✅ Tool interface (no changes to implementations)
+- ✅ Comm class (fully compatible)
+- ✅ AgentContext (same multi-tenancy API)
+- ✅ SpiceResult (error handling unchanged)
+
+#### 📚 Documentation Updates
+
+**New Documentation** (7 files, 4900+ lines):
+- `orchestration/graph-system.md` - Graph system overview
+- `orchestration/graph-nodes.md` - All node types
+- `orchestration/graph-middleware.md` - Middleware system
+- `orchestration/graph-checkpoint.md` - Checkpoint patterns
+- `orchestration/graph-validation.md` - Validation system
+- `orchestration/graph-hitl.md` - HITL workflows
+- `orchestration/agent-handoff.md` - Handoff patterns
+- `api/graph.md` - Complete Graph API reference
+- `roadmap/migration-guide.md` - Enhanced with real-world examples
+
+#### 🏗️ New Core Components
+
+**Graph System**:
+- `Graph` - DAG structure with nodes and edges
+- `Node` - Base interface for all node types (Agent, Tool, Output, Decision, HumanNode)
+- `Edge` - Conditional routing between nodes
+- `GraphRunner` - Execute graphs with checkpoint support
+- `GraphBuilder` - DSL for graph construction
+
+**Middleware**:
+- `Middleware` - Lifecycle hook interface
+- `ErrorAction` - Error handling strategies (PROPAGATE, RETRY, SKIP, CONTINUE)
+- `GraphContext` - Graph-level execution context
+- `NodeContext` - Node-level execution context with state
+
+**Checkpointing**:
+- `Checkpoint` - Serializable execution state
+- `CheckpointStore` - Storage interface (InMemory, File, Database)
+- `CheckpointConfig` - Checkpoint configuration
+- `GraphExecutionState` - RUNNING, WAITING_FOR_HUMAN, COMPLETED, FAILED, CANCELLED
+
+**HITL**:
+- `HumanNode` - Node that pauses for human input
+- `HumanOption` - Choice option for humans
+- `HumanResponse` - Human's choice or text input
+- `HumanInteraction` - Interaction metadata with timeout
+- `resumeWithHumanResponse()` - Resume with human input
+- `getPendingInteractions()` - Query pending HITL requests
+
+**Agent Handoff**:
+- `HandoffRequest` - Agent → Human transfer
+- `HandoffResponse` - Human → Agent result
+- `HandoffTask` - Task with type and priority
+- `HandoffTaskType` - RESPOND, APPROVE, REVIEW, INVESTIGATE, ESCALATE, CUSTOM
+- `HandoffPriority` - LOW, NORMAL, HIGH, URGENT
+
+**Registry System**:
+- `GraphRegistry` - Registry for Graph instances with registration and retrieval
+- `Graph` now implements `Identifiable` interface for registry compatibility
+- Consistent registry pattern across AgentRegistry, ToolRegistry, and GraphRegistry
+
+### Testing
+
+**New Tests** (30 tests for 0.5.0 features):
+
+**HumanNodeTest.kt** (10 tests - All passing):
+- Basic approval workflow
+- Free text input
+- Rejection workflow
+- Multiple HumanNodes in sequence
+- Response validators
+- Timeout handling
+
+**HandoffTest.kt** (6 tests - All passing):
+- Handoff request creation
+- Multiple tasks
+- Context integration
+- Return from handoff
+- Priority and task types
+
+**GraphRunnerTest.kt** (8 tests - All passing):
+- Basic execution
+- Conditional edges
+- Middleware
+- Checkpoint save/restore
+- Error handling
+
+**GraphContextIntegrationTest.kt** (6 tests - All passing):
+- Graph with contextAwareTool propagating AgentContext automatically
+- Graph with Agent propagating AgentContext through Comm
+- Graph with multiple nodes maintaining AgentContext throughout execution
+- Graph without AgentContext (backward compatibility)
+- GraphRegistry registration and retrieval
+- Graph with nested service calls maintaining context
+
+**Test Results**:
+- ✅ 322 tests completed, 14 failed (pre-existing), 1 skipped
+- ✅ All 30 new 0.5.0 tests passing
+- ✅ Graph + Context integration fully verified
+
+### Fixed
+
+#### 🔧 Performance Improvements
+
+**CachedTool LRU Eviction**:
+- Fixed non-deterministic LRU eviction behavior in `CachedTool`
+- Changed from `minByOrNull` to `minWithOrNull` with composite comparator
+- Now uses `lastAccessed` (primary) + `key` (secondary) for deterministic ordering
+- Eliminates flaky test failures in high-concurrency scenarios
+- Improves cache predictability in production workloads
+
+### Migration Required
+
+All code using `swarm {}` or `flow {}` must be updated. See [Migration Guide](docs/versioned_docs/version-0.5.0/roadmap/migration-guide.md).
+
+**Quick Steps**:
+1. Update dependencies to 0.5.0
+2. Replace `swarm {}` with `graph {}`
+3. Replace `flow {}` with `graph {}`
+4. Add edges to define flow
+5. Use `GraphRunner` for execution
+6. Test thoroughly
+
+**Rollback**: Revert to 0.4.4 if needed (6 months LTS support)
+
+### Benefits
+
+- 🎯 **More flexible** - DAG vs linear patterns
+- 🔄 **Better composability** - Build complex workflows
+- 📊 **Industry-aligned** - Microsoft Agent Framework design
+- 🏢 **Enterprise-ready** - Checkpoint, resume, HITL
+- 👤 **Human oversight** - Critical approvals
+- 🤝 **Seamless escalation** - Natural handoff patterns
+- 💾 **Fault tolerance** - Survive crashes
+- 📈 **Observability** - Middleware for monitoring
+
+---
+
 ## [0.4.1] - 2025-10-25
 
 ### 🔧 Patch Release: API Enhancements & Bug Fixes

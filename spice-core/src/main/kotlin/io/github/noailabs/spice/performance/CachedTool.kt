@@ -189,9 +189,13 @@ class CachedTool(
 
     /**
      * Evict least recently used entry
+     * Uses lastAccessed as primary criterion, and key as secondary criterion for deterministic behavior
      */
     private fun evictLRU() {
-        val lruEntry = cache.entries.minByOrNull { it.value.lastAccessed.get() }
+        val lruEntry = cache.entries.minWithOrNull(
+            compareBy<Map.Entry<String, CachedToolEntry>> { it.value.lastAccessed.get() }
+                .thenBy { it.key }
+        )
         lruEntry?.let {
             cache.remove(it.key)
         }

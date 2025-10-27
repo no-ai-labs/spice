@@ -92,3 +92,43 @@ batching:
   label: Batching
   permalink: /batching
   description: Request batching optimization
+
+graph:
+  label: Graph
+  permalink: /graph
+  description: Graph-based orchestration system
+
+hitl:
+  label: HITL
+  permalink: /hitl
+  description: Human-in-the-Loop workflows
+
+middleware:
+  label: Middleware
+  permalink: /middleware
+  description: Middleware and interceptors
+
+checkpoint:
+  label: Checkpoint
+  permalink: /checkpoint
+  description: Checkpoint and resume functionality
+
+microsoft-af:
+  label: Microsoft Agent Framework
+  permalink: /microsoft-af
+  description: Microsoft Agent Framework inspired features
+
+dsl:
+  label: DSL
+  permalink: /dsl
+  description: Domain-Specific Language features
+
+bugfix:
+  label: Bug Fix
+  permalink: /bugfix
+  description: Bug fixes and patches
+
+sparql:
+  label: SPARQL
+  permalink: /sparql
+  description: SPARQL query support

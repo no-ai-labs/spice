@@ -54,6 +54,7 @@ sealed class SpiceError {
         is AuthenticationError -> copy(context = context + pairs.toMap())
         is RateLimitError -> copy(context = context + pairs.toMap())
         is SerializationError -> copy(context = context + pairs.toMap())
+        is CheckpointError -> copy(context = context + pairs.toMap())
         is UnknownError -> copy(context = context + pairs.toMap())
     }
 
@@ -181,6 +182,18 @@ sealed class SpiceError {
         override val context: Map<String, Any> = emptyMap()
     ) : SpiceError() {
         override val code: String = "SERIALIZATION_ERROR"
+    }
+
+    /**
+     * Checkpoint-related errors
+     */
+    data class CheckpointError(
+        override val message: String,
+        val checkpointId: String? = null,
+        override val cause: Throwable? = null,
+        override val context: Map<String, Any> = emptyMap()
+    ) : SpiceError() {
+        override val code: String = "CHECKPOINT_ERROR"
     }
 
     /**
