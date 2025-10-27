@@ -1819,6 +1819,321 @@ val json = Json.encodeToString(complexObject)
 val comm = Comm(...).withData("object", json)
 ```
 
+## Agent Handoff
+
+✨ **NEW in v0.5.0** - Agents can transfer control to human agents when they need human assistance.
+
+### HandoffRequest
+
+When an agent needs to hand off to a human:
+
+```kotlin
+data class HandoffRequest(
+    val fromAgentId: String,
+    val reason: String,
+    val tasks: List<HandoffTask> = emptyList(),
+    val priority: HandoffPriority = HandoffPriority.NORMAL,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class HandoffTask(
+    val id: String,
+    val description: String,
+    val type: HandoffTaskType,
+    val required: Boolean = true
+)
+
+enum class HandoffTaskType {
+    RESPOND,      // Reply to customer
+    APPROVE,      // Approve action
+    REVIEW,       // Review content
+    INVESTIGATE,  // Investigate issue
+    ESCALATE,     // Escalate to higher level
+    CUSTOM        // Custom task
+}
+
+enum class HandoffPriority {
+    LOW, NORMAL, HIGH, URGENT
+}
+```
+
+### Create Handoff Request
+
+Use the DSL to create handoff requests:
+
+```kotlin
+val comm = initialComm.handoff(fromAgentId = "bot-agent") {
+    reason = "Customer requests to speak with human"
+    priority = HandoffPriority.HIGH
+
+    task(
+        id = "resolve-issue",
+        description = "Customer has billing dispute, needs resolution",
+        type = HandoffTaskType.INVESTIGATE,
+        required = true
+    )
+
+    task(
+        id = "update-account",
+        description = "Update account status after resolution",
+        type = HandoffTaskType.CUSTOM,
+        required = true
+    )
+}
+```
+
+### HandoffResponse
+
+Human agent's response to handoff:
+
+```kotlin
+data class HandoffResponse(
+    val fromAgentId: String,
+    val results: Map<String, String>,
+    val summary: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+```
+
+### Return from Handoff
+
+Human agent returns control:
+
+```kotlin
+val returnComm = handoffComm.returnFromHandoff(
+    fromAgentId = "human-agent",
+    results = mapOf(
+        "resolve-issue" to "Issued $150 refund",
+        "update-account" to "Account status updated"
+    ),
+    summary = "Billing dispute resolved. Customer satisfied."
+)
+```
+
+### Complete Example
+
+```kotlin
+class CustomerServiceAgent : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // Analyze customer request
+        val analysis = analyzeRequest(comm.content)
+
+        // If customer explicitly requests human or issue is complex
+        if (analysis.requestsHuman || analysis.complexity > 0.8) {
+            // Hand off to human agent
+            val handoffComm = comm.handoff(fromAgentId = id) {
+                reason = if (analysis.requestsHuman) {
+                    "Customer explicitly requested human agent"
+                } else {
+                    "Issue complexity (${analysis.complexity}) exceeds AI capability threshold"
+                }
+
+                priority = if (analysis.urgency > 0.9) {
+                    HandoffPriority.URGENT
+                } else {
+                    HandoffPriority.HIGH
+                }
+
+                // Specify tasks for human
+                task(
+                    id = "respond-to-customer",
+                    description = "Address customer's ${analysis.issueType} concern",
+                    type = HandoffTaskType.RESPOND,
+                    required = true
+                )
+
+                if (analysis.requiresInvestigation) {
+                    task(
+                        id = "investigate-account",
+                        description = "Review account history and transactions",
+                        type = HandoffTaskType.INVESTIGATE,
+                        required = true
+                    )
+                }
+
+                if (analysis.requiresApproval) {
+                    task(
+                        id = "approve-refund",
+                        description = "Approve refund of $${analysis.refundAmount}",
+                        type = HandoffTaskType.APPROVE,
+                        required = true
+                    )
+                }
+            }
+
+            return SpiceResult.success(handoffComm)
+        }
+
+        // AI can handle it
+        val response = generateResponse(comm.content)
+        return SpiceResult.success(comm.reply(response, id))
+    }
+}
+
+class HumanAgent : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // Check if this is a handoff request
+        val handoffRequest = comm.data["handoffRequest"]?.let {
+            Json.decodeFromString<HandoffRequest>(it)
+        }
+
+        if (handoffRequest != null) {
+            // Process each task
+            val results = mutableMapOf<String, String>()
+
+            handoffRequest.tasks.forEach { task ->
+                val result = when (task.type) {
+                    HandoffTaskType.RESPOND -> handleCustomerResponse(comm)
+                    HandoffTaskType.INVESTIGATE -> investigateAccount(comm)
+                    HandoffTaskType.APPROVE -> approveAction(comm)
+                    HandoffTaskType.REVIEW -> reviewContent(comm)
+                    HandoffTaskType.ESCALATE -> escalateIssue(comm)
+                    HandoffTaskType.CUSTOM -> handleCustomTask(task, comm)
+                }
+
+                results[task.id] = result
+            }
+
+            // Return to system
+            val returnComm = comm.returnFromHandoff(
+                fromAgentId = id,
+                results = results,
+                summary = "All tasks completed. Customer issue resolved."
+            )
+
+            return SpiceResult.success(returnComm)
+        }
+
+        // Normal human agent flow
+        val response = getHumanInput(comm.content)
+        return SpiceResult.success(comm.reply(response, id))
+    }
+}
+```
+
+### Access Handoff Data
+
+```kotlin
+// Check if comm has handoff request
+fun Comm.hasHandoffRequest(): Boolean {
+    return data.containsKey("handoffRequest")
+}
+
+// Get handoff request
+fun Comm.getHandoffRequest(): HandoffRequest? {
+    val json = data["handoffRequest"] ?: return null
+    return Json.decodeFromString(json)
+}
+
+// Check if comm has handoff response
+fun Comm.hasHandoffResponse(): Boolean {
+    return data.containsKey("handoffResponse")
+}
+
+// Get handoff response
+fun Comm.getHandoffResponse(): HandoffResponse? {
+    val json = data["handoffResponse"] ?: return null
+    return Json.decodeFromString(json)
+}
+```
+
+### Handoff vs HITL Comparison
+
+| Feature | Agent Handoff | Human-in-the-Loop (HITL) |
+|---------|---------------|--------------------------|
+| **Trigger** | Agent decides to transfer | Graph orchestrator pauses |
+| **Execution** | Asynchronous | Synchronous (blocks graph) |
+| **Control** | Agent-driven | Graph-driven |
+| **Resume** | Human returns Comm | `resumeWithHumanResponse()` |
+| **Checkpoint** | Not required | Automatic |
+| **Use Case** | Customer service escalation | Approval workflows |
+| **Example** | "Customer requests human" | "Manager must approve" |
+
+### Best Practices
+
+```kotlin
+// ✅ GOOD - Clear reason and specific tasks
+val handoff = comm.handoff(fromAgentId = agentId) {
+    reason = "Customer billing dispute requires human review"
+    priority = HandoffPriority.HIGH
+
+    task("resolve-dispute", "Review transaction history and resolve", HandoffTaskType.INVESTIGATE)
+    task("update-notes", "Document resolution in CRM", HandoffTaskType.CUSTOM)
+}
+
+// ✅ GOOD - Check urgency and set priority appropriately
+val priority = when {
+    issue.severity == "critical" -> HandoffPriority.URGENT
+    issue.severity == "high" -> HandoffPriority.HIGH
+    else -> HandoffPriority.NORMAL
+}
+
+// ✅ GOOD - Return with detailed results
+val returnComm = comm.returnFromHandoff(
+    fromAgentId = humanId,
+    results = mapOf(
+        "resolve-dispute" to "Issued $150 refund, transaction ID: TXN-123",
+        "update-notes" to "CRM updated with case notes and resolution"
+    ),
+    summary = "Billing dispute resolved. Customer satisfied with refund."
+)
+
+// ❌ BAD - Vague reason
+val handoff = comm.handoff(fromAgentId = agentId) {
+    reason = "Need help"  // Too vague!
+}
+
+// ❌ BAD - No tasks specified
+val handoff = comm.handoff(fromAgentId = agentId) {
+    reason = "Complex issue"
+    // No tasks! Human doesn't know what to do
+}
+
+// ❌ BAD - Incomplete return
+val returnComm = comm.returnFromHandoff(
+    fromAgentId = humanId,
+    results = emptyMap(),  // No results!
+    summary = "Done"       // Too brief!
+)
+```
+
+### Real-World Use Cases
+
+**Customer Support Escalation:**
+```kotlin
+// Bot handles routine questions, escalates complex issues
+if (customerRequestsHuman || issueComplexity > threshold) {
+    val handoff = comm.handoff(fromAgentId = "support-bot") {
+        reason = "Customer issue requires human expertise"
+        priority = HandoffPriority.HIGH
+        task("resolve-issue", "Address customer concern", HandoffTaskType.RESPOND)
+    }
+}
+```
+
+**Approval Workflow:**
+```kotlin
+// Agent submits for manager approval
+val handoff = comm.handoff(fromAgentId = "procurement-agent") {
+    reason = "Purchase order exceeds $10,000 threshold"
+    priority = HandoffPriority.NORMAL
+    task("approve-purchase", "Approve PO #12345", HandoffTaskType.APPROVE, required = true)
+}
+```
+
+**Investigation Required:**
+```kotlin
+// Security agent escalates suspicious activity
+val handoff = comm.handoff(fromAgentId = "security-agent") {
+    reason = "Suspicious activity detected on account"
+    priority = HandoffPriority.URGENT
+    task("investigate-login", "Review login patterns", HandoffTaskType.INVESTIGATE)
+    task("verify-user", "Contact user to verify activity", HandoffTaskType.RESPOND)
+}
+```
+
+---
+
 ## Migration from Legacy Message
 
 ### Message → Comm Mapping
