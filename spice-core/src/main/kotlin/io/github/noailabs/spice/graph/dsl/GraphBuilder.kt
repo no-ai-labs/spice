@@ -68,6 +68,35 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Add a Human node to the graph for HITL (Human-in-the-Loop).
+     * This node pauses graph execution and waits for human input.
+     *
+     * @param id Unique identifier for this node
+     * @param prompt Message to show the human
+     * @param options List of options for multiple choice (empty for free text)
+     * @param timeout Optional timeout duration
+     * @param validator Optional function to validate human response
+     */
+    fun humanNode(
+        id: String,
+        prompt: String,
+        options: List<io.github.noailabs.spice.graph.nodes.HumanOption> = emptyList(),
+        timeout: java.time.Duration? = null,
+        validator: ((io.github.noailabs.spice.graph.nodes.HumanResponse) -> Boolean)? = null
+    ) {
+        val node = io.github.noailabs.spice.graph.nodes.HumanNode(
+            id = id,
+            prompt = prompt,
+            options = options,
+            timeout = timeout,
+            validator = validator
+        )
+        nodes[id] = node
+        connectToPrevious(id)
+        lastNodeId = id
+    }
+
+    /**
      * Add an Output node to the graph.
      * This typically marks the end of the graph execution.
      *

@@ -50,6 +50,26 @@ interface GraphRunner {
         store: CheckpointStore,
         config: CheckpointConfig = CheckpointConfig()
     ): SpiceResult<RunReport>
+
+    /**
+     * Resume execution after receiving human input.
+     * Used for HITL (Human-in-the-Loop) pattern.
+     */
+    suspend fun resumeWithHumanResponse(
+        graph: Graph,
+        checkpointId: String,
+        response: io.github.noailabs.spice.graph.nodes.HumanResponse,
+        store: CheckpointStore
+    ): SpiceResult<RunReport>
+
+    /**
+     * Get current human interactions waiting for response.
+     * Returns list of pending interactions from a checkpoint.
+     */
+    suspend fun getPendingInteractions(
+        checkpointId: String,
+        store: CheckpointStore
+    ): SpiceResult<List<io.github.noailabs.spice.graph.nodes.HumanInteraction>>
 }
 
 /**
@@ -517,6 +537,34 @@ class DefaultGraphRunner : GraphRunner {
                 )
             )
 
+            // ✨ Check if this is a HumanNode that requires human input
+            if (result.data is io.github.noailabs.spice.graph.nodes.HumanInteraction) {
+                val interaction = result.data as io.github.noailabs.spice.graph.nodes.HumanInteraction
+
+                // Save checkpoint with WAITING_FOR_HUMAN state
+                val checkpointId = saveCheckpoint(
+                    runContext = runContext,
+                    nodeContext = nodeContext,
+                    currentNodeId = currentNodeId,
+                    store = store,
+                    executionState = io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN,
+                    pendingInteraction = interaction
+                ).getOrThrow()
+
+                // Return a paused report
+                val pausedReport = RunReport(
+                    graphId = graph.id,
+                    status = RunStatus.PAUSED,
+                    result = interaction,
+                    duration = Duration.between(graphStartTime, endTime),
+                    nodeReports = nodeReports,
+                    checkpointId = checkpointId
+                )
+
+                executeOnFinishChain(graph.middleware, pausedReport)
+                return@catchingSuspend pausedReport
+            }
+
             nodesExecutedSinceCheckpoint++
 
             // Check if we should save a checkpoint
@@ -564,7 +612,10 @@ class DefaultGraphRunner : GraphRunner {
         runContext: RunContext,
         nodeContext: NodeContext,
         currentNodeId: String,
-        store: CheckpointStore
+        store: CheckpointStore,
+        executionState: io.github.noailabs.spice.graph.nodes.GraphExecutionState = io.github.noailabs.spice.graph.nodes.GraphExecutionState.RUNNING,
+        pendingInteraction: io.github.noailabs.spice.graph.nodes.HumanInteraction? = null,
+        humanResponse: io.github.noailabs.spice.graph.nodes.HumanResponse? = null
     ): SpiceResult<String> {
         val checkpoint = Checkpoint(
             id = "${runContext.runId}-${currentNodeId}-${System.currentTimeMillis()}",
@@ -573,10 +624,93 @@ class DefaultGraphRunner : GraphRunner {
             currentNodeId = currentNodeId,
             state = nodeContext.state.toMap(),
             agentContext = nodeContext.agentContext,
-            timestamp = Instant.now()
+            timestamp = Instant.now(),
+            executionState = executionState,
+            pendingInteraction = pendingInteraction,
+            humanResponse = humanResponse
         )
 
         return store.save(checkpoint)
+    }
+
+    /**
+     * Get pending human interactions from a checkpoint.
+     */
+    override suspend fun getPendingInteractions(
+        checkpointId: String,
+        store: CheckpointStore
+    ): SpiceResult<List<io.github.noailabs.spice.graph.nodes.HumanInteraction>> = SpiceResult.catchingSuspend {
+        val checkpoint = store.load(checkpointId).getOrThrow()
+
+        if (checkpoint.executionState == io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN &&
+            checkpoint.pendingInteraction != null) {
+            listOf(checkpoint.pendingInteraction)
+        } else {
+            emptyList()
+        }
+    }.recoverWith { error ->
+        SpiceResult.failure(error)
+    }
+
+    /**
+     * Resume execution after receiving human response.
+     */
+    override suspend fun resumeWithHumanResponse(
+        graph: Graph,
+        checkpointId: String,
+        response: io.github.noailabs.spice.graph.nodes.HumanResponse,
+        store: CheckpointStore
+    ): SpiceResult<RunReport> = SpiceResult.catchingSuspend {
+        // Load checkpoint
+        val checkpoint = store.load(checkpointId).getOrThrow()
+
+        // Verify checkpoint is waiting for human
+        if (checkpoint.executionState != io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN) {
+            throw IllegalStateException("Checkpoint is not waiting for human input (state: ${checkpoint.executionState})")
+        }
+
+        // Verify response matches the pending interaction
+        if (checkpoint.pendingInteraction?.nodeId != response.nodeId) {
+            throw IllegalArgumentException("Response nodeId doesn't match pending interaction")
+        }
+
+        val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
+
+        val runContext = RunContext(
+            graphId = graph.id,
+            runId = checkpoint.runId,
+            agentContext = agentContext
+        )
+
+        val nodeContext = NodeContext(
+            graphId = graph.id,
+            state = checkpoint.state.toMutableMap(),
+            agentContext = agentContext
+        )
+
+        // Store the human response in the node state
+        nodeContext.state[checkpoint.currentNodeId] = response
+        nodeContext.state["_previous"] = response
+
+        // Find the next node after the HumanNode
+        val currentResult = io.github.noailabs.spice.graph.NodeResult(data = response)
+        val nextNodeId = graph.edges
+            .firstOrNull { edge ->
+                edge.from == checkpoint.currentNodeId && edge.condition(currentResult)
+            }
+            ?.to
+
+        // Continue execution from the next node
+        executeGraphWithCheckpoint(
+            graph = graph,
+            runContext = runContext,
+            nodeContext = nodeContext,
+            startNodeId = nextNodeId,
+            store = store,
+            config = CheckpointConfig()
+        ).getOrThrow()
+    }.recoverWith { error ->
+        SpiceResult.failure(error)
     }
 }
 
@@ -589,7 +723,8 @@ data class RunReport(
     val result: Any?,
     val duration: Duration,
     val nodeReports: List<NodeReport>,
-    val error: Throwable? = null
+    val error: Throwable? = null,
+    val checkpointId: String? = null  // For PAUSED state (HITL)
 )
 
 /**
@@ -598,7 +733,8 @@ data class RunReport(
 enum class RunStatus {
     SUCCESS,
     FAILED,
-    CANCELLED
+    CANCELLED,
+    PAUSED  // Graph paused waiting for human input (HITL)
 }
 
 /**

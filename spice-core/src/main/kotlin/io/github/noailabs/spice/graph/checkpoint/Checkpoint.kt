@@ -1,6 +1,9 @@
 package io.github.noailabs.spice.graph.checkpoint
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.graph.nodes.GraphExecutionState
+import io.github.noailabs.spice.graph.nodes.HumanInteraction
+import io.github.noailabs.spice.graph.nodes.HumanResponse
 import java.time.Instant
 
 /**
@@ -46,7 +49,22 @@ data class Checkpoint(
     /**
      * Optional metadata about the checkpoint.
      */
-    val metadata: Map<String, Any> = emptyMap()
+    val metadata: Map<String, Any> = emptyMap(),
+
+    /**
+     * Execution state for HITL support.
+     */
+    val executionState: GraphExecutionState = GraphExecutionState.RUNNING,
+
+    /**
+     * Pending human interaction (if waiting for human input).
+     */
+    val pendingInteraction: HumanInteraction? = null,
+
+    /**
+     * Human response (if resuming from human input).
+     */
+    val humanResponse: HumanResponse? = null
 )
 
 /**
