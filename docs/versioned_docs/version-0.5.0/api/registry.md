@@ -8,9 +8,10 @@ The Registry system provides **thread-safe**, **type-safe** registration and dis
 
 - **AgentRegistry** - Register and discover agents by capability, tag, or provider
 - **ToolRegistry** - Manage tools with namespace support and metadata
+- **GraphRegistry** - ✨ NEW in v0.5.0 - Manage DAG-based orchestration graphs
 - **VectorStoreRegistry** - Centralized vector store management
 - **ToolChainRegistry** - Register tool chains for complex workflows
-- **FlowRegistry** - Register and reuse agent flows
+- **FlowRegistry** - ⚠️ DEPRECATED - Use GraphRegistry instead
 
 **Key Features:**
 - ✅ Thread-safe concurrent access
@@ -631,36 +632,261 @@ if (chain != null) {
 }
 ```
 
-## FlowRegistry
+## GraphRegistry
 
-Register and reuse agent flows:
+✨ **NEW in v0.5.0** - Centralized management for DAG-based orchestration graphs:
 
 ```kotlin
-object FlowRegistry : Registry<CoreFlow>("flows")
+object GraphRegistry : Registry<Graph>("graphs")
 ```
 
-**Usage:**
+### Register Graphs
 
 ```kotlin
-// Create flow
+import io.github.noailabs.spice.graph.dsl.graph
+import io.github.noailabs.spice.GraphRegistry
+
+// Create a graph
+val customerWorkflow = graph("customer-support") {
+    agent("intake", intakeAgent)
+    agent("classify", classifierAgent)
+    agent("technical", technicalAgent)
+    agent("billing", billingAgent)
+
+    edge("intake", "classify")
+    edge("classify", "technical") { result ->
+        val comm = result.data as? Comm
+        comm?.data?.get("category") == "technical"
+    }
+    edge("classify", "billing") { result ->
+        val comm = result.data as? Comm
+        comm?.data?.get("category") == "billing"
+    }
+}
+
+// Register the graph
+GraphRegistry.register(customerWorkflow)
+
+// Check if registered
+if (GraphRegistry.has("customer-support")) {
+    println("Graph registered successfully")
+}
+```
+
+### Retrieve and Execute
+
+```kotlin
+// Get registered graph
+val graph = GraphRegistry.get("customer-support")
+
+if (graph != null) {
+    // Execute with GraphRunner
+    val runner = DefaultGraphRunner()
+    val result = runner.run(
+        graph = graph,
+        input = mapOf("comm" to initialComm)
+    ).getOrThrow()
+
+    println("Status: ${result.status}")
+    println("Result: ${result.result}")
+}
+```
+
+### List All Graphs
+
+```kotlin
+// Get all registered graphs
+val allGraphs = GraphRegistry.getAll()
+
+println("=== Registered Graphs ===")
+allGraphs.forEach { graph ->
+    println("ID: ${graph.id}")
+    println("  Nodes: ${graph.nodes.size}")
+    println("  Edges: ${graph.edges.size}")
+    println("  Entry: ${graph.entryPoint}")
+    println("  Middleware: ${graph.middleware.size}")
+}
+```
+
+### Dynamic Graph Selection
+
+```kotlin
+class GraphRouter {
+    init {
+        // Register multiple workflows
+        GraphRegistry.register(orderProcessingGraph)
+        GraphRegistry.register(customerSupportGraph)
+        GraphRegistry.register(dataAnalysisGraph)
+    }
+
+    suspend fun routeToGraph(workflowType: String, input: Map<String, Any?>): RunReport {
+        val graphId = when (workflowType) {
+            "order" -> "order-processing"
+            "support" -> "customer-support"
+            "analysis" -> "data-analysis"
+            else -> throw IllegalArgumentException("Unknown workflow: $workflowType")
+        }
+
+        val graph = GraphRegistry.get(graphId)
+            ?: throw IllegalStateException("Graph not found: $graphId")
+
+        val runner = DefaultGraphRunner()
+        return runner.run(graph, input).getOrThrow()
+    }
+}
+
+// Usage
+val router = GraphRouter()
+val result = router.routeToGraph("order", mapOf("orderId" to "12345"))
+```
+
+### Context Integration
+
+GraphRegistry fully supports AgentContext for multi-tenancy:
+
+```kotlin
+// Register graph with context-aware tools
+val multiTenantGraph = graph("order-processing") {
+    tool("lookup", contextAwareTool("lookup_orders") {
+        execute { params, context ->
+            // Context automatically propagated!
+            val orders = orderRepo.findOrdersForTenant(context.tenantId)
+            "Found ${orders.size} orders"
+        }
+    })
+
+    agent("process", processingAgent)
+}
+
+GraphRegistry.register(multiTenantGraph)
+
+// Execute with context
+val result = withAgentContext("tenantId" to "ACME", "userId" to "user-123") {
+    val graph = GraphRegistry.get("order-processing")!!
+    val runner = DefaultGraphRunner()
+    runner.run(graph, inputData)
+}.getOrThrow()
+
+// Context is automatically propagated through all nodes!
+```
+
+### Unregister and Cleanup
+
+```kotlin
+// Unregister specific graph
+GraphRegistry.unregister("customer-support")
+
+// Clear all graphs
+GraphRegistry.clear()
+
+// Get count
+println("Registered graphs: ${GraphRegistry.size()}")
+```
+
+### Best Practices
+
+```kotlin
+// ✅ GOOD - Register at startup
+fun initializeApplication() {
+    GraphRegistry.register(customerSupportGraph)
+    GraphRegistry.register(orderProcessingGraph)
+    GraphRegistry.register(dataAnalysisGraph)
+}
+
+// ✅ GOOD - Use getOrRegister for lazy init
+val graph = GraphRegistry.getOrRegister("customer-support") {
+    buildCustomerSupportGraph()
+}
+
+// ✅ GOOD - Clean up when shutting down
+fun shutdown() {
+    GraphRegistry.clear()
+}
+
+// ❌ BAD - Register on every request
+suspend fun handleRequest(input: Map<String, Any?>) {
+    // Don't do this! Register once at startup
+    GraphRegistry.register(graph)
+    val result = runner.run(graph, input)
+}
+```
+
+### Migration from FlowRegistry
+
+If you're migrating from FlowRegistry to GraphRegistry:
+
+```kotlin
+// Before (0.4.x with Flow)
 val orderFlow = buildFlow {
     name = "Order Processing"
-    description = "E-commerce order processing flow"
-
     step("validate") { /* ... */ }
     step("payment") { /* ... */ }
-    step("fulfillment") { /* ... */ }
 }
-
-// Register
 FlowRegistry.register(orderFlow)
-
-// Retrieve and execute
 val flow = FlowRegistry.get("order-processing")
-if (flow != null) {
-    val result = flow.execute(orderData)
+
+// After (0.5.0 with Graph)
+val orderGraph = graph("order-processing") {
+    agent("validate", validateAgent)
+    agent("payment", paymentAgent)
+    edge("validate", "payment")
 }
+GraphRegistry.register(orderGraph)
+val graph = GraphRegistry.get("order-processing")
 ```
+
+See [Migration Guide](../roadmap/migration-guide) for complete migration steps.
+
+---
+
+## FlowRegistry
+
+⚠️ **DEPRECATED in v0.5.0** - Use `GraphRegistry` instead.
+
+```kotlin
+@Deprecated(
+    message = "Flow has been replaced by Graph in v0.5.0. Use GraphRegistry instead.",
+    replaceWith = ReplaceWith("GraphRegistry", "io.github.noailabs.spice.GraphRegistry"),
+    level = DeprecationLevel.WARNING
+)
+object FlowRegistry : Registry<MultiAgentFlow>("flows")
+```
+
+**Deprecation Timeline:**
+- ⚠️ v0.5.0 (Oct 2025): Deprecated with WARNING level
+- 🔴 v0.6.0 (Apr 2026): Will be removed
+
+**Migration Required:**
+
+FlowRegistry is deprecated in favor of GraphRegistry. Please migrate to the new Graph system:
+
+```kotlin
+// ❌ DEPRECATED - FlowRegistry
+val flow = buildFlow {
+    name = "workflow"
+    step("step1") { /* ... */ }
+}
+FlowRegistry.register(flow)
+val retrieved = FlowRegistry.get("workflow")
+
+// ✅ RECOMMENDED - GraphRegistry
+val graph = graph("workflow") {
+    agent("step1", agent1)
+}
+GraphRegistry.register(graph)
+val retrieved = GraphRegistry.get("workflow")
+```
+
+**Why Deprecated?**
+- Graph system provides more flexibility (DAG vs linear)
+- Better composability and conditional routing
+- Support for checkpointing and Human-in-the-Loop
+- Industry-aligned with Microsoft Agent Framework
+
+**See Also:**
+- [Graph API](./graph) - Complete Graph system documentation
+- [Migration Guide](../roadmap/migration-guide) - Step-by-step migration instructions
+- [Graph System Overview](../orchestration/graph-system) - Learn about the new system
 
 ## Best Practices
 
