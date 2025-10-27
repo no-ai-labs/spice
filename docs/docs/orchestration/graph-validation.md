@@ -513,13 +513,13 @@ fun printReachability(graph: Graph) {
 
 ## Next Steps
 
-- Build [Complex Workflows](../examples/graph-examples.md)
 - Learn [Error Handling Strategies](../error-handling/overview.md)
-- Explore [Production Patterns](../examples/production-patterns.md)
+- Review [Graph Middleware](./graph-middleware.md)
+- Explore [Performance Optimization](../performance/overview.md)
 
 ## Related
 
 - [Graph System Overview](./graph-system.md)
 - [Graph Nodes](./graph-nodes.md)
-- [Graph Middleware](./graph-middleware.md)
-- [Testing Strategies](../testing/graph-testing.md)
+- [Graph Checkpoint](./graph-checkpoint.md)
+- [Testing Best Practices](../core-concepts/testing.md)

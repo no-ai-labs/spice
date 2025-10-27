@@ -274,11 +274,10 @@ if (result.isFailure) {
 - Explore [Middleware System](./graph-middleware.md)
 - Master [Checkpoint & Resume](./graph-checkpoint.md)
 - Understand [Graph Validation](./graph-validation.md)
-- See [Advanced Examples](../examples/graph-examples.md)
 
 ## Related
 
 - [Multi-Agent Orchestration](./multi-agent.md)
 - [Tool Pipelines](./tool-pipeline.md)
 - [Error Handling](../error-handling/overview.md)
-- [Context Propagation](../core-concepts/agent-context.md)
+- [Advanced Context Propagation](../advanced/context-propagation.md)

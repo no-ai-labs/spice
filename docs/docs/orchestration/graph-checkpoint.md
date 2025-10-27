@@ -405,10 +405,10 @@ val result = runner.resume(graph, "invalid-id", store)
 
 - Understand [Graph Validation](./graph-validation.md)
 - Explore [Graph Middleware](./graph-middleware.md)
-- See [Production Patterns](../examples/production-patterns.md)
+- Review [Performance Optimization](../performance/overview.md)
 
 ## Related
 
 - [Graph System Overview](./graph-system.md)
 - [Error Handling](../error-handling/overview.md)
-- [Context Propagation](../core-concepts/agent-context.md)
+- [Advanced Context Propagation](../advanced/context-propagation.md)

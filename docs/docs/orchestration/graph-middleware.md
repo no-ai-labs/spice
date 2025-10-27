@@ -460,10 +460,10 @@ fun `test middleware execution order`() = runTest {
 
 - Learn about [Checkpoint & Resume](./graph-checkpoint.md)
 - Understand [Graph Validation](./graph-validation.md)
-- See [Advanced Examples](../examples/graph-examples.md)
+- Review [Error Handling](../error-handling/overview.md)
 
 ## Related
 
 - [Graph System Overview](./graph-system.md)
 - [Graph Nodes](./graph-nodes.md)
-- [Error Handling](../error-handling/overview.md)
+- [Advanced Context Propagation](../advanced/context-propagation.md)

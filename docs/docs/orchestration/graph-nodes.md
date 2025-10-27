@@ -404,10 +404,10 @@ report.nodeReports.forEach { nodeReport ->
 
 - Explore [Graph Middleware](./graph-middleware.md)
 - Learn about [Checkpoint & Resume](./graph-checkpoint.md)
-- See [Advanced Graph Examples](../examples/graph-examples.md)
+- Understand [Graph Validation](./graph-validation.md)
 
 ## Related
 
 - [Graph System Overview](./graph-system.md)
 - [Error Handling](../error-handling/overview.md)
-- [Agent Context](../core-concepts/agent-context.md)
+- [Advanced Context Propagation](../advanced/context-propagation.md)
