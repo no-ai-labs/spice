@@ -75,6 +75,18 @@ const sidebars: SidebarsConfig = {
         'orchestration/swarm-strategies',
         'orchestration/multi-agent',
         'orchestration/tool-pipeline',
+        {
+          type: 'category',
+          label: '🕸️ Graph System (v0.5.0)',
+          collapsed: false,
+          items: [
+            'orchestration/graph-system',
+            'orchestration/graph-nodes',
+            'orchestration/graph-middleware',
+            'orchestration/graph-checkpoint',
+            'orchestration/graph-validation',
+          ],
+        },
       ],
     },
     {
