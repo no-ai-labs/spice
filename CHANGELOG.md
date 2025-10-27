@@ -9,6 +9,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1] - 2025-10-28
+
+### 🐛 Bug Fixes
+
+#### AgentNode Metadata Propagation
+
+**Fixed**: AgentNode now properly propagates `Comm.data` metadata across graph nodes.
+
+**Issue**: In v0.5.0, when agents added metadata to their response Comm via the `data` field, this metadata was lost when passing to the next agent in the graph. Only the `content` string was propagated.
+
+**Solution**:
+- AgentNode now extracts previous Comm from `ctx.state["_previousComm"]`
+- Copies the `data` map to new Comm instances
+- Stores full response Comm back to `_previousComm` for next node
+
+**Example**:
+
+```kotlin
+// Agent 1 adds metadata
+val agent1 = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        return SpiceResult.success(
+            comm.reply(
+                content = "Step 1",
+                from = id,
+                data = mapOf("sessionId" to "session-123")
+            )
+        )
+    }
+}
+
+// Agent 2 now receives metadata automatically
+val agent2 = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        val sessionId = comm.data["sessionId"]  // ✅ Now works in 0.5.1!
+        return SpiceResult.success(comm.reply("Step 2", id))
+    }
+}
+
+val graph = graph("chain") {
+    agent("step1", agent1)
+    agent("step2", agent2)  // Metadata automatically propagated
+}
+```
+
+**Impact**:
+- ✅ Enables session tracking across multi-agent workflows
+- ✅ Supports request tracing with request IDs
+- ✅ Allows context sharing between agents
+- ✅ Fully backward compatible with 0.5.0
+
+### ✅ Added Tests
+
+**New Tests** (2 total):
+1. `test metadata propagation across agent nodes` - Tests 3-agent chain with metadata accumulation
+2. `test metadata propagation with initial data` - Tests initializing graph with pre-existing metadata
+
+**Test Results**:
+```bash
+GraphIntegrationTest > test metadata propagation across agent nodes() PASSED
+GraphIntegrationTest > test metadata propagation with initial data() PASSED
+```
+
+### 📚 Documentation
+
+**Updated Files**:
+- `orchestration/graph-nodes.md` - Added "Internal Behavior: State & Metadata Propagation" section
+- `core-concepts/comm.md` - Expanded "Adding Metadata" with graph propagation examples
+
+**Key Documentation Additions**:
+- Detailed explanation of `_previousComm` convention
+- Step-by-step flow diagrams for metadata propagation
+- 3-agent chain examples showing metadata accumulation
+- Initial metadata injection patterns
+- Cross-references between related documentation
+
+**Total**: ~400 lines of new documentation
+
+---
+
 ## [0.5.0] - 2025-10-27
 
 ### 🎯 Major Release: Graph-Based Orchestration & Human-in-the-Loop
