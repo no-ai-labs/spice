@@ -4,22 +4,37 @@ sidebar_position: 4
 
 # HITL (Human-in-the-Loop) Design
 
-HITL (Human-in-the-Loop) 기능은 Graph 실행 중 사람의 개입이 필요한 시점을 정의하고, 승인/거부/수정을 받아 진행하는 시스템입니다.
+HITL (Human-in-the-Loop) is a feature that defines points during Graph execution where human intervention is required, and proceeds based on approval/rejection/modification.
 
-Microsoft Agent Framework의 Human-in-the-Loop 패턴을 참고하여 Spice에 맞게 설계합니다.
+Designed for Spice based on Microsoft Agent Framework's Human-in-the-Loop pattern.
 
-## 핵심 개념
+## ⚠️ Difference from Agent Handoff
+
+**HITL** and **Agent Handoff** are completely different patterns:
+
+| Aspect | HITL | Agent Handoff |
+|--------|------|---------------|
+| **Graph State** | Paused (WAITING) | Continues/Completes |
+| **Wait Mode** | Synchronous wait | Asynchronous transfer |
+| **Decision Maker** | Graph designer | Agent itself |
+| **Resume Method** | Resume API | New Comm |
+| **Use Case** | Approval workflows | Chatbot→Agent escalation |
+| **Implementation Status** | 🔜 Planned | ✅ Already implemented |
+
+**Agent Handoff** is already included in Spice 0.5.0. [View Documentation](/docs/orchestration/agent-handoff)
+
+## Core Concepts
 
 ### 1. HumanNode
-사람의 입력을 기다리는 특수한 Node 타입:
+Special Node type that waits for human input:
 
 ```kotlin
 class HumanNode(
     override val id: String,
-    val prompt: String,  // 사용자에게 보여줄 메시지
-    val options: List<HumanOption> = emptyList(),  // 선택지 (optional)
-    val timeout: Duration? = null,  // 응답 대기 시간 (optional)
-    val validator: ((HumanResponse) -> Boolean)? = null  // 입력 검증 (optional)
+    val prompt: String,  // Message to show user
+    val options: List<HumanOption> = emptyList(),  // Choices (optional)
+    val timeout: Duration? = null,  // Response wait time (optional)
+    val validator: ((HumanResponse) -> Boolean)? = null  // Input validation (optional)
 ) : Node
 
 data class HumanOption(
@@ -30,22 +45,22 @@ data class HumanOption(
 
 data class HumanResponse(
     val nodeId: String,
-    val selectedOption: String? = null,  // 선택한 옵션 ID
-    val text: String? = null,  // 자유 입력 텍스트
+    val selectedOption: String? = null,  // Selected option ID
+    val text: String? = null,  // Free text input
     val metadata: Map<String, Any> = emptyMap(),
     val timestamp: Instant = Instant.now()
 )
 ```
 
-### 2. 실행 상태 관리
+### 2. Execution State Management
 
 ```kotlin
 enum class GraphExecutionState {
-    RUNNING,           // 정상 실행 중
-    WAITING_FOR_HUMAN, // 사람 입력 대기 중
-    COMPLETED,         // 완료
-    FAILED,            // 실패
-    CANCELLED          // 취소됨
+    RUNNING,           // Normal execution
+    WAITING_FOR_HUMAN, // Waiting for human input
+    COMPLETED,         // Completed
+    FAILED,            // Failed
+    CANCELLED          // Cancelled
 }
 
 data class HumanInteraction(
@@ -57,11 +72,11 @@ data class HumanInteraction(
 )
 ```
 
-### 3. GraphRunner 확장
+### 3. GraphRunner Extension
 
 ```kotlin
 interface GraphRunner {
-    // 기존 메서드들...
+    // Existing methods...
 
     /**
      * Resume execution after receiving human input.
@@ -83,26 +98,26 @@ interface GraphRunner {
 }
 ```
 
-## 사용 예시
+## Usage Examples
 
-### 1. 기본 승인/거부 패턴
+### 1. Basic Approval/Rejection Pattern
 
 ```kotlin
 val approvalGraph = graph("approval-workflow") {
-    agent("draft", draftAgent)  // 초안 작성
+    agent("draft", draftAgent)  // Create draft
 
-    // 사람이 검토하고 승인/거부
+    // Human reviews and approves/rejects
     humanNode(
         id = "review",
-        prompt = "초안을 검토해주세요",
+        prompt = "Please review the draft",
         options = listOf(
-            HumanOption("approve", "승인", "초안을 승인하고 계속 진행"),
-            HumanOption("reject", "거부", "초안을 거부하고 재작성"),
-            HumanOption("edit", "수정", "직접 수정")
+            HumanOption("approve", "Approve", "Approve draft and continue"),
+            HumanOption("reject", "Reject", "Reject draft and rewrite"),
+            HumanOption("edit", "Edit", "Edit manually")
         )
     )
 
-    // 조건부 분기
+    // Conditional branching
     edge("review", "publish") { result ->
         (result.data as? HumanResponse)?.selectedOption == "approve"
     }
@@ -117,32 +132,32 @@ val approvalGraph = graph("approval-workflow") {
     agent("manual-edit", editorAgent)
 }
 
-// 실행
+// Execution
 val runner = DefaultGraphRunner()
 val checkpointStore = InMemoryCheckpointStore()
 
-// 1단계: Graph 실행 시작 (HumanNode에서 멈춤)
+// Step 1: Start graph execution (pauses at HumanNode)
 val initialResult = runner.runWithCheckpoint(
     graph = approvalGraph,
     input = mapOf("content" to "Initial draft"),
     store = checkpointStore
 ).getOrThrow()
 
-// 2단계: 대기 중인 인터랙션 확인
+// Step 2: Check pending interactions
 val pending = runner.getPendingInteractions(
     checkpointId = initialResult.checkpointId,
     store = checkpointStore
 ).getOrThrow()
 
-println("대기 중: ${pending.first().prompt}")
+println("Waiting: ${pending.first().prompt}")
 
-// 3단계: 사람의 응답 제공
+// Step 3: Provide human response
 val humanResponse = HumanResponse(
     nodeId = "review",
     selectedOption = "approve"
 )
 
-// 4단계: 재개
+// Step 4: Resume
 val finalResult = runner.resumeWithHumanResponse(
     graph = approvalGraph,
     checkpointId = initialResult.checkpointId,
@@ -151,43 +166,43 @@ val finalResult = runner.resumeWithHumanResponse(
 ).getOrThrow()
 ```
 
-### 2. 자유 입력 패턴
+### 2. Free Text Input Pattern
 
 ```kotlin
 val inputGraph = graph("data-collection") {
-    agent("explain", explainerAgent)  // 설명 제공
+    agent("explain", explainerAgent)  // Provide explanation
 
-    // 자유 입력 받기
+    // Get free text input
     humanNode(
         id = "get-input",
-        prompt = "추가 정보를 입력해주세요",
+        prompt = "Please provide additional information",
         validator = { response ->
             response.text?.length?.let { it >= 10 } ?: false
         }
     )
 
-    agent("process", processorAgent)  // 입력 처리
+    agent("process", processorAgent)  // Process input
 }
 ```
 
-### 3. 타임아웃 패턴
+### 3. Timeout Pattern
 
 ```kotlin
 val timeoutGraph = graph("urgent-approval") {
     agent("create-request", requestAgent)
 
-    // 30분 내 응답 필요
+    // Requires response within 30 minutes
     humanNode(
         id = "urgent-review",
-        prompt = "긴급 요청 검토 (30분 제한)",
+        prompt = "Urgent request review (30 minute limit)",
         timeout = Duration.ofMinutes(30),
         options = listOf(
-            HumanOption("approve", "승인"),
-            HumanOption("reject", "거부")
+            HumanOption("approve", "Approve"),
+            HumanOption("reject", "Reject")
         )
     )
 
-    // 타임아웃 시 자동 거부
+    // Auto-reject on timeout
     edge("urgent-review", "auto-reject") { result ->
         (result.data as? HumanResponse) == null  // timeout = null response
     }
@@ -197,31 +212,31 @@ val timeoutGraph = graph("urgent-approval") {
 }
 ```
 
-## 구현 계획
+## Implementation Plan
 
-### Phase 1: 기본 HITL 지원
-- [ ] `HumanNode` 구현
-- [ ] `HumanResponse` 데이터 모델
-- [ ] Checkpoint 통합 (HITL 대기 상태 저장)
-- [ ] `resumeWithHumanResponse()` 구현
-- [ ] 기본 테스트
+### Phase 1: Basic HITL Support
+- [ ] Implement `HumanNode`
+- [ ] `HumanResponse` data model
+- [ ] Checkpoint integration (save HITL waiting state)
+- [ ] Implement `resumeWithHumanResponse()`
+- [ ] Basic tests
 
-### Phase 2: 고급 기능
-- [ ] Timeout 지원
-- [ ] Validator 지원
-- [ ] Multiple choice vs Free text 구분
-- [ ] `getPendingInteractions()` 구현
-- [ ] 통합 테스트
+### Phase 2: Advanced Features
+- [ ] Timeout support
+- [ ] Validator support
+- [ ] Multiple choice vs Free text distinction
+- [ ] Implement `getPendingInteractions()`
+- [ ] Integration tests
 
-### Phase 3: UI/UX 통합
+### Phase 3: UI/UX Integration
 - [ ] REST API for HITL interactions
-- [ ] WebSocket 실시간 알림
-- [ ] Dashboard 예제
-- [ ] 문서 및 가이드
+- [ ] WebSocket real-time notifications
+- [ ] Dashboard example
+- [ ] Documentation and guides
 
-## 기술적 고려사항
+## Technical Considerations
 
-### 1. Checkpoint 구조
+### 1. Checkpoint Structure
 ```kotlin
 data class Checkpoint(
     val id: String,
@@ -232,25 +247,25 @@ data class Checkpoint(
     val agentContext: AgentContext?,
     val timestamp: Instant,
 
-    // HITL 지원
+    // HITL support
     val executionState: GraphExecutionState = GraphExecutionState.RUNNING,
     val pendingInteraction: HumanInteraction? = null
 )
 ```
 
 ### 2. Thread Safety
-- HumanNode 실행은 suspend 함수
-- Checkpoint 저장은 atomic
-- 동시성 고려 (여러 사람이 동시에 응답하는 경우)
+- HumanNode execution is suspend function
+- Checkpoint save is atomic
+- Concurrency considerations (multiple people responding simultaneously)
 
 ### 3. Error Handling
-- Timeout 처리
-- 잘못된 응답 처리
-- Checkpoint 복원 실패 처리
+- Timeout processing
+- Invalid response handling
+- Checkpoint restore failure handling
 
-### 4. AgentContext 연계
+### 4. AgentContext Integration
 ```kotlin
-// Context에 사람 응답 기록
+// Record human response in context
 val enrichedContext = ctx.agentContext?.copy(
     metadata = ctx.agentContext.metadata + mapOf(
         "human_response_${nodeId}" to response,
@@ -260,32 +275,32 @@ val enrichedContext = ctx.agentContext?.copy(
 )
 ```
 
-## 예상 사용 사례
+## Expected Use Cases
 
-1. **문서 승인 워크플로우**: 초안 → 검토 → 승인/거부 → 출판
-2. **데이터 검증**: AI 분석 → 사람 확인 → 최종 결정
-3. **위험 작업 승인**: 요청 생성 → 관리자 승인 → 실행
-4. **협업 워크플로우**: AI 제안 → 사람 수정 → AI 재처리
-5. **긴급 대응**: 자동 감지 → 사람 판단 → 조치 실행
+1. **Document Approval Workflow**: Draft → Review → Approve/Reject → Publish
+2. **Data Validation**: AI analysis → Human verification → Final decision
+3. **Risky Operation Approval**: Request generation → Manager approval → Execution
+4. **Collaborative Workflow**: AI suggestion → Human modification → AI reprocessing
+5. **Emergency Response**: Auto-detection → Human judgment → Action execution
 
 ## Microsoft AF vs Spice HITL
 
-| 기능 | Microsoft AF | Spice |
-|------|-------------|-------|
-| Human Node | ✅ Built-in | ✅ 계획됨 |
-| Checkpoint | ✅ | ✅ 이미 구현 |
-| Resume | ✅ | ✅ 확장 필요 |
+| Feature | Microsoft AF | Spice |
+|---------|-------------|-------|
+| Human Node | ✅ Built-in | ✅ Planned |
+| Checkpoint | ✅ | ✅ Already implemented |
+| Resume | ✅ | ✅ Extension needed |
 | Timeout | ✅ | 🔜 Phase 2 |
 | Validation | ✅ | 🔜 Phase 2 |
 | UI Integration | ✅ Dashboard | 🔜 Phase 3 |
-| Multi-tenant | ❌ | ✅ AgentContext 통합 |
+| Multi-tenant | ❌ | ✅ AgentContext integration |
 
-## 다음 단계
+## Next Steps
 
-HITL 기능은 3단계로 구현 예정:
+HITL feature will be implemented in 3 phases:
 
-1. **Phase 1** (핵심): HumanNode, Resume 구현 → MVP
-2. **Phase 2** (고급): Timeout, Validation → Production-ready
-3. **Phase 3** (통합): REST API, UI 예제 → User-friendly
+1. **Phase 1** (Core): HumanNode, Resume implementation → MVP
+2. **Phase 2** (Advanced): Timeout, Validation → Production-ready
+3. **Phase 3** (Integration): REST API, UI examples → User-friendly
 
-각 Phase는 독립적으로 테스트 가능하며, 점진적으로 기능을 추가합니다.
+Each phase is independently testable, with features added incrementally.
