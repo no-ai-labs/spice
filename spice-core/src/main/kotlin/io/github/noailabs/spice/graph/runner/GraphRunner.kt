@@ -3,8 +3,13 @@ package io.github.noailabs.spice.graph.runner
 import io.github.noailabs.spice.AgentContext
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.NodeContext
+import io.github.noailabs.spice.graph.NodeResult
+import io.github.noailabs.spice.graph.middleware.ErrorAction
+import io.github.noailabs.spice.graph.middleware.NodeRequest
+import io.github.noailabs.spice.graph.middleware.RunContext
 import java.time.Duration
 import java.time.Instant
+import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -19,6 +24,7 @@ interface GraphRunner {
 
 /**
  * Default implementation of GraphRunner with sequential execution.
+ * Supports middleware chain for intercepting graph and node execution.
  */
 class DefaultGraphRunner : GraphRunner {
     override suspend fun run(
@@ -28,32 +34,56 @@ class DefaultGraphRunner : GraphRunner {
         // ✨ Get AgentContext from coroutine context (auto-propagated!)
         val agentContext = coroutineContext[AgentContext]
 
-        val ctx = NodeContext(
+        // Create run context for middleware
+        val runContext = RunContext(
+            graphId = graph.id,
+            runId = UUID.randomUUID().toString(),
+            agentContext = agentContext
+        )
+
+        val nodeContext = NodeContext(
             graphId = graph.id,
             state = input.toMutableMap(),
-            agentContext = agentContext  // Pass context to all nodes
+            agentContext = agentContext
         )
 
         val nodeReports = mutableListOf<NodeReport>()
-        var currentNodeId: String? = graph.entryPoint
         val graphStartTime = Instant.now()
 
+        // ✨ onStart middleware chain
+        executeOnStartChain(graph.middleware, runContext)
+
+        var report: RunReport? = null
+
         try {
+            var currentNodeId: String? = graph.entryPoint
+
             while (currentNodeId != null) {
                 val node = graph.nodes[currentNodeId]
                     ?: throw IllegalStateException("Node not found: $currentNodeId")
 
                 val startTime = Instant.now()
 
-                // Execute node
-                val result = node.run(ctx)
+                // ✨ Execute node through middleware chain
+                val nodeRequest = NodeRequest(
+                    nodeId = currentNodeId,
+                    input = nodeContext.state["_previous"],
+                    context = runContext
+                )
+
+                val result = executeNodeChain(
+                    graph.middleware,
+                    nodeRequest
+                ) { req ->
+                    // Actual node execution
+                    node.run(nodeContext)
+                }
 
                 val endTime = Instant.now()
 
-                // Store result in context with node id as key
-                ctx.state[currentNodeId] = result.data
-                // Also store as "_previous" for next node to use
-                ctx.state["_previous"] = result.data
+                // Store result in context
+                nodeContext.state[currentNodeId] = result.data
+                nodeContext.state["_previous"] = result.data
 
                 // Record node execution
                 nodeReports.add(
@@ -75,12 +105,10 @@ class DefaultGraphRunner : GraphRunner {
             }
 
             val graphEndTime = Instant.now()
-
-            // Get last node's result
             val finalNodeId = nodeReports.lastOrNull()?.nodeId
-            val finalResult = if (finalNodeId != null) ctx.state[finalNodeId] else null
+            val finalResult = if (finalNodeId != null) nodeContext.state[finalNodeId] else null
 
-            return RunReport(
+            report = RunReport(
                 graphId = graph.id,
                 status = RunStatus.SUCCESS,
                 result = finalResult,
@@ -91,7 +119,10 @@ class DefaultGraphRunner : GraphRunner {
         } catch (e: Exception) {
             val graphEndTime = Instant.now()
 
-            return RunReport(
+            // ✨ onError middleware chain
+            val errorAction = executeOnErrorChain(graph.middleware, e, runContext)
+
+            report = RunReport(
                 graphId = graph.id,
                 status = RunStatus.FAILED,
                 result = null,
@@ -99,6 +130,79 @@ class DefaultGraphRunner : GraphRunner {
                 nodeReports = nodeReports,
                 error = e
             )
+        }
+
+        // ✨ onFinish middleware chain
+        report?.let { executeOnFinishChain(graph.middleware, it) }
+
+        return report!!
+    }
+
+    /**
+     * Execute onStart middleware chain.
+     */
+    private suspend fun executeOnStartChain(
+        middlewares: List<io.github.noailabs.spice.graph.middleware.Middleware>,
+        runContext: RunContext
+    ) {
+        var index = 0
+        suspend fun next() {
+            if (index < middlewares.size) {
+                val middleware = middlewares[index++]
+                middleware.onStart(runContext) { next() }
+            }
+        }
+        next()
+    }
+
+    /**
+     * Execute onNode middleware chain.
+     */
+    private suspend fun executeNodeChain(
+        middlewares: List<io.github.noailabs.spice.graph.middleware.Middleware>,
+        request: NodeRequest,
+        actualExecution: suspend (NodeRequest) -> NodeResult
+    ): NodeResult {
+        var index = 0
+        suspend fun next(req: NodeRequest): NodeResult {
+            return if (index < middlewares.size) {
+                val middleware = middlewares[index++]
+                middleware.onNode(req) { next(it) }
+            } else {
+                actualExecution(req)
+            }
+        }
+        return next(request)
+    }
+
+    /**
+     * Execute onError middleware chain.
+     */
+    private suspend fun executeOnErrorChain(
+        middlewares: List<io.github.noailabs.spice.graph.middleware.Middleware>,
+        error: Throwable,
+        runContext: RunContext
+    ): ErrorAction {
+        var action = ErrorAction.PROPAGATE
+        for (middleware in middlewares) {
+            val middlewareAction = middleware.onError(error, runContext)
+            if (middlewareAction != ErrorAction.PROPAGATE) {
+                action = middlewareAction
+                break
+            }
+        }
+        return action
+    }
+
+    /**
+     * Execute onFinish middleware chain.
+     */
+    private suspend fun executeOnFinishChain(
+        middlewares: List<io.github.noailabs.spice.graph.middleware.Middleware>,
+        report: RunReport
+    ) {
+        for (middleware in middlewares) {
+            middleware.onFinish(report)
         }
     }
 }

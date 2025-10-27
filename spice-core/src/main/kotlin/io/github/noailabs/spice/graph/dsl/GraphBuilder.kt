@@ -6,6 +6,7 @@ import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
+import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
@@ -32,6 +33,7 @@ fun graph(id: String, block: GraphBuilder.() -> Unit): Graph {
 class GraphBuilder(val id: String) {
     private val nodes = mutableMapOf<String, Node>()
     private val edges = mutableListOf<Edge>()
+    private val middlewares = mutableListOf<Middleware>()
     private var lastNodeId: String? = null
 
     /**
@@ -83,6 +85,16 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Add middleware to the graph.
+     * Middleware will be executed in the order they are added.
+     *
+     * @param middleware The middleware to add
+     */
+    fun middleware(middleware: Middleware) {
+        middlewares.add(middleware)
+    }
+
+    /**
      * Automatically connect the current node to the previous node.
      */
     private fun connectToPrevious(currentId: String) {
@@ -101,7 +113,8 @@ class GraphBuilder(val id: String) {
             id = id,
             nodes = nodes,
             edges = edges,
-            entryPoint = nodes.keys.first()
+            entryPoint = nodes.keys.first(),
+            middleware = middlewares
         )
     }
 }

@@ -1,5 +1,7 @@
 package io.github.noailabs.spice.graph
 
+import io.github.noailabs.spice.graph.middleware.Middleware
+
 /**
  * Represents a directed acyclic graph (DAG) of nodes.
  */
@@ -7,7 +9,8 @@ data class Graph(
     val id: String,
     val nodes: Map<String, Node>,
     val edges: List<Edge>,
-    val entryPoint: String
+    val entryPoint: String,
+    val middleware: List<Middleware> = emptyList()
 )
 
 /**
