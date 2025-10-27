@@ -197,7 +197,8 @@
         "api/tool",
         "api/context",
         "api/registry",
-        "api/dsl"
+        "api/dsl",
+        "api/graph"
       ]
     }
   ]

@@ -674,6 +674,24 @@ class DefaultGraphRunner : GraphRunner {
             throw IllegalArgumentException("Response nodeId doesn't match pending interaction")
         }
 
+        // Check timeout
+        checkpoint.pendingInteraction?.expiresAt?.let { expiresAtStr ->
+            val expiresAt = Instant.parse(expiresAtStr)
+            if (Instant.now().isAfter(expiresAt)) {
+                throw IllegalStateException("Human response timeout expired at $expiresAtStr")
+            }
+        }
+
+        // Get HumanNode from graph to access validator
+        val humanNode = graph.nodes[checkpoint.currentNodeId] as? io.github.noailabs.spice.graph.nodes.HumanNode
+
+        // Validate response using HumanNode's validator
+        humanNode?.validator?.let { validator ->
+            if (!validator(response)) {
+                throw IllegalArgumentException("Human response failed validation")
+            }
+        }
+
         val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
 
         val runContext = RunContext(

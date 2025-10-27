@@ -343,4 +343,177 @@ class HumanNodeTest {
         // Should complete without pausing
         assertEquals(RunStatus.SUCCESS, result.status)
     }
+
+    @Test
+    fun `test validator rejects invalid response`() = runTest {
+        // Given: Graph with validator that requires text length >= 10
+        val validatedGraph = graph("validated") {
+            humanNode(
+                id = "feedback",
+                prompt = "Provide feedback (min 10 chars)",
+                validator = { response ->
+                    response.text?.length?.let { it >= 10 } ?: false
+                }
+            )
+
+            output("done") { "complete" }
+        }
+
+        val runner = DefaultGraphRunner()
+        val checkpointStore = InMemoryCheckpointStore()
+
+        // Start and pause
+        val pausedResult = runner.runWithCheckpoint(
+            graph = validatedGraph,
+            input = emptyMap(),
+            store = checkpointStore
+        ).getOrThrow()
+
+        assertEquals(RunStatus.PAUSED, pausedResult.status)
+
+        // Provide response that fails validation (too short)
+        val invalidResponse = HumanResponse.text(
+            nodeId = "feedback",
+            text = "short"  // Only 5 chars
+        )
+
+        // Resume should fail validation
+        val result = runner.resumeWithHumanResponse(
+            graph = validatedGraph,
+            checkpointId = pausedResult.checkpointId!!,
+            response = invalidResponse,
+            store = checkpointStore
+        )
+
+        assertTrue(result is io.github.noailabs.spice.error.SpiceResult.Failure)
+        assertTrue(result.error.message?.contains("validation") == true)
+    }
+
+    @Test
+    fun `test validator accepts valid response`() = runTest {
+        // Given: Graph with validator
+        val validatedGraph = graph("validated") {
+            humanNode(
+                id = "feedback",
+                prompt = "Provide feedback (min 10 chars)",
+                validator = { response ->
+                    response.text?.length?.let { it >= 10 } ?: false
+                }
+            )
+
+            output("done") { "complete" }
+        }
+
+        val runner = DefaultGraphRunner()
+        val checkpointStore = InMemoryCheckpointStore()
+
+        // Start and pause
+        val pausedResult = runner.runWithCheckpoint(
+            graph = validatedGraph,
+            input = emptyMap(),
+            store = checkpointStore
+        ).getOrThrow()
+
+        // Provide valid response
+        val validResponse = HumanResponse.text(
+            nodeId = "feedback",
+            text = "This is a valid long feedback"  // > 10 chars
+        )
+
+        // Resume should succeed
+        val result = runner.resumeWithHumanResponse(
+            graph = validatedGraph,
+            checkpointId = pausedResult.checkpointId!!,
+            response = validResponse,
+            store = checkpointStore
+        ).getOrThrow()
+
+        assertEquals(RunStatus.SUCCESS, result.status)
+    }
+
+    @Test
+    fun `test timeout rejects expired response`() = runTest {
+        // Given: Graph with 1 second timeout
+        val timeoutGraph = graph("timeout") {
+            humanNode(
+                id = "urgent",
+                prompt = "Quick response needed",
+                timeout = java.time.Duration.ofSeconds(1)
+            )
+
+            output("done") { "complete" }
+        }
+
+        val runner = DefaultGraphRunner()
+        val checkpointStore = InMemoryCheckpointStore()
+
+        // Start and pause
+        val pausedResult = runner.runWithCheckpoint(
+            graph = timeoutGraph,
+            input = emptyMap(),
+            store = checkpointStore
+        ).getOrThrow()
+
+        assertEquals(RunStatus.PAUSED, pausedResult.status)
+
+        // Wait for timeout to expire (use Thread.sleep for real time)
+        Thread.sleep(1100)  // Wait 1.1 seconds
+
+        // Try to respond after timeout
+        val response = HumanResponse.text(
+            nodeId = "urgent",
+            text = "Too late"
+        )
+
+        // Resume should fail due to timeout
+        val result = runner.resumeWithHumanResponse(
+            graph = timeoutGraph,
+            checkpointId = pausedResult.checkpointId!!,
+            response = response,
+            store = checkpointStore
+        )
+
+        assertTrue(result is io.github.noailabs.spice.error.SpiceResult.Failure)
+        assertTrue(result.error.message?.contains("timeout") == true)
+    }
+
+    @Test
+    fun `test timeout accepts response before expiration`() = runTest {
+        // Given: Graph with 5 second timeout
+        val timeoutGraph = graph("timeout") {
+            humanNode(
+                id = "prompt",
+                prompt = "You have time",
+                timeout = java.time.Duration.ofSeconds(5)
+            )
+
+            output("done") { "complete" }
+        }
+
+        val runner = DefaultGraphRunner()
+        val checkpointStore = InMemoryCheckpointStore()
+
+        // Start and pause
+        val pausedResult = runner.runWithCheckpoint(
+            graph = timeoutGraph,
+            input = emptyMap(),
+            store = checkpointStore
+        ).getOrThrow()
+
+        // Respond immediately (well within timeout)
+        val response = HumanResponse.text(
+            nodeId = "prompt",
+            text = "Quick response"
+        )
+
+        // Resume should succeed
+        val result = runner.resumeWithHumanResponse(
+            graph = timeoutGraph,
+            checkpointId = pausedResult.checkpointId!!,
+            response = response,
+            store = checkpointStore
+        ).getOrThrow()
+
+        assertEquals(RunStatus.SUCCESS, result.status)
+    }
 }
