@@ -25,16 +25,24 @@ class AgentNode(
             else -> ""
         }
 
-        // Create Comm from input (with AgentContext if available)
+        // 🔥 Extract previous Comm's data for propagation
+        val previousComm = ctx.state["_previousComm"] as? Comm
+        val previousData = previousComm?.data ?: emptyMap()
+
+        // Create Comm from input (with AgentContext and propagated data)
         val comm = Comm(
             content = inputContent,
             from = "graph-${ctx.graphId}",
-            context = ctx.agentContext  // ✨ Context propagation!
+            context = ctx.agentContext,  // ✨ Context propagation!
+            data = previousData           // 🔥 Metadata propagation!
         )
 
         // Execute agent and map to NodeResult (chain SpiceResult)
         return agent.processComm(comm)
             .map { response ->
+                // 🔥 Store full response Comm for next node
+                ctx.state["_previousComm"] = response
+
                 NodeResult(
                     data = response.content,
                     metadata = mapOf(

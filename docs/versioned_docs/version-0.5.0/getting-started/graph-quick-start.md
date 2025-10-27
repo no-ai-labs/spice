@@ -137,6 +137,28 @@ val graph = graph("custom") {
 
 :::
 
+:::tip How agent() Stores Results
+
+**Important:** When using `agent()`, only the `Comm.content` is stored in state, not the entire Comm object!
+
+```kotlin
+agent("responder", responseAgent)  // Returns Comm("Hello, World!", ...)
+
+// What gets stored:
+// state["responder"] = "Hello, World!"  // ✅ String only
+// NOT: Comm object  // ❌
+```
+
+**Chain behavior:**
+```kotlin
+agent("step1", agent1)  // Returns Comm("result1", ...)
+agent("step2", agent2)  // Receives "result1" as comm.content
+```
+
+For details, see [Graph Nodes - AgentNode](../orchestration/graph-nodes#agentnode).
+
+:::
+
 ## Step 3: Execute the Graph
 
 ```kotlin

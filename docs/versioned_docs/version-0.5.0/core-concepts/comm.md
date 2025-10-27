@@ -69,11 +69,117 @@ enum class CommRole {
 
 ### Adding Metadata
 
+The `data` field is a flexible `Map<String, String>` for carrying metadata across your application.
+
 ```kotlin
-val comm = Comm(content = "Hello", from = "user")
+// Add metadata when creating
+val comm = Comm(
+    content = "Hello",
+    from = "user",
+    data = mapOf("priority" to "high", "category" to "important")
+)
+
+// Add metadata fluently
+val enriched = comm
     .withData("priority", "high")
     .withData("category", "important")
+
+// Add multiple at once
+val multi = comm.withData(
+    "priority" to "high",
+    "category" to "important",
+    "timestamp" to System.currentTimeMillis().toString()
+)
 ```
+
+#### Metadata in Replies
+
+When you reply to a Comm, **metadata is automatically merged**:
+
+```kotlin
+val original = Comm(
+    content = "Request",
+    from = "user",
+    data = mapOf("sessionId" to "session-123", "requestId" to "req-456")
+)
+
+// Reply with additional metadata
+val response = original.reply(
+    content = "Response",
+    from = "agent",
+    data = mapOf("responseTime" to "50ms")
+)
+
+// response.data contains all metadata:
+// {
+//   "sessionId": "session-123",      // From original
+//   "requestId": "req-456",          // From original
+//   "responseTime": "50ms"           // Added in reply
+// }
+```
+
+#### Metadata Propagation in Graphs
+
+When using AgentNode in graphs, **metadata automatically propagates** across all agents:
+
+```kotlin
+val graph = graph("metadata-flow") {
+    agent("enricher", enricherAgent)  // Adds metadata
+    agent("processor", processorAgent) // Receives + adds metadata
+    agent("finalizer", finalizerAgent) // Receives all metadata
+}
+
+// Each agent automatically receives metadata from previous agents!
+```
+
+**Example:**
+
+```kotlin
+// Agent 1: Enriches with sessionId
+val agent1 = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        return SpiceResult.success(
+            comm.reply(
+                content = "Step 1 complete",
+                from = id,
+                data = mapOf("sessionId" to "session-123")
+            )
+        )
+    }
+    // ... other methods
+}
+
+// Agent 2: Automatically receives sessionId, adds userId
+val agent2 = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        val sessionId = comm.data["sessionId"]  // ✅ Available!
+        return SpiceResult.success(
+            comm.reply(
+                content = "Step 2 complete",
+                from = id,
+                data = mapOf("userId" to "user-456")
+            )
+        )
+    }
+    // ... other methods
+}
+
+// Agent 3: Receives both sessionId AND userId
+val agent3 = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        val sessionId = comm.data["sessionId"]  // ✅ "session-123"
+        val userId = comm.data["userId"]        // ✅ "user-456"
+        return SpiceResult.success(
+            comm.reply("All done for $sessionId, $userId", id)
+        )
+    }
+    // ... other methods
+}
+```
+
+:::tip
+See [Graph Nodes](../orchestration/graph-nodes.md#internal-behavior-state--metadata-propagation) for detailed information about metadata propagation in graphs.
+:::
 
 ### Media Attachments
 

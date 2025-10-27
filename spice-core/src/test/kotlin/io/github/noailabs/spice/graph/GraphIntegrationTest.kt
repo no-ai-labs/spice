@@ -463,4 +463,154 @@ class GraphIntegrationTest {
         assertNotNull(metrics.nodeExecutionTimes["agent"])
         assertEquals(2, metrics.nodeExecutionTimes["agent"]?.count)
     }
+
+    @Test
+    fun `test metadata propagation across agent nodes`() = runTest {
+        // Given: Three agents that add and verify metadata
+        val agent1 = object : Agent {
+            override val id = "agent1"
+            override val name = "Agent 1"
+            override val description = "First agent - adds metadata"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Add metadata to response
+                return SpiceResult.success(
+                    comm.reply(
+                        content = "Agent1: ${comm.content}",
+                        from = id,
+                        data = mapOf("agent1" to "metadata1", "step" to "1")
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        val agent2 = object : Agent {
+            override val id = "agent2"
+            override val name = "Agent 2"
+            override val description = "Second agent - verifies and adds metadata"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Verify previous metadata exists
+                val agent1Data = comm.data["agent1"]
+                val step = comm.data["step"]
+
+                // Add new metadata
+                return SpiceResult.success(
+                    comm.reply(
+                        content = "Agent2: ${comm.content} (prev: $agent1Data, step: $step)",
+                        from = id,
+                        data = mapOf("agent2" to "metadata2", "step" to "2")
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        val agent3 = object : Agent {
+            override val id = "agent3"
+            override val name = "Agent 3"
+            override val description = "Third agent - verifies all metadata"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Verify all previous metadata exists
+                val agent1Data = comm.data["agent1"]
+                val agent2Data = comm.data["agent2"]
+                val step = comm.data["step"]
+
+                return SpiceResult.success(
+                    comm.reply(
+                        content = "Agent3: ${comm.content} (a1: $agent1Data, a2: $agent2Data, step: $step)",
+                        from = id,
+                        data = mapOf("agent3" to "metadata3", "step" to "3")
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Create chain graph
+        val graph = graph("metadata-chain") {
+            agent("first", agent1)
+            agent("second", agent2)
+            agent("third", agent3)
+            output("final") { ctx -> ctx.state["third"] }
+        }
+
+        val runner = DefaultGraphRunner()
+        val report = runner.run(graph, mapOf("input" to "Start")).getOrThrow()
+
+        // Then: Verify metadata propagation
+        assertEquals(RunStatus.SUCCESS, report.status)
+
+        // Verify final result contains all metadata
+        val expectedResult = "Agent3: Agent2: Agent1: Start (prev: metadata1, step: 1) (a1: metadata1, a2: metadata2, step: 2)"
+        assertEquals(expectedResult, report.result)
+
+        // Verify all nodes executed
+        assertEquals(4, report.nodeReports.size)
+        assertNotNull(report.nodeReports.find { it.nodeId == "first" })
+        assertNotNull(report.nodeReports.find { it.nodeId == "second" })
+        assertNotNull(report.nodeReports.find { it.nodeId == "third" })
+    }
+
+    @Test
+    fun `test metadata propagation with initial data`() = runTest {
+        // Given: Agent that checks for initial metadata
+        val agent = object : Agent {
+            override val id = "checker"
+            override val name = "Checker"
+            override val description = "Checks initial metadata"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                val initialData = comm.data["initialKey"]
+                return SpiceResult.success(
+                    comm.reply("Found: $initialData", id)
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Create graph and initialize with metadata in state
+        val graph = graph("initial-metadata") {
+            agent("checker", agent)
+            output("result") { ctx -> ctx.state["checker"] }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Initialize with a Comm that has metadata
+        val initialComm = Comm(
+            content = "test",
+            from = "user",
+            data = mapOf("initialKey" to "initialValue")
+        )
+
+        val initialState = mapOf(
+            "input" to "test",
+            "_previousComm" to initialComm
+        )
+
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Verify initial metadata was accessible
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("Found: initialValue", report.result)
+    }
 }

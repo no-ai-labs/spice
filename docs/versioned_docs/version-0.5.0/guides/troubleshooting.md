@@ -307,7 +307,58 @@ output("result") { ctx ->
 }
 ```
 
-**Cause 3: Conditional routing issue**
+**Cause 3: Expecting Comm object but getting String**
+
+```kotlin
+// ❌ Common mistake - thinking state stores Comm
+val graph = graph("workflow") {
+    agent("processor", processorAgent)
+}
+
+val report = runner.run(graph, input).getOrThrow()
+val comm = report.result as Comm  // ❌ ClassCastException! It's a String
+```
+
+**Solution:**
+
+AgentNode stores **only `Comm.content`** (String) in state, not the full Comm object!
+
+```kotlin
+// ✅ Correct understanding
+val graph = graph("workflow") {
+    agent("processor", processorAgent)  // Returns Comm("result", ...)
+}
+
+val report = runner.run(graph, input).getOrThrow()
+val content = report.result as String  // ✅ String, not Comm!
+// content = "result"
+
+// ✅ Access in state
+val processorResult = report.result  // String
+```
+
+**If you need the full Comm object:**
+
+```kotlin
+// Create custom node that stores full Comm
+class FullCommAgentNode(
+    override val id: String,
+    val agent: Agent
+) : Node {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+        val previousComm = ctx.state["_previous"] as? Comm ?: Comm("", "")
+
+        return agent.processComm(previousComm)
+            .map { response ->
+                NodeResult(data = response)  // ✅ Store full Comm
+            }
+    }
+}
+```
+
+See [Graph Nodes - AgentNode](../orchestration/graph-nodes#agentnode) for details.
+
+**Cause 4: Conditional routing issue**
 
 ```kotlin
 // ❌ No matching edge
@@ -317,6 +368,7 @@ graph("routing") {
     output("result") { it.state["handler"] }
 
     edge("classifier", "handler") { result ->
+        // ⚠️ result.data is String (from AgentNode)
         result.data == "specific-value"  // What if it's different?
     }
 }

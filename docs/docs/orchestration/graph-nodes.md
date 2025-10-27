@@ -82,6 +82,160 @@ val node = AgentNode(
 3. Passes `AgentContext` from node context to the agent
 4. Returns agent's response in `NodeResult`
 
+:::info Internal Behavior: State & Metadata Propagation
+
+**Critical:** AgentNode stores **only `Comm.content`** in state for downstream nodes, but automatically propagates `Comm.data` metadata across the graph!
+
+```kotlin
+agent("processor", myAgent)  // Agent returns Comm("result text", data = mapOf(...))
+
+// What's stored in state:
+// state["processor"] = "result text"           // ✅ String (content only)
+// state["_previousComm"] = Comm(...)           // ✅ Full Comm (for metadata)
+// NOT: state["processor"] = Comm(...)          // ❌ Content stored as string
+```
+
+**Full conversion process with metadata:**
+
+```kotlin
+// Internal AgentNode implementation (simplified):
+override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+    // 1️⃣ Get input as String
+    val inputContent = ctx.state["_previous"]?.toString() ?: ""
+
+    // 2️⃣ Extract previous metadata
+    val previousComm = ctx.state["_previousComm"] as? Comm
+    val previousData = previousComm?.data ?: emptyMap()
+
+    // 3️⃣ Create Comm with propagated metadata
+    val comm = Comm(
+        content = inputContent,
+        from = "graph-${ctx.graphId}",
+        context = ctx.agentContext,  // ✨ Auto-propagates context
+        data = previousData           // ✨ Auto-propagates metadata!
+    )
+
+    // 4️⃣ Call agent
+    return agent.processComm(comm)  // SpiceResult<Comm>
+        .map { response ->
+            // 5️⃣ Store full Comm for next node
+            ctx.state["_previousComm"] = response
+
+            // 6️⃣ Extract content for state
+            NodeResult(
+                data = response.content,  // ⚠️ Content string only!
+                metadata = mapOf(
+                    "agentId" to agent.id,
+                    "tenantId" to ctx.agentContext?.tenantId
+                )
+            )
+        }  // Returns SpiceResult<NodeResult>
+}
+```
+
+**Chain behavior with metadata:**
+
+```kotlin
+val graph = graph("chain") {
+    agent("step1", agent1)  // returns Comm("result1", data = mapOf("key1" to "value1"))
+    agent("step2", agent2)  // receives "result1" as content + metadata from step1
+    agent("step3", agent3)  // receives accumulated metadata from step1 & step2
+}
+
+// Internal flow:
+// step1: processComm(Comm("input", data = {}))
+//     → Comm("result1", data = {"key1": "value1"})
+//     → state["step1"] = "result1"
+//     → state["_previousComm"] = Comm("result1", data = {"key1": "value1"})
+
+// step2: processComm(Comm("result1", data = {"key1": "value1"}))  ← metadata propagated!
+//     → Comm("result2", data = {"key1": "value1", "key2": "value2"})
+//     → state["step2"] = "result2"
+//     → state["_previousComm"] = Comm("result2", data = {"key1": "value1", "key2": "value2"})
+
+// step3: processComm(Comm("result2", data = {"key1": "value1", "key2": "value2"}))
+//     → All metadata from previous agents is available!
+```
+
+**Example: Using metadata across agents**
+
+```kotlin
+val enricherAgent = object : Agent {
+    override val id = "enricher"
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // Add metadata to response
+        return SpiceResult.success(
+            comm.reply(
+                content = "Enriched: ${comm.content}",
+                from = id,
+                data = mapOf("enrichedAt" to System.currentTimeMillis().toString())
+            )
+        )
+    }
+    // ... other methods
+}
+
+val consumerAgent = object : Agent {
+    override val id = "consumer"
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // Access metadata from previous agent
+        val enrichedAt = comm.data["enrichedAt"]
+        return SpiceResult.success(
+            comm.reply("Processed at $enrichedAt: ${comm.content}", id)
+        )
+    }
+    // ... other methods
+}
+
+val graph = graph("metadata-example") {
+    agent("enricher", enricherAgent)
+    agent("consumer", consumerAgent)  // Automatically receives metadata!
+}
+```
+
+**If you need the full Comm object in state:**
+
+```kotlin
+// Use a custom node
+class FullCommAgentNode(
+    override val id: String,
+    val agent: Agent
+) : Node {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+        val previousComm = ctx.state["_previousComm"] as? Comm
+            ?: ctx.state["_previous"] as? Comm
+            ?: Comm("", "")
+
+        return agent.processComm(previousComm)
+            .map { response ->
+                ctx.state["_previousComm"] = response
+                NodeResult(data = response)  // ✅ Store full Comm in node state too
+            }
+    }
+}
+```
+
+**Initializing with metadata:**
+
+```kotlin
+// Start graph with initial metadata
+val initialComm = Comm(
+    content = "Start",
+    from = "user",
+    data = mapOf("sessionId" to "session-123", "priority" to "high")
+)
+
+val initialState = mapOf(
+    "input" to "Start",
+    "_previousComm" to initialComm  // Initial metadata
+)
+
+val report = runner.run(graph, initialState).getOrThrow()
+// All agents in the graph can access sessionId and priority!
+```
+
+:::
+
 **Example:**
 
 ```kotlin
@@ -183,6 +337,46 @@ class OutputNode(
 ) : Node
 ```
 
+**Is OutputNode Required?**
+
+**No!** OutputNode is completely optional. Here's how it works:
+
+```kotlin
+// ✅ Without OutputNode - returns last node's result
+val simpleGraph = graph("simple") {
+    agent("processor", processorAgent)
+    // No output() needed
+}
+
+val report = runner.run(simpleGraph, input).getOrThrow()
+// report.result = processor's NodeResult.data
+
+// ✅ With OutputNode - for transformation/selection
+val advancedGraph = graph("advanced") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+
+    output("custom") { ctx ->
+        // Return step1 instead of step2
+        ctx.state["step1"]
+    }
+}
+
+val report = runner.run(advancedGraph, input).getOrThrow()
+// report.result = step1's NodeResult.data (from output selector)
+```
+
+**When to use OutputNode:**
+- Need to select specific node results (not the last one)
+- Want to combine multiple node results
+- Need to transform the final output
+- Want explicit control over return value
+
+**When to skip OutputNode:**
+- Simple linear workflows
+- Last node's result is exactly what you need
+- No transformation required
+
 **Usage:**
 
 ```kotlin
@@ -191,7 +385,7 @@ val graph = graph("my-graph") {
     agent("step1", agent1)
     agent("step2", agent2)
 
-    // Simple output (uses previous node's result)
+    // Simple output (uses specific node's result)
     output("result") { it.state["step2"] }
 
     // Complex transformation
