@@ -6,13 +6,15 @@ import io.github.noailabs.spice.graph.runner.RunReport
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Middleware that collects execution metrics.
+ * Thread-safe for concurrent graph executions.
  */
 class MetricsMiddleware : Middleware {
-    private val nodeExecutionTimes = ConcurrentHashMap<String, MutableList<Long>>()
-    private val graphExecutionTimes = mutableListOf<Long>()
+    private val nodeExecutionTimes = ConcurrentHashMap<String, CopyOnWriteArrayList<Long>>()
+    private val graphExecutionTimes = CopyOnWriteArrayList<Long>()
     private val errorCounts = ConcurrentHashMap<String, Long>()
 
     override suspend fun onStart(ctx: RunContext, next: suspend () -> Unit) {
@@ -26,7 +28,7 @@ class MetricsMiddleware : Middleware {
         val result = next(req)
 
         val duration = Duration.between(startTime, Instant.now()).toMillis()
-        nodeExecutionTimes.computeIfAbsent(req.nodeId) { mutableListOf() }.add(duration)
+        nodeExecutionTimes.computeIfAbsent(req.nodeId) { CopyOnWriteArrayList() }.add(duration)
 
         return result
     }

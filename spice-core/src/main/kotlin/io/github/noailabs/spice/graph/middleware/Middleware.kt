@@ -64,24 +64,25 @@ data class NodeRequest(
 /**
  * Action to take when an error occurs.
  */
-enum class ErrorAction {
+sealed class ErrorAction {
     /**
      * Propagate the error up the stack (default behavior).
      */
-    PROPAGATE,
+    data object PROPAGATE : ErrorAction()
 
     /**
      * Retry the current node execution.
      */
-    RETRY,
+    data object RETRY : ErrorAction()
 
     /**
      * Skip the current node and continue to the next.
      */
-    SKIP,
+    data object SKIP : ErrorAction()
 
     /**
      * Handle the error and continue with provided result.
+     * @param result The replacement result to use instead of the failed node's result
      */
-    CONTINUE
+    data class CONTINUE(val result: Any?) : ErrorAction()
 }

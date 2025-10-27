@@ -151,8 +151,8 @@ class ErrorActionTest {
     }
 
     @Test
-    fun `test CONTINUE action skips failed node`() = runTest {
-        // Given: Failing node with continue middleware
+    fun `test CONTINUE action provides fallback result`() = runTest {
+        // Given: Failing node with continue middleware that provides fallback
         val failingNode = object : Node {
             override val id = "failing-node"
 
@@ -163,7 +163,7 @@ class ErrorActionTest {
 
         val continueMiddleware = object : Middleware {
             override suspend fun onError(err: Throwable, ctx: RunContext): ErrorAction {
-                return ErrorAction.CONTINUE
+                return ErrorAction.CONTINUE("fallback-value")
             }
         }
 
@@ -184,13 +184,15 @@ class ErrorActionTest {
         val runner = DefaultGraphRunner()
         val result = runner.run(graph, emptyMap())
 
-        // Then: Should succeed with skipped node (same as SKIP for now)
+        // Then: Should succeed with fallback result
         assertTrue(result.isSuccess)
         val report = result.getOrThrow()
         assertEquals(RunStatus.SUCCESS, report.status)
 
+        // Verify failed node has fallback result
         val failedNodeReport = report.nodeReports.find { it.nodeId == "failing-node" }
-        assertEquals(NodeStatus.SKIPPED, failedNodeReport?.status)
+        assertEquals(NodeStatus.SUCCESS, failedNodeReport?.status)
+        assertEquals("fallback-value", failedNodeReport?.output)
     }
 
     @Test

@@ -95,6 +95,18 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Add a conditional edge between two nodes.
+     * This allows explicit control over graph flow based on node results.
+     *
+     * @param from Source node ID
+     * @param to Destination node ID
+     * @param condition Predicate that determines if this edge should be followed (default: always true)
+     */
+    fun edge(from: String, to: String, condition: (io.github.noailabs.spice.graph.NodeResult) -> Boolean = { true }) {
+        edges.add(Edge(from = from, to = to, condition = condition))
+    }
+
+    /**
      * Automatically connect the current node to the previous node.
      */
     private fun connectToPrevious(currentId: String) {

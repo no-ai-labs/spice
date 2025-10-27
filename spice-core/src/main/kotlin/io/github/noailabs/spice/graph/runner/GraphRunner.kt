@@ -151,10 +151,16 @@ class DefaultGraphRunner : GraphRunner {
                                         }
                                     }
 
-                                    ErrorAction.SKIP, ErrorAction.CONTINUE -> {
+                                    ErrorAction.SKIP -> {
                                         // Skip this node, return dummy result
                                         skipNode = true
                                         return@executeLoop NodeResult(data = null)
+                                    }
+
+                                    is ErrorAction.CONTINUE -> {
+                                        // Use the provided replacement result
+                                        skipNode = false  // Not skipped, we have a result
+                                        return@executeLoop NodeResult(data = errorAction.result)
                                     }
 
                                     ErrorAction.PROPAGATE -> {
@@ -270,10 +276,10 @@ class DefaultGraphRunner : GraphRunner {
         error: SpiceError,
         runContext: RunContext
     ): ErrorAction {
-        var action = ErrorAction.PROPAGATE
+        var action: ErrorAction = ErrorAction.PROPAGATE
         for (middleware in middlewares) {
             val middlewareAction = middleware.onError(error.toException(), runContext)
-            if (middlewareAction != ErrorAction.PROPAGATE) {
+            if (middlewareAction !is ErrorAction.PROPAGATE) {
                 action = middlewareAction
                 break
             }
@@ -461,10 +467,16 @@ class DefaultGraphRunner : GraphRunner {
                                     }
                                 }
 
-                                ErrorAction.SKIP, ErrorAction.CONTINUE -> {
+                                ErrorAction.SKIP -> {
                                     // Skip this node, return dummy result
                                     skipNode = true
                                     return@executeLoop NodeResult(data = null)
+                                }
+
+                                is ErrorAction.CONTINUE -> {
+                                    // Use the provided replacement result
+                                    skipNode = false  // Not skipped, we have a result
+                                    return@executeLoop NodeResult(data = errorAction.result)
                                 }
 
                                 ErrorAction.PROPAGATE -> {
