@@ -87,12 +87,55 @@ val supportWorkflow = graph("customer-support") {
     // Step 2: Generate response
     agent("responder", responseAgent)
 
-    // Step 3: Output result
+    // Step 3: Output result (OPTIONAL - see note below)
     output("final-response") { ctx ->
         ctx.state["responder"]
     }
 }
 ```
+
+:::tip Understanding output()
+
+The `output()` node is **OPTIONAL**. Here's how it works:
+
+**Without output():**
+```kotlin
+val graph = graph("simple") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+    // No output() - returns step2's result automatically
+}
+```
+
+**With output():**
+```kotlin
+val graph = graph("custom") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+
+    // Use output() to:
+    // 1. Select specific node results
+    output("result") { ctx -> ctx.state["step1"] }  // Return step1, not step2
+
+    // 2. Transform results
+    output("result") { ctx ->
+        mapOf(
+            "step1" to ctx.state["step1"],
+            "step2" to ctx.state["step2"]
+        )
+    }
+
+    // 3. Use previous node
+    output("result") { ctx -> ctx.state["_previous"] }  // Last executed node
+}
+```
+
+**Key points:**
+- `report.result` = last executed node's `NodeResult.data` (without output)
+- `report.result` = output selector's return value (with output)
+- Use `ctx.state["_previous"]` to access the most recent node's result
+
+:::
 
 ## Step 3: Execute the Graph
 

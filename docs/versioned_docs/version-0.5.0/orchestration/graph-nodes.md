@@ -183,6 +183,46 @@ class OutputNode(
 ) : Node
 ```
 
+**Is OutputNode Required?**
+
+**No!** OutputNode is completely optional. Here's how it works:
+
+```kotlin
+// ✅ Without OutputNode - returns last node's result
+val simpleGraph = graph("simple") {
+    agent("processor", processorAgent)
+    // No output() needed
+}
+
+val report = runner.run(simpleGraph, input).getOrThrow()
+// report.result = processor's NodeResult.data
+
+// ✅ With OutputNode - for transformation/selection
+val advancedGraph = graph("advanced") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+
+    output("custom") { ctx ->
+        // Return step1 instead of step2
+        ctx.state["step1"]
+    }
+}
+
+val report = runner.run(advancedGraph, input).getOrThrow()
+// report.result = step1's NodeResult.data (from output selector)
+```
+
+**When to use OutputNode:**
+- Need to select specific node results (not the last one)
+- Want to combine multiple node results
+- Need to transform the final output
+- Want explicit control over return value
+
+**When to skip OutputNode:**
+- Simple linear workflows
+- Last node's result is exactly what you need
+- No transformation required
+
 **Usage:**
 
 ```kotlin
@@ -191,7 +231,7 @@ val graph = graph("my-graph") {
     agent("step1", agent1)
     agent("step2", agent2)
 
-    // Simple output (uses previous node's result)
+    // Simple output (uses specific node's result)
     output("result") { it.state["step2"] }
 
     // Complex transformation

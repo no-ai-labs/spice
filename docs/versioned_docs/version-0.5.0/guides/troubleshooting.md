@@ -239,7 +239,53 @@ val report = runner.run(graph, input).getOrThrow()
 val result = report.result  // null or unexpected value
 ```
 
-**Cause 1: Wrong output selector**
+**Understanding report.result:**
+
+```kotlin
+// Without output() node:
+val graph = graph("no-output") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+}
+val report = runner.run(graph, input).getOrThrow()
+// report.result = step2's NodeResult.data (last executed node)
+
+// With output() node:
+val graph = graph("with-output") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+    output("final") { ctx -> ctx.state["step1"] }
+}
+val report = runner.run(graph, input).getOrThrow()
+// report.result = step1's NodeResult.data (from output selector)
+```
+
+**Cause 1: output() node is optional**
+
+```kotlin
+// ❌ Common misconception - output() is NOT required
+val graph = graph("workflow") {
+    agent("processor", processorAgent)
+    // No output() needed - processor's result is returned automatically
+}
+
+// ✅ Both patterns work:
+// Pattern A: No output() - simple and direct
+val simpleGraph = graph("simple") {
+    agent("processor", processor)
+}
+
+// Pattern B: With output() - when you need transformation
+val transformGraph = graph("transform") {
+    agent("processor", processor)
+    output("result") { ctx ->
+        // Transform or select specific results
+        ctx.state["processor"]
+    }
+}
+```
+
+**Cause 2: Wrong output selector**
 
 ```kotlin
 // ❌ Key doesn't exist
@@ -253,9 +299,15 @@ output("result") { it.state["my-agent"] }
 
 // ✅ Or use _previous for last executed node
 output("result") { it.state["_previous"] }
+
+// ✅ Check all available keys
+output("result") { ctx ->
+    println("Available keys: ${ctx.state.keys}")
+    ctx.state["my-agent"]
+}
 ```
 
-**Cause 2: Conditional routing issue**
+**Cause 3: Conditional routing issue**
 
 ```kotlin
 // ❌ No matching edge
