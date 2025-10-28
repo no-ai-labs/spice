@@ -9,6 +9,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2025-10-28
+
+### 🎉 Major Release: Context Unification & Immutable State
+
+**This is a breaking release with significant architectural improvements.**
+
+### ✨ Added
+
+#### ExecutionContext - Unified Context System
+- **NEW TYPE**: `ExecutionContext` - Single source of truth for all execution context
+- Replaces dual `AgentContext` + `NodeContext.metadata` system
+- Coroutine propagation via `CoroutineContext.Element`
+- Type-safe accessors: `tenantId`, `userId`, `correlationId`
+- Immutable updates: `plus()`, `plusAll()`
+- Conversion bridges: `toExecutionContext()`, `toAgentContext()`
+
+#### Immutable State
+- **BREAKING**: `NodeContext.state` is now `PersistentMap<String, Any?>` (was `MutableMap`)
+- Copy-on-Write efficiency via kotlinx.collections.immutable
+- Builder methods: `withState(key, value)`, `withState(updates)`, `withContext()`
+- Factory: `NodeContext.create(graphId, state, context)`
+- State updates returned via `NodeResult.metadata` (GraphRunner propagates)
+
+#### NodeResult Safety
+- **BREAKING**: Constructor is now private
+- **NEW**: Factory methods: `fromContext(ctx, data, additional)`, `create(data, metadata)`
+- Metadata size policies: `METADATA_WARN_THRESHOLD` (5KB), `HARD_LIMIT` (opt-in)
+- Overflow policies: `WARN`, `FAIL`, `IGNORE`
+- `@ConsistentCopyVisibility` annotation
+
+#### Metadata Observability
+- **NEW**: `NodeReport.metadata` - Full context snapshot per node
+- **NEW**: `NodeReport.metadataChanges` - Delta tracking (what changed)
+- Automatic metadata propagation to ExecutionContext and state
+- Metadata delta computed by GraphRunner
+
+#### Metadata Validation
+- **NEW**: `MetadataValidator` interface for checkpoint validation
+- **NEW**: `NoopMetadataValidator` - Default no-op implementation
+- Validates metadata at checkpoint save/restore
+- Integrated into `DefaultGraphRunner` constructor
+- Custom validators for tenant/user/correlation enforcement
+
+### 🔄 Changed
+
+#### NodeContext
+- **BREAKING**: Removed `metadata: MutableMap<String, Any>`
+- **BREAKING**: Removed `agentContext: AgentContext?`
+- **ADDED**: `context: ExecutionContext`
+- **CHANGED**: `state` type from `MutableMap` to `PersistentMap`
+- **NEW**: `preserveMetadata(additional)` helper function
+
+#### RunContext
+- **BREAKING**: Removed `agentContext: AgentContext?`
+- **BREAKING**: Removed `metadata: MutableMap<String, Any>`
+- **ADDED**: `context: ExecutionContext`
+
+#### Comm
+- **BREAKING**: `context` type changed from `AgentContext?` to `ExecutionContext?`
+- **ADDED**: `withContext(ExecutionContext)` overload
+- **KEPT**: `withContext(AgentContext)` - bridges to ExecutionContext
+- **UPDATED**: `withContextValues()` uses ExecutionContext internally
+
+#### GraphRunner
+- **CHANGED**: Initializes `NodeContext` with `ExecutionContext` from input + coroutine context
+- **CHANGED**: Propagates metadata to both ExecutionContext and state
+- **ADDED**: `metadataValidator` parameter to `DefaultGraphRunner`
+- **CHANGED**: State updates via `withState()` instead of mutation
+- **ADDED**: Validates metadata at initialization, resume, and human response
+
+#### All Built-in Nodes
+- **UPDATED**: `AgentNode` - Uses `ctx.context`, returns `_previousComm` in metadata
+- **UPDATED**: `ToolNode` - Uses `ctx.context` for ToolContext
+- **UPDATED**: `HumanNode` - Uses `NodeResult.fromContext`
+- **UPDATED**: `OutputNode` - Uses `NodeResult.fromContext`
+
+### 🗑️ Deprecated
+
+- `AgentContext` - Still works via bridge, but ExecutionContext is preferred
+- Direct state mutation - No longer possible (immutable)
+- `NodeResult()` direct construction - Constructor is private
+
+### 📚 Documentation
+
+#### New Documentation
+- `/docs/api/execution-context.md` - Complete ExecutionContext API reference
+- `/docs/guides/execution-context-patterns.md` - 20 production patterns
+- `/docs/guides/immutable-state-guide.md` - 9 patterns + best practices
+- `/docs/roadmap/migration-0.5-to-0.6.md` - Detailed migration guide
+- `MIGRATION_GUIDE_v0.6.0.md` - Root-level migration guide
+
+#### Updated Documentation
+- All graph API docs updated for 0.6.0
+- All code examples use new patterns
+- Middleware examples updated
+- Testing guides updated
+- `CLAUDE.md` - Internal coding guide updated
+
+#### Versioned Documentation
+- 0.6.0 documentation published with 89 docs
+- 0.5.0 documentation preserved (71 docs)
+- Version dropdown in docs site
+
+### 🔧 Internal
+
+- **REFACTORED**: GraphRunner context propagation logic
+- **REFACTORED**: Checkpoint save/restore with ExecutionContext
+- **REFACTORED**: Middleware chain context handling
+- **REFACTORED**: HandoffHelpers to use ExecutionContext
+- **ADDED**: Comprehensive test coverage for new patterns
+
+### Dependencies
+
+- **ADDED**: `org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7`
+
+---
+
 ## [0.5.3] - 2025-10-28
 
 ### 🔥 Critical Bug Fixes
