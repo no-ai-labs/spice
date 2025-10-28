@@ -2,6 +2,7 @@ package io.github.noailabs.spice.graph.nodes
 
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolContext
+import io.github.noailabs.spice.toAgentContext
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
@@ -25,27 +26,23 @@ class ToolNode(
             .mapValues { it.value!! }
 
         // Execute tool with context if available, then map to NodeResult
-        val spiceResult = if (ctx.agentContext != null) {
-            // ✨ Context-aware tool execution!
-            val toolContext = ToolContext(
-                agentId = "graph-${ctx.graphId}",
-                userId = ctx.agentContext.userId,
-                tenantId = ctx.agentContext.tenantId,
-                correlationId = ctx.agentContext.getAs("correlationId"),
-                metadata = ctx.agentContext.toMap()
-            )
-            tool.execute(nonNullParams, toolContext)
-        } else {
-            tool.execute(nonNullParams)
-        }
+        val ec = ctx.context
+        val toolContext = ToolContext(
+            agentId = "graph-${ctx.graphId}",
+            userId = ec.userId,
+            tenantId = ec.tenantId,
+            correlationId = ec.correlationId,
+            metadata = ec.toMap()
+        )
+        val spiceResult = tool.execute(nonNullParams, toolContext)
 
         // Chain SpiceResult
         return spiceResult.map { toolResult ->
             val additional = buildMap<String, Any> {
                 put("toolName", tool.name)
                 put("toolSuccess", toolResult.success)
-                ctx.agentContext?.tenantId?.let { put("tenantId", it) }
-                ctx.agentContext?.userId?.let { put("userId", it) }
+                ec.tenantId?.let { put("tenantId", it) }
+                ec.userId?.let { put("userId", it) }
             }
             NodeResult.fromContext(ctx, data = toolResult.result, additional = additional)
         }

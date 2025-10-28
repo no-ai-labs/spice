@@ -1,6 +1,6 @@
 package io.github.noailabs.spice.graph
 
-import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
 import io.github.noailabs.spice.error.SpiceResult
 
 /**
@@ -23,15 +23,14 @@ interface Node {
 data class NodeContext(
     val graphId: String,
     val state: MutableMap<String, Any?>,
-    val metadata: MutableMap<String, Any> = mutableMapOf(),
-    val agentContext: AgentContext? = null  // ✨ Context propagation support!
+    val context: ExecutionContext
 )
 
 /**
  * Preserve and extend metadata from this context.
  */
 fun NodeContext.preserveMetadata(additional: Map<String, Any> = emptyMap()): Map<String, Any> =
-    this.metadata + additional
+    this.context.toMap() + additional
 
 /**
  * Result of a node execution.
@@ -69,7 +68,7 @@ data class NodeResult private constructor(
             data: Any?,
             additional: Map<String, Any> = emptyMap(),
             nextEdges: List<String> = emptyList()
-        ): NodeResult = NodeResult(data, ctx.metadata + additional, nextEdges)
+        ): NodeResult = NodeResult(data, ctx.context.toMap() + additional, nextEdges)
     }
 }
 

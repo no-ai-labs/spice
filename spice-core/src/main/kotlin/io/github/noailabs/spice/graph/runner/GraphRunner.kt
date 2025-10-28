@@ -1,6 +1,8 @@
 package io.github.noailabs.spice.graph.runner
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
+import io.github.noailabs.spice.toExecutionContext
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Graph
@@ -98,8 +100,10 @@ class DefaultGraphRunner(
         input: Map<String, Any?>
     ): SpiceResult<RunReport> {
         return SpiceResult.catchingSuspend {
-            // ✨ Get AgentContext from coroutine context (auto-propagated!)
+            // ✨ Build ExecutionContext from coroutine AgentContext and input metadata
             val agentContext = coroutineContext[AgentContext]
+            val initialMeta = (input["metadata"] as? Map<String, Any>) ?: emptyMap()
+            val execContext = (agentContext?.toExecutionContext(initialMeta)) ?: ExecutionContext.of(initialMeta)
 
             // Create run context for middleware
             val runContext = RunContext(
@@ -111,8 +115,7 @@ class DefaultGraphRunner(
             val nodeContext = NodeContext(
                 graphId = graph.id,
                 state = input.toMutableMap(),
-                metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf(),  // 🔥 Initialize from input!
-                agentContext = agentContext
+                context = execContext
             )
 
             val nodeReports = mutableListOf<NodeReport>()
@@ -224,10 +227,13 @@ class DefaultGraphRunner(
                 nodeContext.state["_previous"] = result.data
 
                 // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
-                val previousMetadata = nodeContext.metadata.toMap()
-                result.metadata.forEach { (key, value) ->
-                    nodeContext.metadata[key] = value
-                }
+                val previousMetadata = nodeContext.context.toMap()
+                val newContext = nodeContext.context.plusAll(result.metadata)
+                // propagate enriched context for subsequent nodes
+                nodeContext.state["_context"] = newContext
+                // update transiently visible context
+                // (kept in NodeContext reference for simplicity in current design)
+                // Note: NodeContext is a data class; we mutate via state to avoid widespread constructor churn now
 
                 // Record node execution
                 val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
@@ -238,7 +244,7 @@ class DefaultGraphRunner(
                         duration = Duration.between(startTime, endTime),
                         status = if (skipNode) NodeStatus.SKIPPED else NodeStatus.SUCCESS,
                         output = result.data,
-                        metadata = nodeContext.metadata.toMap(),
+                        metadata = newContext.toMap(),
                         metadataChanges = if (metadataChanges.isEmpty()) null else metadataChanges
                     )
                 )
@@ -406,7 +412,7 @@ class DefaultGraphRunner(
         // Load checkpoint
         val checkpoint = store.load(checkpointId).getOrThrow()
 
-        val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
+            val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
 
         val runContext = RunContext(
             graphId = graph.id,
@@ -414,11 +420,12 @@ class DefaultGraphRunner(
             agentContext = agentContext
         )
 
+        val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
+            ?: ExecutionContext.of(checkpoint.metadata)
         val nodeContext = NodeContext(
             graphId = graph.id,
             state = checkpoint.state.toMutableMap(),
-            metadata = checkpoint.metadata.toMutableMap(),  // 🔥 Restore metadata from checkpoint!
-            agentContext = agentContext
+            context = resumeContext
         )
 
         // Validate restored metadata

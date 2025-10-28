@@ -6,6 +6,7 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
+import io.github.noailabs.spice.toAgentContext
 
 /**
  * Node that executes an Agent.
@@ -38,7 +39,7 @@ class AgentNode(
         val comm = Comm(
             content = inputContent,
             from = "graph-${ctx.graphId}",
-            context = ctx.agentContext,  // ✨ Context propagation!
+            context = ctx.context.toAgentContext(),  // ✨ Context propagation via ExecutionContext!
             data = previousData           // 🔥 Metadata propagation!
         )
 
@@ -51,8 +52,8 @@ class AgentNode(
                 val additional = buildMap<String, Any> {
                     put("agentId", agent.id)
                     put("agentName", agent.name)
-                    ctx.agentContext?.tenantId?.let { put("tenantId", it) }
-                    ctx.agentContext?.userId?.let { put("userId", it) }
+                    ctx.context.tenantId?.let { put("tenantId", it) }
+                    ctx.context.userId?.let { put("userId", it) }
                 }
                 NodeResult.fromContext(ctx, data = response.content, additional = additional)
             }
