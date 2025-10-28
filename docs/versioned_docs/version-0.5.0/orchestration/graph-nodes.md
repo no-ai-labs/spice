@@ -272,6 +272,177 @@ AgentNode checks for metadata in this order:
 
 :::
 
+### NodeContext.metadata vs Comm.data
+
+**Added in:** 0.5.3
+
+Spice graphs support **two parallel metadata systems** that serve different purposes:
+
+1. **`Comm.data`** - Agent-to-agent communication metadata (at Comm level)
+2. **`NodeContext.metadata`** - Graph-level execution metadata (at NodeContext level)
+
+**Key Differences:**
+
+| Feature | Comm.data | NodeContext.metadata |
+|---------|-----------|---------------------|
+| **Scope** | Agent communication only | All nodes (agents, tools, outputs) |
+| **Type** | `Map<String, String>` | `Map<String, Any>` |
+| **Propagation** | Via `_previousComm` in state | Via `NodeResult.metadata` → `NodeContext.metadata` |
+| **Use Case** | Session IDs, request tracing between agents | Tenant IDs, execution context, accumulated metrics |
+| **Accessible From** | `comm.data` inside agents | `ctx.metadata` in any node's `run()` method |
+
+**How NodeContext.metadata works:**
+
+```kotlin
+// 1️⃣ Initialize with metadata at graph invocation
+val initialState = mapOf(
+    "input" to "Process task",
+    "metadata" to mapOf(
+        "tenantId" to "tenant-123",
+        "userId" to "user-456",
+        "correlationId" to "corr-789"
+    )
+)
+
+// 2️⃣ GraphRunner initializes NodeContext.metadata from input["metadata"]
+val report = runner.run(graph, initialState).getOrThrow()
+
+// 3️⃣ Every node receives metadata in NodeContext
+class CustomNode(override val id: String) : Node {
+    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+        // Access graph-level metadata
+        val tenantId = ctx.metadata["tenantId"]  // "tenant-123"
+        val userId = ctx.metadata["userId"]      // "user-456"
+
+        // Add new metadata for downstream nodes
+        return SpiceResult.success(
+            NodeResult(
+                data = "result",
+                metadata = mapOf(
+                    "processedBy" to id,
+                    "processingTime" to System.currentTimeMillis()
+                )
+            )
+        )
+    }
+}
+
+// 4️⃣ GraphRunner propagates NodeResult.metadata to next node's NodeContext
+// The next node receives BOTH the initial metadata AND the previous node's metadata!
+```
+
+**Metadata Propagation Flow:**
+
+```kotlin
+val graph = graph("metadata-flow") {
+    agent("step1", agent1)
+    agent("step2", agent2)
+    output("result") { ctx ->
+        // ctx.metadata contains ACCUMULATED metadata from:
+        // - initial input["metadata"]
+        // - step1's NodeResult.metadata
+        // - step2's NodeResult.metadata
+        ctx.metadata.toString()
+    }
+}
+
+// Internal flow:
+// step1: NodeContext.metadata = {tenantId: "tenant-123", userId: "user-456"}
+//     → NodeResult.metadata = {agentId: "step1", agentName: "agent1"}
+//
+// step2: NodeContext.metadata = {tenantId: "tenant-123", userId: "user-456", agentId: "step1", agentName: "agent1"}
+//     → NodeResult.metadata = {agentId: "step2", agentName: "agent2"}
+//
+// output: NodeContext.metadata = {tenantId: "tenant-123", userId: "user-456", agentId: "step2", agentName: "agent2"}
+```
+
+**AgentNode Metadata Behavior:**
+
+AgentNode automatically adds agent-specific metadata to `NodeResult.metadata`:
+
+```kotlin
+// Automatic metadata added by AgentNode:
+metadata = buildMap {
+    putAll(ctx.metadata)  // Preserve input metadata
+    put("agentId", agent.id)  // Always added
+    put("agentName", agent.name ?: "unknown")  // Always added
+    // Only if agentContext provides values:
+    ctx.agentContext?.tenantId?.let { put("tenantId", it) }
+    ctx.agentContext?.userId?.let { put("userId", it) }
+}
+```
+
+**Priority**: `agentContext` values override input metadata if present.
+
+**Complete Example - Multi-tenant Application:**
+
+```kotlin
+// API handler
+suspend fun handleUserRequest(tenantId: String, userId: String, request: String): String {
+    val graph = graph("user-workflow") {
+        agent("processor", processorAgent)
+        tool("enricher", enricherTool) { mapOf("data" to it.state["processor"]) }
+        output("result") { ctx ->
+            mapOf(
+                "result" to ctx.state["enricher"],
+                "tenantId" to ctx.metadata["tenantId"],
+                "userId" to ctx.metadata["userId"],
+                "processedBy" to ctx.metadata["agentId"]
+            )
+        }
+    }
+
+    val initialState = mapOf(
+        "input" to request,
+        "metadata" to mapOf(
+            "tenantId" to tenantId,
+            "userId" to userId,
+            "requestId" to UUID.randomUUID().toString(),
+            "timestamp" to System.currentTimeMillis()
+        )
+    )
+
+    val report = runner.run(graph, initialState).getOrThrow()
+    return report.result.toString()
+}
+```
+
+**Checkpoints & Metadata:**
+
+NodeContext.metadata is automatically saved and restored in checkpoints:
+
+```kotlin
+// Metadata is saved
+val report = runner.runWithCheckpoint(
+    graph = myGraph,
+    input = mapOf(
+        "input" to "Task",
+        "metadata" to mapOf("requestId" to "req-123")
+    ),
+    checkpointPolicy = CheckpointPolicy.SaveEveryNNodes(1)
+)
+
+// Metadata is restored when resuming
+val resumedReport = runner.resume(
+    checkpointId = checkpoint.id,
+    humanResponse = HumanResponse.approve()
+)
+// NodeContext.metadata still contains "requestId"
+```
+
+**When to use which:**
+
+- **Use `Comm.data`** when:
+  - Passing metadata between agents specifically
+  - Need string-only key-value pairs
+  - Metadata is part of agent communication protocol
+
+- **Use `NodeContext.metadata`** when:
+  - Passing metadata to ALL nodes (agents, tools, outputs)
+  - Need complex types (not just strings)
+  - Tracking execution-level metadata (tenant, user, correlation IDs)
+  - Accumulating metrics across nodes
+
 **Example:**
 
 ```kotlin

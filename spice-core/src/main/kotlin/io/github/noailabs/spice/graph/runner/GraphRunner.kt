@@ -106,6 +106,7 @@ class DefaultGraphRunner : GraphRunner {
             val nodeContext = NodeContext(
                 graphId = graph.id,
                 state = input.toMutableMap(),
+                metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf(),  // 🔥 Initialize from input!
                 agentContext = agentContext
             )
 
@@ -209,6 +210,11 @@ class DefaultGraphRunner : GraphRunner {
                 // Store result in context
                 nodeContext.state[currentNodeId] = result.data
                 nodeContext.state["_previous"] = result.data
+
+                // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
+                result.metadata.forEach { (key, value) ->
+                    nodeContext.metadata[key] = value
+                }
 
                 // Record node execution
                 nodeReports.add(
@@ -352,6 +358,7 @@ class DefaultGraphRunner : GraphRunner {
         val nodeContext = NodeContext(
             graphId = graph.id,
             state = input.toMutableMap(),
+            metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf(),  // 🔥 Initialize from input!
             agentContext = agentContext
         )
 
@@ -388,6 +395,7 @@ class DefaultGraphRunner : GraphRunner {
         val nodeContext = NodeContext(
             graphId = graph.id,
             state = checkpoint.state.toMutableMap(),
+            metadata = checkpoint.metadata.toMutableMap(),  // 🔥 Restore metadata from checkpoint!
             agentContext = agentContext
         )
 
@@ -526,6 +534,11 @@ class DefaultGraphRunner : GraphRunner {
             nodeContext.state[currentNodeId] = result.data
             nodeContext.state["_previous"] = result.data
 
+            // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
+            result.metadata.forEach { (key, value) ->
+                nodeContext.metadata[key] = value
+            }
+
             // Record node execution
             nodeReports.add(
                 NodeReport(
@@ -625,6 +638,7 @@ class DefaultGraphRunner : GraphRunner {
             state = nodeContext.state.toMap(),
             agentContext = nodeContext.agentContext,
             timestamp = Instant.now(),
+            metadata = nodeContext.metadata.toMap(),  // 🔥 Save metadata to checkpoint!
             executionState = executionState,
             pendingInteraction = pendingInteraction,
             humanResponse = humanResponse
@@ -703,6 +717,7 @@ class DefaultGraphRunner : GraphRunner {
         val nodeContext = NodeContext(
             graphId = graph.id,
             state = checkpoint.state.toMutableMap(),
+            metadata = checkpoint.metadata.toMutableMap(),  // 🔥 Restore metadata from checkpoint!
             agentContext = agentContext
         )
 

@@ -50,12 +50,14 @@ class AgentNode(
 
                 NodeResult(
                     data = response.content,
-                    metadata = mapOf(
-                        "agentId" to agent.id,
-                        "agentName" to (agent.name ?: "unknown"),
-                        "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
-                        "userId" to (ctx.agentContext?.userId ?: "none")
-                    )
+                    metadata = buildMap {
+                        putAll(ctx.metadata)  // 🔥 Preserve input metadata
+                        put("agentId", agent.id)  // Agent-specific metadata
+                        put("agentName", agent.name ?: "unknown")
+                        // Only override if agentContext provides values
+                        ctx.agentContext?.tenantId?.let { put("tenantId", it) }
+                        ctx.agentContext?.userId?.let { put("userId", it) }
+                    }
                 )
             }
     }

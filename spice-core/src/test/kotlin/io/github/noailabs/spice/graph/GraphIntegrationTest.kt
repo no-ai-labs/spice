@@ -786,4 +786,49 @@ class GraphIntegrationTest {
         assertEquals(RunStatus.SUCCESS, report.status)
         assertEquals("Step 2 (initial: initialValue, agent1: agent1Value)", report.result)
     }
+
+    @Test
+    fun `test graph input metadata accessible via output node`() = runTest {
+        // Given: Agent that uses output to access NodeContext metadata
+        val agent = object : Agent {
+            override val id = "agent"
+            override val name = "Agent"
+            override val description = "Test agent"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                return SpiceResult.success(comm.reply("Result", id))
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Run graph with metadata in input
+        val graph = graph("metadata-output-test") {
+            agent("agent", agent)
+            // Output node can access NodeContext which should have metadata
+            output("result") { ctx ->
+                // Metadata should be in ctx.metadata
+                "tenantId:${ctx.metadata["tenantId"]},userId:${ctx.metadata["userId"]}"
+            }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val initialState = mapOf(
+            "input" to "Test",
+            "metadata" to mapOf(
+                "tenantId" to "tenant-123",
+                "userId" to "user-456"
+            )
+        )
+
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Verify metadata was accessible in output node
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("tenantId:tenant-123,userId:user-456", report.result)
+    }
 }

@@ -9,6 +9,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.3] - 2025-10-28
+
+### 🔥 Critical Bug Fixes
+
+#### NodeContext.metadata Propagation Throughout Graph Execution
+
+**Bug**: NodeContext.metadata was never initialized from input or propagated between nodes, making it effectively unusable in production.
+
+**Impact**: 🔴 **Critical** - Broke metadata propagation for multi-tenant applications, request tracking, and session management in graph workflows.
+
+**Root Causes**:
+
+1. **GraphRunner didn't initialize NodeContext.metadata from input**
+   - `input["metadata"]` was completely ignored
+   - All nodes started with empty metadata, even when metadata was provided
+   - Affected 7 locations: `run()`, `runWithCheckpoint()`, `resume()`, `resumeWithHumanResponse()`
+
+2. **GraphRunner didn't propagate NodeResult.metadata to next node**
+   - After each node execution, `NodeResult.metadata` was discarded
+   - Next node's `NodeContext.metadata` never received previous node's metadata
+   - Broke metadata flow in multi-node graphs
+
+3. **AgentNode overwrote input metadata with "none" defaults**
+   - Used `ctx.metadata + mapOf("tenantId" to "none")` which overwrites left side with right side
+   - Valid metadata from input was replaced with hardcoded "none" strings
+   - Made metadata propagation useless even when Problems 1 & 2 were fixed
+
+**Fixes**:
+
+1. **GraphRunner.kt - 7 locations updated**:
+   ```kotlin
+   // Initialize from input
+   metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf()
+
+   // Or restore from checkpoint
+   metadata = checkpoint.metadata.toMutableMap()
+
+   // Propagate after each node
+   result.metadata.forEach { (key, value) ->
+       nodeContext.metadata[key] = value
+   }
+   ```
+
+2. **AgentNode.kt - Metadata merge logic fixed**:
+   ```kotlin
+   // OLD: Overwrites input metadata with "none"
+   metadata = ctx.metadata + mapOf(
+       "tenantId" to (ctx.agentContext?.tenantId ?: "none")
+   )
+
+   // NEW: Preserves input metadata, overlays only if agentContext provides values
+   metadata = buildMap {
+       putAll(ctx.metadata)  // Preserve!
+       put("agentId", agent.id)
+       put("agentName", agent.name ?: "unknown")
+       ctx.agentContext?.tenantId?.let { put("tenantId", it) }
+       ctx.agentContext?.userId?.let { put("userId", it) }
+   }
+   ```
+
+**Usage Example**:
+
+```kotlin
+val graph = graph("user-workflow") {
+    agent("processor", myAgent)
+    output("result") { ctx ->
+        // Metadata now accessible throughout graph!
+        "User: ${ctx.metadata["userId"]}, Tenant: ${ctx.metadata["tenantId"]}"
+    }
+}
+
+val initialState = mapOf(
+    "input" to "Process task",
+    "metadata" to mapOf(
+        "tenantId" to "tenant-123",
+        "userId" to "user-456"
+    )
+)
+
+val report = runner.run(graph, initialState).getOrThrow()
+// Works correctly now: "User: user-456, Tenant: tenant-123"
+```
+
+**Affected Systems**:
+- ✅ Normal graph execution (`run`, `runWithCheckpoint`)
+- ✅ Checkpoint resume (`resume`, `resumeWithHumanResponse`)
+- ✅ Metadata propagation between nodes
+- ✅ Metadata in OutputNode and ToolNode
+
+**Breaking Changes**: None - Pure bug fix
+
+**Migration**: No changes required. If you were working around this bug by passing metadata through `state`, you can now use proper `metadata` field.
+
+### ✅ Added Tests
+
+**New Test** (1 total):
+1. `test graph input metadata accessible via output node` - End-to-end verification of metadata flow from input through AgentNode to OutputNode
+
+**Test Results**: ✅ All 15 GraphIntegrationTest tests pass
+
+---
+
 ## [0.5.2] - 2025-10-28
 
 ### ✨ Enhancements
