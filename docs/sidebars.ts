@@ -148,6 +148,8 @@ const sidebars: SidebarsConfig = {
       label: '📖 Guides',
       items: [
         'guides/feature-integration',
+        'guides/execution-context-patterns',
+        'guides/immutable-state-guide',
       ],
     },
     {
