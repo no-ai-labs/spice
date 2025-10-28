@@ -25,6 +25,7 @@ dependencies {
     // 🌶️ Spice Core Dependencies - Framework 독립적
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
     
     // 🌐 HTTP Client - API 호출용
     implementation("io.ktor:ktor-client-core:2.3.13")

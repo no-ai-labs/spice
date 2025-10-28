@@ -1,6 +1,6 @@
 package io.github.noailabs.spice.graph.middleware
 
-import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.graph.runner.RunReport
@@ -44,12 +44,12 @@ interface Middleware {
 
 /**
  * Context for the overall graph execution.
+ * Unified with ExecutionContext for consistency.
  */
 data class RunContext(
     val graphId: String,
     val runId: String,
-    val agentContext: AgentContext?,
-    val metadata: MutableMap<String, Any> = mutableMapOf()
+    val context: ExecutionContext
 )
 
 /**

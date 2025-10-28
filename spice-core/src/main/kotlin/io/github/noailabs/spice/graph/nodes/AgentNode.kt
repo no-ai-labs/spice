@@ -6,6 +6,7 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
+import io.github.noailabs.spice.toAgentContext
 
 /**
  * Node that executes an Agent.
@@ -34,31 +35,26 @@ class AgentNode(
             ?: (ctx.state["metadata"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value.toString() }  // 🆕 Support direct metadata map
             ?: emptyMap()
 
-        // Create Comm from input (with AgentContext and propagated data)
+        // Create Comm from input (with ExecutionContext and propagated data)
         val comm = Comm(
             content = inputContent,
             from = "graph-${ctx.graphId}",
-            context = ctx.agentContext,  // ✨ Context propagation!
+            context = ctx.context,  // ✨ Context propagation via ExecutionContext!
             data = previousData           // 🔥 Metadata propagation!
         )
 
         // Execute agent and map to NodeResult (chain SpiceResult)
         return agent.processComm(comm)
             .map { response ->
-                // 🔥 Store full response Comm for next node
-                ctx.state["_previousComm"] = response
-
-                NodeResult(
-                    data = response.content,
-                    metadata = buildMap {
-                        putAll(ctx.metadata)  // 🔥 Preserve input metadata
-                        put("agentId", agent.id)  // Agent-specific metadata
-                        put("agentName", agent.name ?: "unknown")
-                        // Only override if agentContext provides values
-                        ctx.agentContext?.tenantId?.let { put("tenantId", it) }
-                        ctx.agentContext?.userId?.let { put("userId", it) }
-                    }
-                )
+                // 🔥 Store full response Comm in metadata for next node to access
+                val additional = buildMap<String, Any> {
+                    put("agentId", agent.id)
+                    put("agentName", agent.name)
+                    put("_previousComm", response)  // Store Comm in metadata
+                    ctx.context.tenantId?.let { put("tenantId", it) }
+                    ctx.context.userId?.let { put("userId", it) }
+                }
+                NodeResult.fromContext(ctx, data = response.content, additional = additional)
             }
     }
 }

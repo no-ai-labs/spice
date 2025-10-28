@@ -24,21 +24,20 @@ class HumanNode(
     override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
         // HumanNode doesn't execute immediately
         // It signals that graph should pause and wait for human input
+        val interaction = HumanInteraction(
+            nodeId = id,
+            prompt = prompt,
+            options = options,
+            pausedAt = Instant.now().toString(),
+            expiresAt = timeout?.let { Instant.now().plus(it).toString() },
+            allowFreeText = allowFreeText
+        )
+        val additional = mapOf(
+            "type" to "human-interaction",
+            "requires_human_input" to true
+        )
         return SpiceResult.success(
-            NodeResult(
-                data = HumanInteraction(
-                    nodeId = id,
-                    prompt = prompt,
-                    options = options,
-                    pausedAt = Instant.now().toString(),
-                    expiresAt = timeout?.let { Instant.now().plus(it).toString() },
-                    allowFreeText = allowFreeText
-                ),
-                metadata = mapOf(
-                    "type" to "human-interaction",
-                    "requires_human_input" to true
-                )
-            )
+            NodeResult.fromContext(ctx, data = interaction, additional = additional)
         )
     }
 }

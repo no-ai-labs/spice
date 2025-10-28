@@ -810,8 +810,8 @@ class GraphIntegrationTest {
             agent("agent", agent)
             // Output node can access NodeContext which should have metadata
             output("result") { ctx ->
-                // Metadata should be in ctx.metadata
-                "tenantId:${ctx.metadata["tenantId"]},userId:${ctx.metadata["userId"]}"
+                // Metadata should be in ctx.context
+                "tenantId:${ctx.context.tenantId},userId:${ctx.context.userId}"
             }
         }
 
@@ -830,5 +830,116 @@ class GraphIntegrationTest {
         // Then: Verify metadata was accessible in output node
         assertEquals(RunStatus.SUCCESS, report.status)
         assertEquals("tenantId:tenant-123,userId:user-456", report.result)
+    }
+
+    @Test
+    fun `test tool node preserves metadata from input`() = runTest {
+        // Given: Tool that echoes input
+        val echoTool = object : Tool {
+            override val name = "echo"
+            override val description = "Echoes input"
+            override val schema = ToolSchema("echo", "Echoes input", emptyMap())
+
+            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+                val input = parameters["input"] as? String ?: ""
+                return SpiceResult.success(ToolResult(success = true, result = "Echo: $input"))
+            }
+
+            override suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> {
+                return execute(parameters)
+            }
+        }
+
+        // When: Graph with initial metadata → tool → output
+        val graph = graph("tool-metadata-test") {
+            tool("echo", echoTool) { ctx ->
+                mapOf("input" to (ctx.state["input"] ?: ""))
+            }
+            output("result") { ctx ->
+                "tenantId:${ctx.context.tenantId},userId:${ctx.context.userId}"
+            }
+        }
+
+        val initialState = mapOf(
+            "input" to "Test",
+            "metadata" to mapOf(
+                "tenantId" to "tenant-789",
+                "userId" to "user-012"
+            )
+        )
+
+        val runner = DefaultGraphRunner()
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Metadata should flow through ToolNode to OutputNode
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("tenantId:tenant-789,userId:user-012", report.result)
+    }
+
+    @Test
+    fun `test mixed agent and tool nodes preserve metadata`() = runTest {
+        // Given: Test agent
+        val testAgent = object : Agent {
+            override val id = "test-agent"
+            override val name = "Test Agent"
+            override val description = "Test"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                return SpiceResult.success(comm.reply("Processed", id))
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // Given: Tool
+        val processorTool = object : Tool {
+            override val name = "processor"
+            override val description = "Processes data"
+            override val schema = ToolSchema("processor", "Processes data", emptyMap())
+
+            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+                return SpiceResult.success(ToolResult(success = true, result = "Processed"))
+            }
+
+            override suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> {
+                return execute(parameters)
+            }
+        }
+
+        // When: Graph with agent → tool → output, all sharing metadata
+        val graph = graph("mixed-metadata-test") {
+            agent("agent", testAgent)
+            tool("processor", processorTool) { mapOf("data" to it.state["agent"]) }
+            output("result") { ctx ->
+                mapOf(
+                    "tenantId" to ctx.context.tenantId,
+                    "userId" to ctx.context.userId,
+                    "agentId" to ctx.context.get("agentId"),
+                    "toolName" to ctx.context.get("toolName")
+                )
+            }
+        }
+
+        val initialState = mapOf(
+            "input" to "Test",
+            "metadata" to mapOf(
+                "tenantId" to "tenant-999",
+                "userId" to "user-888"
+            )
+        )
+
+        val runner = DefaultGraphRunner()
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: All metadata should accumulate
+        assertEquals(RunStatus.SUCCESS, report.status)
+        val result = report.result as Map<*, *>
+        assertEquals("tenant-999", result["tenantId"])
+        assertEquals("user-888", result["userId"])
+        assertEquals("test-agent", result["agentId"])  // From AgentNode
+        assertEquals("processor", result["toolName"])   // From ToolNode
     }
 }

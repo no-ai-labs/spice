@@ -99,14 +99,10 @@ fun Comm.handoff(
             HandoffMetadataKeys.IS_HANDOFF to "true",
             HandoffMetadataKeys.ORIGINAL_AGENT to fromAgentId
         ),
-        context = this.context?.let { ctx ->
-            AgentContext(
-                data = ctx.toMap() + mapOf(
-                    HandoffMetadataKeys.HANDOFF_ID to handoffId,
-                    HandoffMetadataKeys.IS_HANDOFF to "true"
-                )
-            )
-        }
+        context = this.context?.plusAll(mapOf(
+            HandoffMetadataKeys.HANDOFF_ID to handoffId,
+            HandoffMetadataKeys.IS_HANDOFF to "true"
+        ))
     )
 }
 
@@ -159,14 +155,10 @@ fun Comm.returnFromHandoff(
             HandoffMetadataKeys.IS_RETURN_FROM_HANDOFF to "true",
             HandoffMetadataKeys.HANDOFF_ID to handoffId
         ),
-        context = this.context?.let { ctx ->
-            AgentContext(
-                data = ctx.toMap() + mapOf(
-                    HandoffMetadataKeys.HANDOFF_ID to handoffId,
-                    HandoffMetadataKeys.IS_RETURN_FROM_HANDOFF to "true"
-                )
-            )
-        }
+        context = this.context?.plusAll(mapOf(
+            HandoffMetadataKeys.HANDOFF_ID to handoffId,
+            HandoffMetadataKeys.IS_RETURN_FROM_HANDOFF to "true"
+        ))
     )
 }
 

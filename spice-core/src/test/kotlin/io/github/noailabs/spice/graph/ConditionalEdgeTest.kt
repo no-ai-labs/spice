@@ -20,11 +20,9 @@ class ConditionalEdgeTest {
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
                 val value = ctx.state["input"] as? Int ?: 0
+                val dataValue = if (value > 10) "high" else "low"
                 return SpiceResult.success(
-                    NodeResult(
-                        data = if (value > 10) "high" else "low",
-                        metadata = mapOf("value" to value)
-                    )
+                    NodeResult.fromContext(ctx, data = dataValue, additional = mapOf("value" to value))
                 )
             }
         }
@@ -33,7 +31,7 @@ class ConditionalEdgeTest {
             override val id = "high-path"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "Processed high value"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "Processed high value"))
             }
         }
 
@@ -41,7 +39,7 @@ class ConditionalEdgeTest {
             override val id = "low-path"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "Processed low value"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "Processed low value"))
             }
         }
 
@@ -88,7 +86,7 @@ class ConditionalEdgeTest {
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
                 val command = ctx.state["command"] as? String ?: ""
-                return SpiceResult.success(NodeResult(data = command))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = command))
             }
         }
 
@@ -96,7 +94,7 @@ class ConditionalEdgeTest {
             override val id = "action-a"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "Executed A"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "Executed A"))
             }
         }
 
@@ -104,7 +102,7 @@ class ConditionalEdgeTest {
             override val id = "action-b"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "Executed B"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "Executed B"))
             }
         }
 
@@ -148,7 +146,7 @@ class ConditionalEdgeTest {
             override val id = "source"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "matching-both"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "matching-both"))
             }
         }
 
@@ -156,7 +154,7 @@ class ConditionalEdgeTest {
             override val id = "first-match"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "First matched"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "First matched"))
             }
         }
 
@@ -164,7 +162,7 @@ class ConditionalEdgeTest {
             override val id = "second-match"
 
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "Second matched"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "Second matched"))
             }
         }
 

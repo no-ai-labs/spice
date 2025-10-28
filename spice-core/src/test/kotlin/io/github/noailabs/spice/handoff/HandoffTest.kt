@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.handoff
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
 import io.github.noailabs.spice.Comm
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -105,12 +106,10 @@ class HandoffTest {
         val comm = Comm(
             content = "테스트",
             from = "customer",
-            context = AgentContext(
-                data = mapOf(
-                    "userId" to "user-123",
-                    "tenantId" to "tenant-abc"
-                )
-            )
+            context = ExecutionContext.of(mapOf(
+                "userId" to "user-123",
+                "tenantId" to "tenant-abc"
+            ))
         )
 
         // When: Create handoff

@@ -636,7 +636,10 @@ class DelayNode(
     override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
         return SpiceResult.catchingSuspend {
             kotlinx.coroutines.delay(delayMs)
-            NodeResult(data = "Delayed for ${delayMs}ms")
+            NodeResult(
+                data = "Delayed for ${delayMs}ms",
+                metadata = ctx.metadata  // 🔥 Always preserve metadata!
+            )
         }
     }
 }
@@ -667,7 +670,7 @@ class ConditionalSplitNode(
 
             NodeResult(
                 data = result,
-                metadata = mapOf(
+                metadata = ctx.metadata + mapOf(  // 🔥 Preserve existing metadata!
                     "condition_met" to condition(input),
                     "input" to input
                 )
@@ -717,7 +720,10 @@ val node = object : Node {
         // Access initial input
         val input = ctx.state["input"]
 
-        return SpiceResult.success(NodeResult(data = "processed"))
+        return SpiceResult.success(NodeResult(
+            data = "processed",
+            metadata = ctx.metadata  // 🔥 Always preserve metadata!
+        ))
     }
 }
 ```
@@ -736,7 +742,10 @@ val node = object : Node {
         ctx.state["count"] = count + 1
         ctx.state["last_updated"] = System.currentTimeMillis()
 
-        return SpiceResult.success(NodeResult(data = count + 1))
+        return SpiceResult.success(NodeResult(
+            data = count + 1,
+            metadata = ctx.metadata  // 🔥 Always preserve metadata!
+        ))
     }
 }
 ```
@@ -764,7 +773,10 @@ class ContextAwareNode(override val id: String) : Node {
 
         println("Processing for tenant: $tenantId, user: $userId")
 
-        return SpiceResult.success(NodeResult(data = "processed"))
+        return SpiceResult.success(NodeResult(
+            data = "processed",
+            metadata = ctx.metadata  // 🔥 Always preserve metadata!
+        ))
     }
 }
 ```

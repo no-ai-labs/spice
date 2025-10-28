@@ -1,6 +1,8 @@
 package io.github.noailabs.spice.context
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
+import io.github.noailabs.spice.toExecutionContext
 import io.github.noailabs.spice.Comm
 import io.github.noailabs.spice.CommRole
 import io.github.noailabs.spice.CommType
@@ -17,10 +19,10 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm should carry AgentContext`() = runTest {
         // Given
-        val context = AgentContext.of(
+        val context = ExecutionContext.of(mapOf(
             "tenantId" to "CHIC",
             "userId" to "user-123"
-        )
+        ))
 
         // When
         val comm = Comm(
@@ -39,7 +41,7 @@ class CommContextIntegrationTest {
     fun `Comm withContext should set context`() = runTest {
         // Given
         val comm = Comm(content = "Hello", from = "user")
-        val context = AgentContext.of("tenantId" to "ACME")
+        val context = ExecutionContext.of(mapOf("tenantId" to "ACME"))
 
         // When
         val withContext = comm.withContext(context)
@@ -51,7 +53,7 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm withContextValues should merge values`() = runTest {
         // Given
-        val existingContext = AgentContext.of("tenantId" to "EXISTING")
+        val existingContext = ExecutionContext.of(mapOf("tenantId" to "EXISTING"))
         val comm = Comm(
             content = "Test",
             from = "user",
@@ -67,7 +69,7 @@ class CommContextIntegrationTest {
         // Then
         assertEquals("EXISTING", enriched.context?.tenantId)
         assertEquals("user-new", enriched.context?.userId)
-        assertEquals("sess-new", enriched.context?.sessionId)
+        assertEquals("sess-new", enriched.context?.getAs<String>("sessionId"))
     }
 
     @Test
@@ -90,7 +92,7 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm getContextValue should check context first`() = runTest {
         // Given
-        val context = AgentContext.of("key1" to "context-value")
+        val context = ExecutionContext.of(mapOf("key1" to "context-value"))
         val comm = Comm(
             content = "Test",
             from = "user",
@@ -136,10 +138,10 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm reply should preserve parent context`() = runTest {
         // Given
-        val context = AgentContext.of(
+        val context = ExecutionContext.of(mapOf(
             "tenantId" to "PARENT",
             "userId" to "user-parent"
-        )
+        ))
         val originalComm = Comm(
             content = "Original",
             from = "user",
@@ -161,7 +163,7 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm forward should preserve context`() = runTest {
         // Given
-        val context = AgentContext.of("tenantId" to "FORWARD")
+        val context = ExecutionContext.of(mapOf("tenantId" to "FORWARD"))
         val originalComm = Comm(
             content = "Original",
             from = "agent1",
@@ -190,13 +192,13 @@ class CommContextIntegrationTest {
         // Then: All values should accumulate
         assertEquals("STEP1", final.context?.tenantId)
         assertEquals("STEP2", final.context?.userId)
-        assertEquals("STEP3", final.context?.sessionId)
+        assertEquals("STEP3", final.context?.getAs<String>("sessionId"))
     }
 
     @Test
     fun `Comm context should be transient for serialization`() = runTest {
         // Given: Comm with context
-        val context = AgentContext.of("tenantId" to "TEST")
+        val context = ExecutionContext.of(mapOf("tenantId" to "TEST"))
         val comm = Comm(
             content = "Test",
             from = "user",
@@ -218,7 +220,7 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm with error should preserve context`() = runTest {
         // Given
-        val context = AgentContext.of("tenantId" to "ERROR_TEST")
+        val context = ExecutionContext.of(mapOf("tenantId" to "ERROR_TEST"))
         val originalComm = Comm(
             content = "Request",
             from = "user",
@@ -237,10 +239,10 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm toolCall should preserve context`() = runTest {
         // Given
-        val context = AgentContext.of(
+        val context = ExecutionContext.of(mapOf(
             "tenantId" to "TOOL_TEST",
             "userId" to "user-tool"
-        )
+        ))
         val comm = Comm(
             content = "Execute tool",
             from = "agent",
@@ -262,7 +264,7 @@ class CommContextIntegrationTest {
     @Test
     fun `Comm toolResult should preserve context`() = runTest {
         // Given
-        val context = AgentContext.of("correlationId" to "tool-corr-123")
+        val context = ExecutionContext.of(mapOf("correlationId" to "tool-corr-123"))
         val comm = Comm(
             content = "Tool call",
             from = "agent",

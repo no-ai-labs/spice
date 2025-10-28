@@ -29,7 +29,7 @@ class ErrorActionTest {
                 return if (attemptCount < 3) {
                     SpiceResult.failure(SpiceError.AgentError("Attempt $attemptCount failed"))
                 } else {
-                    SpiceResult.success(NodeResult(data = "Success on attempt $attemptCount"))
+                    SpiceResult.success(NodeResult.fromContext(ctx, data = "Success on attempt $attemptCount"))
                 }
             }
         }
@@ -242,7 +242,7 @@ class ErrorActionTest {
                 return if (node1Attempts < 2) {
                     SpiceResult.failure(SpiceError.AgentError("Retry needed"))
                 } else {
-                    SpiceResult.success(NodeResult(data = "retry-success"))
+                    SpiceResult.success(NodeResult.fromContext(ctx, data = "retry-success"))
                 }
             }
         }

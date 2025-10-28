@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'roadmap/overview',
         'roadmap/af-architecture',
         'roadmap/migration-guide',
+        'roadmap/migration-0.5-to-0.6',
         'roadmap/hitl-design',
       ],
     },
@@ -148,6 +149,8 @@ const sidebars: SidebarsConfig = {
       label: '📖 Guides',
       items: [
         'guides/feature-integration',
+        'guides/execution-context-patterns',
+        'guides/immutable-state-guide',
       ],
     },
     {
@@ -213,6 +216,7 @@ const sidebars: SidebarsConfig = {
         'api/comm',
         'api/tool',
         'api/context',
+        'api/execution-context',
         'api/registry',
         'api/dsl',
         'api/graph',

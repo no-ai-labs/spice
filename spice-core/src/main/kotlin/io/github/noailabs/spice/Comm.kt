@@ -93,9 +93,9 @@ data class Comm(
     // Flexible metadata (replaces rigid fields)
     val data: Map<String, String> = emptyMap(),
 
-    // Agent Context (since 0.4.0)
+    // Execution Context (since 0.6.0 - unified context)
     @kotlinx.serialization.Transient
-    val context: AgentContext? = null,
+    val context: ExecutionContext? = null,
 
     // Rich content features
     val media: List<MediaItem> = emptyList(),
@@ -246,19 +246,28 @@ data class Comm(
     }
 
     /**
-     * Create new Comm with AgentContext
+     * Create new Comm with ExecutionContext
      *
      * Example:
      * ```kotlin
      * val contextualComm = comm.withContext(
-     *     AgentContext.of("tenantId" to "CHIC", "userId" to "user-123")
+     *     ExecutionContext.of(mapOf("tenantId" to "CHIC", "userId" to "user-123"))
      * )
      * ```
+     *
+     * @since 0.6.0
+     */
+    fun withContext(context: ExecutionContext): Comm {
+        return copy(context = context)
+    }
+
+    /**
+     * Create new Comm with AgentContext (backward compatibility bridge)
      *
      * @since 0.4.0
      */
     fun withContext(context: AgentContext): Comm {
-        return copy(context = context)
+        return copy(context = context.toExecutionContext())
     }
 
     /**
@@ -272,10 +281,11 @@ data class Comm(
      * )
      * ```
      *
-     * @since 0.4.0
+     * @since 0.6.0
      */
     fun withContextValues(vararg pairs: Pair<String, Any>): Comm {
-        val newContext = context?.withAll(*pairs) ?: AgentContext.of(*pairs)
+        val additionalMap = pairs.toMap()
+        val newContext = context?.plusAll(additionalMap) ?: ExecutionContext.of(additionalMap)
         return copy(context = newContext)
     }
     

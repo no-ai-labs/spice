@@ -68,6 +68,21 @@ data class Checkpoint(
 )
 
 /**
+ * Optional metadata validator to guard against corrupted checkpoint metadata.
+ */
+fun interface MetadataValidator {
+    fun validate(metadata: Map<String, Any>): io.github.noailabs.spice.error.SpiceResult<Unit>
+}
+
+/**
+ * No-op validator by default.
+ */
+object NoopMetadataValidator : MetadataValidator {
+    override fun validate(metadata: Map<String, Any>): io.github.noailabs.spice.error.SpiceResult<Unit> =
+        io.github.noailabs.spice.error.SpiceResult.success(Unit)
+}
+
+/**
  * Configuration for checkpoint behavior.
  */
 data class CheckpointConfig(

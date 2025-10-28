@@ -27,7 +27,7 @@ class EdgeCaseTest {
         val nullNode = object : Node {
             override val id = "null-node"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = null))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = null))
             }
         }
 
@@ -75,7 +75,7 @@ class EdgeCaseTest {
         val node1 = object : Node {
             override val id = "node1"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "result"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "result"))
             }
         }
 
@@ -111,7 +111,7 @@ class EdgeCaseTest {
         val router = object : Node {
             override val id = "router"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                return SpiceResult.success(NodeResult(data = "route-b"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "route-b"))
             }
         }
 
@@ -149,8 +149,10 @@ class EdgeCaseTest {
             override val id = "counter"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
                 val current = (ctx.state["count"] as? Int) ?: 0
-                ctx.state["count"] = current + 1
-                return SpiceResult.success(NodeResult(data = current + 1))
+                // Store updated count in metadata for runner to put in state
+                return SpiceResult.success(
+                    NodeResult.fromContext(ctx, data = current + 1, additional = mapOf("count" to (current + 1)))
+                )
             }
         }
 
@@ -271,9 +273,14 @@ class EdgeCaseTest {
         val nullNode = object : Node {
             override val id = "null-node"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                ctx.state["nullValue"] = null
-                ctx.state["actualValue"] = "data"
-                return SpiceResult.success(NodeResult(data = null))
+                // Return metadata to signal state updates
+                return SpiceResult.success(
+                    NodeResult.fromContext(
+                        ctx, 
+                        data = null, 
+                        additional = mapOf<String, Any>("actualValue" to "data")
+                    )
+                )
             }
         }
 
@@ -336,7 +343,7 @@ class EdgeCaseTest {
                 return if (attemptCount < 4) {  // Will succeed on 4th attempt (max retries is 3)
                     SpiceResult.failure(SpiceError.AgentError("Attempt $attemptCount"))
                 } else {
-                    SpiceResult.success(NodeResult(data = "Success on attempt $attemptCount"))
+                    SpiceResult.success(NodeResult.fromContext(ctx, data = "Success on attempt $attemptCount"))
                 }
             }
         }
@@ -430,11 +437,9 @@ class EdgeCaseTest {
         val largeStateNode = object : Node {
             override val id = "large-state"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                // Add 100 items to state
-                repeat(100) { i ->
-                    ctx.state["item_$i"] = "value_$i"
-                }
-                return SpiceResult.success(NodeResult(data = "done"))
+                // Add 100 items to metadata (state is immutable)
+                val items = (0 until 100).associate { i -> "item_$i" to "value_$i" }
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "done", additional = items))
             }
         }
 
@@ -464,7 +469,7 @@ class EdgeCaseTest {
                 return if (attemptCount < 2) {
                     SpiceResult.failure(SpiceError.AgentError("Retry needed"))
                 } else {
-                    SpiceResult.success(NodeResult(data = "success"))
+                    SpiceResult.success(NodeResult.fromContext(ctx, data = "success"))
                 }
             }
         }

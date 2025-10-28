@@ -18,7 +18,7 @@ class MetricsMiddleware : Middleware {
     private val errorCounts = ConcurrentHashMap<String, Long>()
 
     override suspend fun onStart(ctx: RunContext, next: suspend () -> Unit) {
-        ctx.metadata["startTime"] = Instant.now()
+        // Track start time in metrics (no longer mutating context)
         next()
     }
 
