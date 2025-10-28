@@ -41,15 +41,27 @@ data class NodeResult private constructor(
     val nextEdges: List<String> = emptyList()
 ) {
     init {
-        // Simple size guard to prevent unbounded growth
+        // Soft size policy (warning by default). Hard limit is opt-in via policy.
         val approxSize = metadata.toString().length
-        if (approxSize > MAX_METADATA_SIZE) {
-            throw IllegalArgumentException("Metadata size $approxSize exceeds limit $MAX_METADATA_SIZE")
+        val hard = HARD_LIMIT
+        if (hard != null && approxSize > hard) {
+            when (onOverflow) {
+                OverflowPolicy.FAIL -> throw IllegalArgumentException("Metadata size $approxSize exceeds hard limit $hard")
+                OverflowPolicy.WARN -> println("[Spice] Metadata size $approxSize exceeds hard limit $hard (policy=WARN)")
+                OverflowPolicy.IGNORE -> {}
+            }
+        } else if (approxSize > METADATA_WARN_THRESHOLD && onOverflow == OverflowPolicy.WARN) {
+            println("[Spice] Metadata size $approxSize exceeds warn threshold $METADATA_WARN_THRESHOLD")
         }
     }
 
     companion object {
-        const val MAX_METADATA_SIZE: Int = 10_000
+        // Default: warning at 5KB; no hard limit unless configured
+        const val METADATA_WARN_THRESHOLD: Int = 5_000
+        var HARD_LIMIT: Int? = null
+
+        enum class OverflowPolicy { WARN, FAIL, IGNORE }
+        var onOverflow: OverflowPolicy = OverflowPolicy.WARN
 
         /**
          * Factory to explicitly provide metadata.

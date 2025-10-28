@@ -88,9 +88,9 @@ class DefaultGraphRunner(
         input: Map<String, Any?>
     ): SpiceResult<RunReport> {
         // Validate graph before execution
-        when (val validationResult = GraphValidator.validate(graph)) {
-            is SpiceResult.Failure -> return SpiceResult.failure(validationResult.error)
-            is SpiceResult.Success -> Unit
+        val validationResult = GraphValidator.validate(graph)
+        if (validationResult is SpiceResult.Failure) {
+            return SpiceResult.failure(validationResult.error)
         }
         return runValidatedGraph(graph, input)
     }
@@ -102,7 +102,8 @@ class DefaultGraphRunner(
         return SpiceResult.catchingSuspend {
             // ✨ Build ExecutionContext from coroutine AgentContext and input metadata
             val agentContext = coroutineContext[AgentContext]
-            val initialMeta = (input["metadata"] as? Map<String, Any>) ?: emptyMap()
+            val initialMetaUntyped = (input["metadata"] as? Map<*, *>) ?: emptyMap<Any, Any>()
+            val initialMeta = initialMetaUntyped.entries.associate { it.key.toString() to (it.value as Any) }
             val execContext = (agentContext?.toExecutionContext(initialMeta)) ?: ExecutionContext.of(initialMeta)
 
             // Create run context for middleware
@@ -112,7 +113,7 @@ class DefaultGraphRunner(
                 agentContext = agentContext
             )
 
-            val nodeContext = NodeContext(
+            var nodeContext = NodeContext(
                 graphId = graph.id,
                 state = input.toMutableMap(),
                 context = execContext
@@ -149,7 +150,7 @@ class DefaultGraphRunner(
                         val resultOrError = executeNodeChain(
                             graph.middleware,
                             nodeRequest
-                        ) { req ->
+                        ) { _ ->
                             // Actual node execution
                             node.run(nodeContext)
                         }
@@ -226,14 +227,10 @@ class DefaultGraphRunner(
                 nodeContext.state[nodeId] = result.data
                 nodeContext.state["_previous"] = result.data
 
-                // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
+                // 🔥 Propagate NodeResult.metadata to ExecutionContext for next node
                 val previousMetadata = nodeContext.context.toMap()
-                val newContext = nodeContext.context.plusAll(result.metadata)
-                // propagate enriched context for subsequent nodes
-                nodeContext.state["_context"] = newContext
-                // update transiently visible context
-                // (kept in NodeContext reference for simplicity in current design)
-                // Note: NodeContext is a data class; we mutate via state to avoid widespread constructor churn now
+                val enrichedContext = nodeContext.context.plusAll(result.metadata)
+                nodeContext = nodeContext.copy(context = enrichedContext)
 
                 // Record node execution
                 val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
@@ -244,7 +241,7 @@ class DefaultGraphRunner(
                         duration = Duration.between(startTime, endTime),
                         status = if (skipNode) NodeStatus.SKIPPED else NodeStatus.SUCCESS,
                         output = result.data,
-                        metadata = newContext.toMap(),
+                        metadata = enrichedContext.toMap(),
                         metadataChanges = if (metadataChanges.isEmpty()) null else metadataChanges
                     )
                 )
@@ -356,9 +353,9 @@ class DefaultGraphRunner(
         config: CheckpointConfig
     ): SpiceResult<RunReport> {
         // Validate graph before execution
-        when (val validationResult = GraphValidator.validate(graph)) {
-            is SpiceResult.Failure -> return SpiceResult.failure(validationResult.error)
-            is SpiceResult.Success -> Unit
+        val validationResult = GraphValidator.validate(graph)
+        if (validationResult is SpiceResult.Failure) {
+            return SpiceResult.failure(validationResult.error)
         }
         return runValidatedGraphWithCheckpoint(graph, input, store, config)
     }
@@ -377,15 +374,16 @@ class DefaultGraphRunner(
             agentContext = agentContext
         )
 
-        val nodeContext = NodeContext(
+        val inputMetaUntyped = (input["metadata"] as? Map<*, *>) ?: emptyMap<Any, Any>()
+        val inputMeta = inputMetaUntyped.entries.associate { it.key.toString() to (it.value as Any) }
+        var nodeContext = NodeContext(
             graphId = graph.id,
             state = input.toMutableMap(),
-            metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf(),  // 🔥 Initialize from input!
-            agentContext = agentContext
+            context = ((agentContext?.toExecutionContext(inputMeta)) ?: ExecutionContext.of(inputMeta))
         )
 
         // Validate initial metadata
-        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
             is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
             else -> {}
         }
@@ -429,7 +427,7 @@ class DefaultGraphRunner(
         )
 
         // Validate restored metadata
-        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
             is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
             else -> {}
         }
@@ -504,7 +502,7 @@ class DefaultGraphRunner(
                         is SpiceResult.Failure -> {
                             // Save checkpoint on error if configured
                             if (config.saveOnError) {
-                                saveCheckpoint(runContext, nodeContext, currentNodeId, store)
+                                saveCheckpoint(runContext, nodeContext, nodeId, store)
                             }
 
                             // ✨ Handle ErrorAction (RETRY, SKIP, CONTINUE)
@@ -576,11 +574,10 @@ class DefaultGraphRunner(
             nodeContext.state[nodeId] = result.data
             nodeContext.state["_previous"] = result.data
 
-            // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
-            val previousMetadata = nodeContext.metadata.toMap()
-            result.metadata.forEach { (key, value) ->
-                nodeContext.metadata[key] = value
-            }
+            // 🔥 Propagate NodeResult.metadata to ExecutionContext for next node
+            val previousMetadata = nodeContext.context.toMap()
+            val enrichedContext = nodeContext.context.plusAll(result.metadata)
+            nodeContext = nodeContext.copy(context = enrichedContext)
 
             // Record node execution
             val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
@@ -591,7 +588,7 @@ class DefaultGraphRunner(
                     duration = Duration.between(startTime, endTime),
                     status = if (skipNode) NodeStatus.SKIPPED else NodeStatus.SUCCESS,
                     output = result.data,
-                    metadata = nodeContext.metadata.toMap(),
+                    metadata = enrichedContext.toMap(),
                     metadataChanges = if (metadataChanges.isEmpty()) null else metadataChanges
                 )
             )
@@ -682,9 +679,10 @@ class DefaultGraphRunner(
             graphId = runContext.graphId,
             currentNodeId = currentNodeId,
             state = nodeContext.state.toMap(),
-            agentContext = nodeContext.agentContext,
+            agentContext = null,
             timestamp = Instant.now(),
-            metadata = nodeContext.metadata.toMap(),  // 🔥 Save metadata to checkpoint!
+            metadata = (nodeContext.state["_context"] as? io.github.noailabs.spice.ExecutionContext)?.toMap()
+                ?: nodeContext.context.toMap(),  // 🔥 Save context to checkpoint!
             executionState = executionState,
             pendingInteraction = pendingInteraction,
             humanResponse = humanResponse
@@ -735,10 +733,10 @@ class DefaultGraphRunner(
         }
 
         // Check timeout
-        checkpoint.pendingInteraction.let { interaction ->
-            val expiresAtStr = interaction?.expiresAt
+        checkpoint.pendingInteraction?.let { interaction ->
+            val expiresAtStr = interaction.expiresAt
             val expiresAt = expiresAtStr?.let { Instant.parse(it) }
-            if (Instant.now().isAfter(expiresAt)) {
+            if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
                 throw IllegalStateException("Human response timeout expired at $expiresAtStr")
             }
         }
@@ -761,15 +759,14 @@ class DefaultGraphRunner(
             agentContext = agentContext
         )
 
-        val nodeContext = NodeContext(
+        var nodeContext = NodeContext(
             graphId = graph.id,
             state = checkpoint.state.toMutableMap(),
-            metadata = checkpoint.metadata.toMutableMap(),  // 🔥 Restore metadata from checkpoint!
-            agentContext = agentContext
+            context = ((agentContext?.toExecutionContext(checkpoint.metadata)) ?: ExecutionContext.of(checkpoint.metadata))
         )
 
         // Validate restored metadata
-        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
             is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
             else -> {}
         }
