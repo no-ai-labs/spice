@@ -383,15 +383,15 @@ class DefaultGraphRunner(
         )
 
         // Validate initial metadata
-        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
-            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
-            else -> {}
+        val validation = metadataValidator.validate(nodeContext.context.toMap())
+        if (validation is SpiceResult.Failure) {
+            return SpiceResult.failure(validation.error)
         }
 
         return executeGraphWithCheckpoint(
             graph = graph,
             runContext = runContext,
-            nodeContext = nodeContext,
+            initialNodeContext = nodeContext,
             startNodeId = graph.entryPoint,
             store = store,
             config = config
@@ -406,47 +406,50 @@ class DefaultGraphRunner(
         checkpointId: String,
         store: CheckpointStore,
         config: CheckpointConfig
-    ): SpiceResult<RunReport> = SpiceResult.catchingSuspend {
-        // Load checkpoint
-        val checkpoint = store.load(checkpointId).getOrThrow()
+    ): SpiceResult<RunReport> {
+        return SpiceResult.catchingSuspend {
+            // Load checkpoint
+            val checkpoint = store.load(checkpointId).getOrThrow()
 
             val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
 
-        val runContext = RunContext(
-            graphId = graph.id,
-            runId = checkpoint.runId,
-            agentContext = agentContext
-        )
+            val runContext = RunContext(
+                graphId = graph.id,
+                runId = checkpoint.runId,
+                agentContext = agentContext
+            )
 
-        val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
-            ?: ExecutionContext.of(checkpoint.metadata)
-        val nodeContext = NodeContext(
-            graphId = graph.id,
-            state = checkpoint.state.toMutableMap(),
-            context = resumeContext
-        )
+            val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
+                ?: ExecutionContext.of(checkpoint.metadata)
+            val nodeContext = NodeContext(
+                graphId = graph.id,
+                state = checkpoint.state.toMutableMap(),
+                context = resumeContext
+            )
 
-        // Validate restored metadata
-        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
-            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
-            else -> {}
+            // Validate restored metadata
+            val validationResume = metadataValidator.validate(nodeContext.context.toMap())
+            when (validationResume) {
+                is SpiceResult.Failure -> throw validationResume.error.toException()
+                is SpiceResult.Success -> Unit
+            }
+
+            // Start from the next node after the checkpoint
+            val startNodeId = graph.edges
+                .firstOrNull { edge -> edge.from == checkpoint.currentNodeId }
+                ?.to
+
+            executeGraphWithCheckpoint(
+                graph = graph,
+                runContext = runContext,
+                initialNodeContext = nodeContext,
+                startNodeId = startNodeId,
+                store = store,
+                config = config
+            ).getOrThrow()
+        }.recoverWith { error ->
+            SpiceResult.failure(error)
         }
-
-        // Start from the next node after the checkpoint
-        val startNodeId = graph.edges
-            .firstOrNull { edge -> edge.from == checkpoint.currentNodeId }
-            ?.to
-
-        executeGraphWithCheckpoint(
-            graph = graph,
-            runContext = runContext,
-            nodeContext = nodeContext,
-            startNodeId = startNodeId,
-            store = store,
-            config = config
-        ).getOrThrow()
-    }.recoverWith { error ->
-        SpiceResult.failure(error)
     }
 
     /**
@@ -456,11 +459,12 @@ class DefaultGraphRunner(
     private suspend fun executeGraphWithCheckpoint(
         graph: Graph,
         runContext: RunContext,
-        nodeContext: NodeContext,
+        initialNodeContext: NodeContext,
         startNodeId: String?,
         store: CheckpointStore,
         config: CheckpointConfig
     ): SpiceResult<RunReport> = SpiceResult.catchingSuspend {
+        var nodeContext = initialNodeContext
         val nodeReports = mutableListOf<NodeReport>()
         val graphStartTime = Instant.now()
         var lastCheckpointTime = graphStartTime
@@ -681,8 +685,7 @@ class DefaultGraphRunner(
             state = nodeContext.state.toMap(),
             agentContext = null,
             timestamp = Instant.now(),
-            metadata = (nodeContext.state["_context"] as? io.github.noailabs.spice.ExecutionContext)?.toMap()
-                ?: nodeContext.context.toMap(),  // 🔥 Save context to checkpoint!
+            metadata = nodeContext.context.toMap(),  // 🔥 Save context to checkpoint!
             executionState = executionState,
             pendingInteraction = pendingInteraction,
             humanResponse = humanResponse
@@ -718,85 +721,88 @@ class DefaultGraphRunner(
         checkpointId: String,
         response: io.github.noailabs.spice.graph.nodes.HumanResponse,
         store: CheckpointStore
-    ): SpiceResult<RunReport> = SpiceResult.catchingSuspend {
-        // Load checkpoint
-        val checkpoint = store.load(checkpointId).getOrThrow()
+    ): SpiceResult<RunReport> {
+        return SpiceResult.catchingSuspend {
+            // Load checkpoint
+            val checkpoint = store.load(checkpointId).getOrThrow()
 
-        // Verify checkpoint is waiting for human
-        if (checkpoint.executionState != io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN) {
-            throw IllegalStateException("Checkpoint is not waiting for human input (state: ${checkpoint.executionState})")
-        }
-
-        // Verify response matches the pending interaction
-        if (checkpoint.pendingInteraction?.nodeId != response.nodeId) {
-            throw IllegalArgumentException("Response nodeId doesn't match pending interaction")
-        }
-
-        // Check timeout
-        checkpoint.pendingInteraction?.let { interaction ->
-            val expiresAtStr = interaction.expiresAt
-            val expiresAt = expiresAtStr?.let { Instant.parse(it) }
-            if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
-                throw IllegalStateException("Human response timeout expired at $expiresAtStr")
+            // Verify checkpoint is waiting for human
+            if (checkpoint.executionState != io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN) {
+                throw IllegalStateException("Checkpoint is not waiting for human input (state: ${checkpoint.executionState})")
             }
-        }
 
-        // Get HumanNode from graph to access validator
-        val humanNode = graph.nodes[checkpoint.currentNodeId] as? io.github.noailabs.spice.graph.nodes.HumanNode
-
-        // Validate response using HumanNode's validator
-        humanNode?.validator?.let { validator ->
-            if (!validator(response)) {
-                throw IllegalArgumentException("Human response failed validation")
+            // Verify response matches the pending interaction
+            if (checkpoint.pendingInteraction?.nodeId != response.nodeId) {
+                throw IllegalArgumentException("Response nodeId doesn't match pending interaction")
             }
-        }
 
-        val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
-
-        val runContext = RunContext(
-            graphId = graph.id,
-            runId = checkpoint.runId,
-            agentContext = agentContext
-        )
-
-        var nodeContext = NodeContext(
-            graphId = graph.id,
-            state = checkpoint.state.toMutableMap(),
-            context = ((agentContext?.toExecutionContext(checkpoint.metadata)) ?: ExecutionContext.of(checkpoint.metadata))
-        )
-
-        // Validate restored metadata
-        when (val validation = metadataValidator.validate(nodeContext.context.toMap())) {
-            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
-            else -> {}
-        }
-
-        // Store the human response in the node state
-        nodeContext.state[checkpoint.currentNodeId] = response
-        nodeContext.state["_previous"] = response
-
-        // Find the next node after the HumanNode
-        val currentResult = io.github.noailabs.spice.graph.NodeResult.fromContext(
-            ctx = nodeContext,
-            data = response
-        )
-        val nextNodeId = graph.edges
-            .firstOrNull { edge ->
-                edge.from == checkpoint.currentNodeId && edge.condition(currentResult)
+            // Check timeout
+            checkpoint.pendingInteraction?.let { interaction ->
+                val expiresAtStr = interaction.expiresAt
+                val expiresAt = expiresAtStr?.let { Instant.parse(it) }
+                if (expiresAt != null && Instant.now().isAfter(expiresAt)) {
+                    throw IllegalStateException("Human response timeout expired at $expiresAtStr")
+                }
             }
-            ?.to
 
-        // Continue execution from the next node
-        executeGraphWithCheckpoint(
-            graph = graph,
-            runContext = runContext,
-            nodeContext = nodeContext,
-            startNodeId = nextNodeId,
-            store = store,
-            config = CheckpointConfig()
-        ).getOrThrow()
-    }.recoverWith { error ->
-        SpiceResult.failure(error)
+            // Get HumanNode from graph to access validator
+            val humanNode = graph.nodes[checkpoint.currentNodeId] as? io.github.noailabs.spice.graph.nodes.HumanNode
+
+            // Validate response using HumanNode's validator
+            humanNode?.validator?.let { validator ->
+                if (!validator(response)) {
+                    throw IllegalArgumentException("Human response failed validation")
+                }
+            }
+
+            val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
+
+            val runContext = RunContext(
+                graphId = graph.id,
+                runId = checkpoint.runId,
+                agentContext = agentContext
+            )
+
+            var nodeContext = NodeContext(
+                graphId = graph.id,
+                state = checkpoint.state.toMutableMap(),
+                context = ((agentContext?.toExecutionContext(checkpoint.metadata)) ?: ExecutionContext.of(checkpoint.metadata))
+            )
+
+            // Validate restored metadata
+            val validationHuman = metadataValidator.validate(nodeContext.context.toMap())
+            when (validationHuman) {
+                is SpiceResult.Failure -> throw validationHuman.error.toException()
+                is SpiceResult.Success -> Unit
+            }
+
+            // Store the human response in the node state
+            nodeContext.state[checkpoint.currentNodeId] = response
+            nodeContext.state["_previous"] = response
+
+            // Find the next node after the HumanNode
+            val currentResult = io.github.noailabs.spice.graph.NodeResult.fromContext(
+                ctx = nodeContext,
+                data = response
+            )
+            val nextNodeId = graph.edges
+                .firstOrNull { edge ->
+                    edge.from == checkpoint.currentNodeId && edge.condition(currentResult)
+                }
+                ?.to
+
+            // Continue execution from the next node
+            executeGraphWithCheckpoint(
+                graph = graph,
+                runContext = runContext,
+                initialNodeContext = nodeContext,
+                startNodeId = nextNodeId,
+                store = store,
+                config = CheckpointConfig()
+            ).getOrThrow()
+        }.recoverWith { error ->
+            SpiceResult.failure(error)
+        }
     }
 }
 

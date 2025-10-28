@@ -35,11 +35,11 @@ class AgentNode(
             ?: (ctx.state["metadata"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value.toString() }  // 🆕 Support direct metadata map
             ?: emptyMap()
 
-        // Create Comm from input (with AgentContext and propagated data)
+        // Create Comm from input (with ExecutionContext and propagated data)
         val comm = Comm(
             content = inputContent,
             from = "graph-${ctx.graphId}",
-            context = ctx.context.toAgentContext(),  // ✨ Context propagation via ExecutionContext!
+            context = ctx.context,  // ✨ Context propagation via ExecutionContext!
             data = previousData           // 🔥 Metadata propagation!
         )
 

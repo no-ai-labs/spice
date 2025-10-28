@@ -35,6 +35,7 @@ fun NodeContext.preserveMetadata(additional: Map<String, Any> = emptyMap()): Map
 /**
  * Result of a node execution.
  */
+@ConsistentCopyVisibility
 data class NodeResult private constructor(
     val data: Any?,
     val metadata: Map<String, Any>,

@@ -810,8 +810,8 @@ class GraphIntegrationTest {
             agent("agent", agent)
             // Output node can access NodeContext which should have metadata
             output("result") { ctx ->
-                // Metadata should be in ctx.metadata
-                "tenantId:${ctx.metadata["tenantId"]},userId:${ctx.metadata["userId"]}"
+                // Metadata should be in ctx.context
+                "tenantId:${ctx.context.tenantId},userId:${ctx.context.userId}"
             }
         }
 
@@ -856,7 +856,7 @@ class GraphIntegrationTest {
                 mapOf("input" to (ctx.state["input"] ?: ""))
             }
             output("result") { ctx ->
-                "tenantId:${ctx.metadata["tenantId"]},userId:${ctx.metadata["userId"]}"
+                "tenantId:${ctx.context.tenantId},userId:${ctx.context.userId}"
             }
         }
 
@@ -915,10 +915,10 @@ class GraphIntegrationTest {
             tool("processor", processorTool) { mapOf("data" to it.state["agent"]) }
             output("result") { ctx ->
                 mapOf(
-                    "tenantId" to ctx.metadata["tenantId"],
-                    "userId" to ctx.metadata["userId"],
-                    "agentId" to ctx.metadata["agentId"],
-                    "toolName" to ctx.metadata["toolName"]
+                    "tenantId" to ctx.context.tenantId,
+                    "userId" to ctx.context.userId,
+                    "agentId" to ctx.context.get("agentId"),
+                    "toolName" to ctx.context.get("toolName")
                 )
             }
         }

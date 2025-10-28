@@ -1,5 +1,7 @@
 package io.github.noailabs.spice.graph
 
+import io.github.noailabs.spice.ExecutionContext
+
 import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.AgentContext
 import io.github.noailabs.spice.Comm
@@ -35,7 +37,7 @@ class ContextPropagationTest {
     @Test
     fun `test context propagates from coroutine to agent`() = runTest {
         // Given: Agent that verifies it receives context
-        var receivedContext: AgentContext? = null
+        var receivedContext: ExecutionContext? = null
 
         val contextAwareAgent = object : Agent {
             override val id = "context-agent"
@@ -81,7 +83,7 @@ class ContextPropagationTest {
         assertNotNull(receivedContext)
         assertEquals("tenant-123", receivedContext?.tenantId)
         assertEquals("user-456", receivedContext?.userId)
-        assertEquals("session-789", receivedContext?.sessionId)
+        assertEquals("session-789", receivedContext?.getAs<String>("sessionId"))
         assertEquals("corr-abc", receivedContext?.correlationId)
     }
 
@@ -245,11 +247,11 @@ class ContextPropagationTest {
         store.save(checkpoint)
 
         // Create simple graph with context capture
-        var capturedContext: AgentContext? = null
+        var capturedContext: ExecutionContext? = null
         val contextCapturingNode = object : Node {
             override val id = "agent2"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-                capturedContext = ctx.agentContext
+                capturedContext = ctx.context
                 return SpiceResult.success(NodeResult.fromContext(ctx, data = "captured"))
             }
         }
@@ -279,7 +281,7 @@ class ContextPropagationTest {
     @Test
     fun `test context propagates through multi-node graph`() = runTest {
         // Given: Graph with multiple agents
-        val capturedContexts = mutableListOf<AgentContext?>()
+        val capturedContexts = mutableListOf<ExecutionContext?>()
 
         val contextCapturingAgent = { id: String ->
             object : Agent {
@@ -325,7 +327,7 @@ class ContextPropagationTest {
             assertNotNull(ctx)
             assertEquals("shared-tenant", ctx?.tenantId)
             assertEquals("shared-user", ctx?.userId)
-            assertEquals("shared-session", ctx?.sessionId)
+            assertEquals("shared-session", ctx?.getAs<String>("sessionId"))
         }
     }
 
