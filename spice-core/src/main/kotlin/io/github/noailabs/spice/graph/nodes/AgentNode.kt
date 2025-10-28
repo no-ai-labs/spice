@@ -48,17 +48,13 @@ class AgentNode(
                 // 🔥 Store full response Comm for next node
                 ctx.state["_previousComm"] = response
 
-                NodeResult(
-                    data = response.content,
-                    metadata = buildMap {
-                        putAll(ctx.metadata)  // 🔥 Preserve input metadata
-                        put("agentId", agent.id)  // Agent-specific metadata
-                        put("agentName", agent.name ?: "unknown")
-                        // Only override if agentContext provides values
-                        ctx.agentContext?.tenantId?.let { put("tenantId", it) }
-                        ctx.agentContext?.userId?.let { put("userId", it) }
-                    }
-                )
+                val additional = buildMap<String, Any> {
+                    put("agentId", agent.id)
+                    put("agentName", agent.name)
+                    ctx.agentContext?.tenantId?.let { put("tenantId", it) }
+                    ctx.agentContext?.userId?.let { put("userId", it) }
+                }
+                NodeResult.fromContext(ctx, data = response.content, additional = additional)
             }
     }
 }

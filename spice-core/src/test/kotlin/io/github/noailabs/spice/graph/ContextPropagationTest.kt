@@ -250,7 +250,7 @@ class ContextPropagationTest {
             override val id = "agent2"
             override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
                 capturedContext = ctx.agentContext
-                return SpiceResult.success(NodeResult(data = "captured"))
+                return SpiceResult.success(NodeResult.fromContext(ctx, data = "captured"))
             }
         }
 

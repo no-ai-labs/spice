@@ -350,7 +350,10 @@ class FullCommAgentNode(
 
         return agent.processComm(previousComm)
             .map { response ->
-                NodeResult(data = response)  // ✅ Store full Comm
+                NodeResult(
+                    data = response,  // ✅ Store full Comm
+                    metadata = ctx.metadata  // 🔥 Always preserve metadata!
+                )
             }
     }
 }
@@ -786,7 +789,10 @@ class CleanupNode : Node {
         // Remove large objects after use
         ctx.state.remove("large-object")
 
-        return SpiceResult.success(NodeResult(data = "cleaned"))
+        return SpiceResult.success(NodeResult(
+            data = "cleaned",
+            metadata = ctx.metadata  // 🔥 Always preserve metadata!
+        ))
     }
 }
 ```

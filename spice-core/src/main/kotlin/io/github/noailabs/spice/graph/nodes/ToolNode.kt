@@ -41,15 +41,13 @@ class ToolNode(
 
         // Chain SpiceResult
         return spiceResult.map { toolResult ->
-            NodeResult(
-                data = toolResult.result,
-                metadata = mapOf(
-                    "toolName" to tool.name,
-                    "toolSuccess" to toolResult.success,
-                    "tenantId" to (ctx.agentContext?.tenantId ?: "none"),
-                    "userId" to (ctx.agentContext?.userId ?: "none")
-                )
-            )
+            val additional = buildMap<String, Any> {
+                put("toolName", tool.name)
+                put("toolSuccess", toolResult.success)
+                ctx.agentContext?.tenantId?.let { put("tenantId", it) }
+                ctx.agentContext?.userId?.let { put("userId", it) }
+            }
+            NodeResult.fromContext(ctx, data = toolResult.result, additional = additional)
         }
     }
 }

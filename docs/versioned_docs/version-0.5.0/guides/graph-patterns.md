@@ -295,7 +295,10 @@ class ParallelNode(
                 }
             }.awaitAll()
 
-            NodeResult(data = results)
+            NodeResult(
+                data = results,
+                metadata = ctx.metadata  // 🔥 Always preserve metadata!
+            )
         }
     }
 }
@@ -370,7 +373,7 @@ class IterativeNode(
 
             NodeResult(
                 data = result,
-                metadata = mapOf("iterations" to iteration)
+                metadata = ctx.metadata + mapOf("iterations" to iteration)  // 🔥 Preserve existing metadata!
             )
         }
     }
@@ -487,7 +490,10 @@ class AccumulatorNode(override val id: String) : Node {
             // Add current result
             ctx.state["_previous"]?.let { accumulated.add(it) }
 
-            NodeResult(data = accumulated.toList())
+            NodeResult(
+                data = accumulated.toList(),
+                metadata = ctx.metadata  // 🔥 Always preserve metadata!
+            )
         }
     }
 }
@@ -551,7 +557,10 @@ class VersionedStateNode(override val id: String) : Node {
             // Process normally
             val result = processData(ctx.state["input"])
 
-            NodeResult(data = result)
+            NodeResult(
+                data = result,
+                metadata = ctx.metadata  // 🔥 Always preserve metadata!
+            )
         }
     }
 }

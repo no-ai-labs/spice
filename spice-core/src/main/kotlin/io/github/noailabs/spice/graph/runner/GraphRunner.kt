@@ -8,6 +8,8 @@ import io.github.noailabs.spice.graph.GraphValidator
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.graph.checkpoint.Checkpoint
+import io.github.noailabs.spice.graph.checkpoint.MetadataValidator
+import io.github.noailabs.spice.graph.checkpoint.NoopMetadataValidator
 import io.github.noailabs.spice.graph.checkpoint.CheckpointConfig
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.ErrorAction
@@ -76,16 +78,19 @@ interface GraphRunner {
  * Default implementation of GraphRunner with sequential execution.
  * Supports middleware chain for intercepting graph and node execution.
  */
-class DefaultGraphRunner : GraphRunner {
+class DefaultGraphRunner(
+    private val metadataValidator: MetadataValidator = NoopMetadataValidator
+) : GraphRunner {
     override suspend fun run(
         graph: Graph,
         input: Map<String, Any?>
     ): SpiceResult<RunReport> {
         // Validate graph before execution
-        return when (val validationResult = GraphValidator.validate(graph)) {
-            is SpiceResult.Failure -> SpiceResult.failure(validationResult.error)
-            is SpiceResult.Success -> runValidatedGraph(graph, input)
+        when (val validationResult = GraphValidator.validate(graph)) {
+            is SpiceResult.Failure -> return SpiceResult.failure(validationResult.error)
+            is SpiceResult.Success -> Unit
         }
+        return runValidatedGraph(graph, input)
     }
 
     private suspend fun runValidatedGraph(
@@ -119,8 +124,9 @@ class DefaultGraphRunner : GraphRunner {
             var currentNodeId: String? = graph.entryPoint
 
             while (currentNodeId != null) {
-                val node = graph.nodes[currentNodeId]
-                    ?: throw IllegalStateException("Node not found: $currentNodeId")
+                val nodeId = currentNodeId ?: error("Current node id is null during execution")
+                val node = graph.nodes[nodeId]
+                    ?: throw IllegalStateException("Node not found: $nodeId")
 
                 val startTime = Instant.now()
 
@@ -132,7 +138,7 @@ class DefaultGraphRunner : GraphRunner {
                 val result: NodeResult = run executeLoop@{
                     while (retryCount <= maxRetries) {
                         val nodeRequest = NodeRequest(
-                            nodeId = currentNodeId,
+                            nodeId = nodeId,
                             input = nodeContext.state["_previous"],
                             context = runContext
                         )
@@ -175,13 +181,19 @@ class DefaultGraphRunner : GraphRunner {
                                     ErrorAction.SKIP -> {
                                         // Skip this node, return dummy result
                                         skipNode = true
-                                        return@executeLoop NodeResult(data = null)
+                                        return@executeLoop NodeResult.fromContext(
+                                            ctx = nodeContext,
+                                            data = null
+                                        )
                                     }
 
                                     is ErrorAction.CONTINUE -> {
                                         // Use the provided replacement result
                                         skipNode = false  // Not skipped, we have a result
-                                        return@executeLoop NodeResult(data = errorAction.result)
+                                        return@executeLoop NodeResult.fromContext(
+                                            ctx = nodeContext,
+                                            data = errorAction.result
+                                        )
                                     }
 
                                     ErrorAction.PROPAGATE -> {
@@ -208,31 +220,34 @@ class DefaultGraphRunner : GraphRunner {
                 val endTime = Instant.now()
 
                 // Store result in context
-                nodeContext.state[currentNodeId] = result.data
+                nodeContext.state[nodeId] = result.data
                 nodeContext.state["_previous"] = result.data
 
                 // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
+                val previousMetadata = nodeContext.metadata.toMap()
                 result.metadata.forEach { (key, value) ->
                     nodeContext.metadata[key] = value
                 }
 
                 // Record node execution
+                val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
                 nodeReports.add(
                     NodeReport(
-                        nodeId = currentNodeId,
+                        nodeId = nodeId,
                         startTime = startTime,
                         duration = Duration.between(startTime, endTime),
                         status = if (skipNode) NodeStatus.SKIPPED else NodeStatus.SUCCESS,
-                        output = result.data
+                        output = result.data,
+                        metadata = nodeContext.metadata.toMap(),
+                        metadataChanges = if (metadataChanges.isEmpty()) null else metadataChanges
                     )
                 )
 
                 // Find next node
-                currentNodeId = graph.edges
-                    .firstOrNull { edge ->
-                        edge.from == currentNodeId && edge.condition(result)
-                    }
+                val nextId = graph.edges
+                    .firstOrNull { edge -> edge.from == nodeId && edge.condition(result) }
                     ?.to
+                currentNodeId = nextId
             }
 
             val graphEndTime = Instant.now()
@@ -283,12 +298,12 @@ class DefaultGraphRunner : GraphRunner {
         actualExecution: suspend (NodeRequest) -> SpiceResult<NodeResult>
     ): SpiceResult<NodeResult> {
         var index = 0
-        suspend fun next(req: NodeRequest): SpiceResult<NodeResult> {
+        suspend fun next(requestParam: NodeRequest): SpiceResult<NodeResult> {
             return if (index < middlewares.size) {
                 val middleware = middlewares[index++]
-                middleware.onNode(req) { next(it) }
+                middleware.onNode(requestParam) { next(it) }
             } else {
-                actualExecution(req)
+                actualExecution(requestParam)
             }
         }
         return next(request)
@@ -335,10 +350,11 @@ class DefaultGraphRunner : GraphRunner {
         config: CheckpointConfig
     ): SpiceResult<RunReport> {
         // Validate graph before execution
-        return when (val validationResult = GraphValidator.validate(graph)) {
-            is SpiceResult.Failure -> SpiceResult.failure(validationResult.error)
-            is SpiceResult.Success -> runValidatedGraphWithCheckpoint(graph, input, store, config)
+        when (val validationResult = GraphValidator.validate(graph)) {
+            is SpiceResult.Failure -> return SpiceResult.failure(validationResult.error)
+            is SpiceResult.Success -> Unit
         }
+        return runValidatedGraphWithCheckpoint(graph, input, store, config)
     }
 
     private suspend fun runValidatedGraphWithCheckpoint(
@@ -361,6 +377,12 @@ class DefaultGraphRunner : GraphRunner {
             metadata = (input["metadata"] as? Map<String, Any>)?.toMutableMap() ?: mutableMapOf(),  // 🔥 Initialize from input!
             agentContext = agentContext
         )
+
+        // Validate initial metadata
+        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
+            else -> {}
+        }
 
         return executeGraphWithCheckpoint(
             graph = graph,
@@ -398,6 +420,12 @@ class DefaultGraphRunner : GraphRunner {
             metadata = checkpoint.metadata.toMutableMap(),  // 🔥 Restore metadata from checkpoint!
             agentContext = agentContext
         )
+
+        // Validate restored metadata
+        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
+            else -> {}
+        }
 
         // Start from the next node after the checkpoint
         val startNodeId = graph.edges
@@ -441,8 +469,9 @@ class DefaultGraphRunner : GraphRunner {
         var currentNodeId: String? = startNodeId
 
         while (currentNodeId != null) {
-            val node = graph.nodes[currentNodeId]
-                ?: throw IllegalStateException("Node not found: $currentNodeId")
+            val nodeId = currentNodeId ?: error("Current node id is null during execution")
+            val node = graph.nodes[nodeId]
+                ?: throw IllegalStateException("Node not found: $nodeId")
 
             val startTime = Instant.now()
 
@@ -454,12 +483,12 @@ class DefaultGraphRunner : GraphRunner {
             val result: NodeResult = run executeLoop@{
                 while (retryCount <= maxRetries) {
                     val nodeRequest = NodeRequest(
-                        nodeId = currentNodeId,
+                        nodeId = nodeId,
                         input = nodeContext.state["_previous"],
                         context = runContext
                     )
 
-                    val resultOrError = executeNodeChain(graph.middleware, nodeRequest) { req ->
+                    val resultOrError = executeNodeChain(graph.middleware, nodeRequest) { _ ->
                         node.run(nodeContext)
                     }
 
@@ -498,13 +527,19 @@ class DefaultGraphRunner : GraphRunner {
                                 ErrorAction.SKIP -> {
                                     // Skip this node, return dummy result
                                     skipNode = true
-                                    return@executeLoop NodeResult(data = null)
+                                    return@executeLoop NodeResult.fromContext(
+                                        ctx = nodeContext,
+                                        data = null
+                                    )
                                 }
 
                                 is ErrorAction.CONTINUE -> {
                                     // Use the provided replacement result
                                     skipNode = false  // Not skipped, we have a result
-                                    return@executeLoop NodeResult(data = errorAction.result)
+                                    return@executeLoop NodeResult.fromContext(
+                                        ctx = nodeContext,
+                                        data = errorAction.result
+                                    )
                                 }
 
                                 ErrorAction.PROPAGATE -> {
@@ -531,22 +566,26 @@ class DefaultGraphRunner : GraphRunner {
             val endTime = Instant.now()
 
             // Store result in context
-            nodeContext.state[currentNodeId] = result.data
+            nodeContext.state[nodeId] = result.data
             nodeContext.state["_previous"] = result.data
 
             // 🔥 Propagate NodeResult.metadata to NodeContext.metadata for next node
+            val previousMetadata = nodeContext.metadata.toMap()
             result.metadata.forEach { (key, value) ->
                 nodeContext.metadata[key] = value
             }
 
             // Record node execution
+            val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
             nodeReports.add(
                 NodeReport(
-                    nodeId = currentNodeId,
+                    nodeId = nodeId,
                     startTime = startTime,
                     duration = Duration.between(startTime, endTime),
                     status = if (skipNode) NodeStatus.SKIPPED else NodeStatus.SUCCESS,
-                    output = result.data
+                    output = result.data,
+                    metadata = nodeContext.metadata.toMap(),
+                    metadataChanges = if (metadataChanges.isEmpty()) null else metadataChanges
                 )
             )
 
@@ -558,7 +597,7 @@ class DefaultGraphRunner : GraphRunner {
                 val checkpointId = saveCheckpoint(
                     runContext = runContext,
                     nodeContext = nodeContext,
-                    currentNodeId = currentNodeId,
+                    currentNodeId = nodeId,
                     store = store,
                     executionState = io.github.noailabs.spice.graph.nodes.GraphExecutionState.WAITING_FOR_HUMAN,
                     pendingInteraction = interaction
@@ -585,14 +624,14 @@ class DefaultGraphRunner : GraphRunner {
                     (config.saveEveryNSeconds != null && Duration.between(lastCheckpointTime, endTime).seconds >= config.saveEveryNSeconds)
 
             if (shouldCheckpoint) {
-                saveCheckpoint(runContext, nodeContext, currentNodeId, store).getOrThrow()
+                saveCheckpoint(runContext, nodeContext, nodeId, store).getOrThrow()
                 nodesExecutedSinceCheckpoint = 0
                 lastCheckpointTime = endTime
             }
 
             // Find next node
             currentNodeId = graph.edges
-                .firstOrNull { edge -> edge.from == currentNodeId && edge.condition(result) }
+                .firstOrNull { edge -> edge.from == nodeId && edge.condition(result) }
                 ?.to
         }
 
@@ -689,8 +728,9 @@ class DefaultGraphRunner : GraphRunner {
         }
 
         // Check timeout
-        checkpoint.pendingInteraction?.expiresAt?.let { expiresAtStr ->
-            val expiresAt = Instant.parse(expiresAtStr)
+        checkpoint.pendingInteraction.let { interaction ->
+            val expiresAtStr = interaction?.expiresAt
+            val expiresAt = expiresAtStr?.let { Instant.parse(it) }
             if (Instant.now().isAfter(expiresAt)) {
                 throw IllegalStateException("Human response timeout expired at $expiresAtStr")
             }
@@ -721,12 +761,21 @@ class DefaultGraphRunner : GraphRunner {
             agentContext = agentContext
         )
 
+        // Validate restored metadata
+        when (val validation = metadataValidator.validate(nodeContext.metadata)) {
+            is io.github.noailabs.spice.error.SpiceResult.Failure -> return io.github.noailabs.spice.error.SpiceResult.failure(validation.error)
+            else -> {}
+        }
+
         // Store the human response in the node state
         nodeContext.state[checkpoint.currentNodeId] = response
         nodeContext.state["_previous"] = response
 
         // Find the next node after the HumanNode
-        val currentResult = io.github.noailabs.spice.graph.NodeResult(data = response)
+        val currentResult = io.github.noailabs.spice.graph.NodeResult.fromContext(
+            ctx = nodeContext,
+            data = response
+        )
         val nextNodeId = graph.edges
             .firstOrNull { edge ->
                 edge.from == checkpoint.currentNodeId && edge.condition(currentResult)
@@ -778,7 +827,9 @@ data class NodeReport(
     val startTime: Instant,
     val duration: Duration,
     val status: NodeStatus,
-    val output: Any?
+    val output: Any?,
+    val metadata: Map<String, Any>? = null,
+    val metadataChanges: Map<String, Any>? = null
 )
 
 /**
