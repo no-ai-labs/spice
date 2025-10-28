@@ -46,12 +46,11 @@ class AgentNode(
         // Execute agent and map to NodeResult (chain SpiceResult)
         return agent.processComm(comm)
             .map { response ->
-                // 🔥 Store full response Comm for next node
-                ctx.state["_previousComm"] = response
-
+                // 🔥 Store full response Comm in metadata for next node to access
                 val additional = buildMap<String, Any> {
                     put("agentId", agent.id)
                     put("agentName", agent.name)
+                    put("_previousComm", response)  // Store Comm in metadata
                     ctx.context.tenantId?.let { put("tenantId", it) }
                     ctx.context.userId?.let { put("userId", it) }
                 }

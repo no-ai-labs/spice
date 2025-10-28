@@ -113,9 +113,9 @@ class DefaultGraphRunner(
                 agentContext = agentContext
             )
 
-            var nodeContext = NodeContext(
+            var nodeContext = NodeContext.create(
                 graphId = graph.id,
-                state = input.toMutableMap(),
+                state = input,
                 context = execContext
             )
 
@@ -223,14 +223,20 @@ class DefaultGraphRunner(
 
                 val endTime = Instant.now()
 
-                // Store result in context
-                nodeContext.state[nodeId] = result.data
-                nodeContext.state["_previous"] = result.data
-
-                // 🔥 Propagate NodeResult.metadata to ExecutionContext for next node
+                // Store result in context and propagate metadata
                 val previousMetadata = nodeContext.context.toMap()
                 val enrichedContext = nodeContext.context.plusAll(result.metadata)
-                nodeContext = nodeContext.copy(context = enrichedContext)
+                
+                // Extract _previousComm from metadata if present
+                val stateUpdates = mutableMapOf<String, Any?>(
+                    nodeId to result.data,
+                    "_previous" to result.data
+                )
+                result.metadata["_previousComm"]?.let { stateUpdates["_previousComm"] = it }
+                
+                nodeContext = nodeContext
+                    .withState(stateUpdates)
+                    .withContext(enrichedContext)
 
                 // Record node execution
                 val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
@@ -376,9 +382,9 @@ class DefaultGraphRunner(
 
         val inputMetaUntyped = (input["metadata"] as? Map<*, *>) ?: emptyMap<Any, Any>()
         val inputMeta = inputMetaUntyped.entries.associate { it.key.toString() to (it.value as Any) }
-        var nodeContext = NodeContext(
+        var nodeContext = NodeContext.create(
             graphId = graph.id,
-            state = input.toMutableMap(),
+            state = input,
             context = ((agentContext?.toExecutionContext(inputMeta)) ?: ExecutionContext.of(inputMeta))
         )
 
@@ -421,11 +427,11 @@ class DefaultGraphRunner(
 
             val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
                 ?: ExecutionContext.of(checkpoint.metadata)
-            val nodeContext = NodeContext(
-                graphId = graph.id,
-                state = checkpoint.state.toMutableMap(),
-                context = resumeContext
-            )
+        val nodeContext = NodeContext.create(
+            graphId = graph.id,
+            state = checkpoint.state,
+            context = resumeContext
+        )
 
             // Validate restored metadata
             val validationResume = metadataValidator.validate(nodeContext.context.toMap())
@@ -574,14 +580,20 @@ class DefaultGraphRunner(
 
             val endTime = Instant.now()
 
-            // Store result in context
-            nodeContext.state[nodeId] = result.data
-            nodeContext.state["_previous"] = result.data
-
-            // 🔥 Propagate NodeResult.metadata to ExecutionContext for next node
-            val previousMetadata = nodeContext.context.toMap()
-            val enrichedContext = nodeContext.context.plusAll(result.metadata)
-            nodeContext = nodeContext.copy(context = enrichedContext)
+                // Store result and propagate metadata
+                val previousMetadata = nodeContext.context.toMap()
+                val enrichedContext = nodeContext.context.plusAll(result.metadata)
+                
+                // Extract _previousComm from metadata if present
+                val stateUpdates = mutableMapOf<String, Any?>(
+                    nodeId to result.data,
+                    "_previous" to result.data
+                )
+                result.metadata["_previousComm"]?.let { stateUpdates["_previousComm"] = it }
+                
+                nodeContext = nodeContext
+                    .withState(stateUpdates)
+                    .withContext(enrichedContext)
 
             // Record node execution
             val metadataChanges = result.metadata.filter { (k, v) -> previousMetadata[k] != v }
@@ -763,9 +775,9 @@ class DefaultGraphRunner(
                 agentContext = agentContext
             )
 
-            var nodeContext = NodeContext(
+            var nodeContext = NodeContext.create(
                 graphId = graph.id,
-                state = checkpoint.state.toMutableMap(),
+                state = checkpoint.state,
                 context = ((agentContext?.toExecutionContext(checkpoint.metadata)) ?: ExecutionContext.of(checkpoint.metadata))
             )
 
@@ -777,8 +789,9 @@ class DefaultGraphRunner(
             }
 
             // Store the human response in the node state
-            nodeContext.state[checkpoint.currentNodeId] = response
-            nodeContext.state["_previous"] = response
+            nodeContext = nodeContext
+                .withState(checkpoint.currentNodeId, response)
+                .withState("_previous", response)
 
             // Find the next node after the HumanNode
             val currentResult = io.github.noailabs.spice.graph.NodeResult.fromContext(
