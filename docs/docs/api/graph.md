@@ -129,18 +129,21 @@ Edge(
 
 ### NodeContext
 
+**Added in:** 0.5.0  
+**Breaking Change in:** 0.6.0
+
 ```kotlin
 data class NodeContext(
     val graphId: String,
-    val state: MutableMap<String, Any?>,
-    val agentContext: AgentContext? = null
+    val state: PersistentMap<String, Any?>,  // Immutable!
+    val context: ExecutionContext             // Unified context
 )
 ```
 
 **Properties:**
 - `graphId` - ID of the graph being executed
-- `state` - Mutable state shared across nodes
-- `agentContext` - Multi-tenant context (auto-propagated from coroutine)
+- `state` - Immutable state (use `withState` to modify)
+- `context` - Unified execution context (tenant, user, custom metadata)
 
 **Usage:**
 ```kotlin
@@ -149,29 +152,80 @@ class MyNode : Node {
         // Read from state
         val previousResult = ctx.state["previous-node"]
 
-        // Write to state
-        ctx.state["my-result"] = "computed value"
+        // Read context (type-safe accessors)
+        val tenantId = ctx.context.tenantId
+        val userId = ctx.context.userId
+        val customValue = ctx.context.get("customKey")
 
-        // Access AgentContext
-        val userId = ctx.agentContext?.userId
-
-        return SpiceResult.success(NodeResult(data = "result"))
+        // Return result with metadata (state updates via metadata)
+        return SpiceResult.success(
+            NodeResult.fromContext(
+                ctx,
+                data = "result",
+                additional = mapOf("myKey" to "value")
+            )
+        )
     }
 }
 ```
 
+**Factory & Builders:**
+```kotlin
+// Create NodeContext
+val ctx = NodeContext.create(
+    graphId = "graph-id",
+    state = mapOf("input" to "data"),
+    context = ExecutionContext.of(mapOf("tenantId" to "tenant-123"))
+)
+
+// Update state (returns new NodeContext)
+val updated = ctx.withState("key", "value")
+
+// Update context
+val enriched = ctx.withContext(newExecutionContext)
+```
+
 ### NodeResult
 
+**Breaking Change in:** 0.6.0
+
 ```kotlin
-data class NodeResult(
+// Constructor is now private - use factories!
+data class NodeResult private constructor(
     val data: Any?,
-    val metadata: Map<String, Any?> = emptyMap()
+    val metadata: Map<String, Any>,
+    val nextEdges: List<String> = emptyList()
+)
+```
+
+**Factory Methods:**
+```kotlin
+// Preferred: preserve context metadata
+NodeResult.fromContext(
+    ctx = ctx,
+    data = result,
+    additional = mapOf("key" to "value")
+)
+
+// Explicit metadata
+NodeResult.create(
+    data = result,
+    metadata = mapOf("key" to "value")
 )
 ```
 
 **Properties:**
 - `data` - Result data from node execution
-- `metadata` - Optional metadata about execution
+- `metadata` - Execution metadata (propagated to next node)
+- `nextEdges` - Optional edge IDs to follow
+
+**Size Policies:**
+```kotlin
+// Default: warn at 5KB, no hard limit
+NodeResult.METADATA_WARN_THRESHOLD  // 5000
+NodeResult.HARD_LIMIT = 10_000      // Optional hard limit
+NodeResult.onOverflow = NodeResult.OverflowPolicy.WARN  // WARN | FAIL | IGNORE
+```
 
 ## Graph Execution
 

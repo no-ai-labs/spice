@@ -17,32 +17,51 @@ interface Node {
 
 ### NodeContext
 
+**Breaking Change in:** 0.6.0
+
 The context passed to each node during execution:
 
 ```kotlin
 data class NodeContext(
     val graphId: String,
-    val state: MutableMap<String, Any?>,
-    val metadata: MutableMap<String, Any> = mutableMapOf(),
-    val agentContext: AgentContext? = null  // Auto-propagated from coroutine context
+    val state: PersistentMap<String, Any?>,  // Immutable!
+    val context: ExecutionContext             // Unified!
 )
 ```
 
 - **graphId**: Unique identifier for the graph
-- **state**: Shared state across all nodes (mutable)
-- **metadata**: Additional metadata for the execution
-- **agentContext**: Context for multi-tenant/distributed scenarios
+- **state**: Immutable state (use `withState` to modify)
+- **context**: Unified execution context (tenant, user, custom metadata)
+
+**Key Changes from 0.5.x:**
+- `metadata` + `agentContext` → unified `context: ExecutionContext`
+- `state` is now immutable (`PersistentMap`)
+- Use `ctx.withState()` instead of direct mutation
+
+See [ExecutionContext API](/docs/api/execution-context) for details.
 
 ### NodeResult
+
+**Breaking Change in:** 0.6.0
 
 The result returned by node execution:
 
 ```kotlin
-data class NodeResult(
+// Constructor is private - use factories!
+data class NodeResult private constructor(
     val data: Any?,
-    val metadata: Map<String, Any> = emptyMap(),
+    val metadata: Map<String, Any>,
     val nextEdges: List<String> = emptyList()
 )
+```
+
+**Factory methods:**
+```kotlin
+// Preferred: preserve context
+NodeResult.fromContext(ctx, data = result, additional = mapOf("key" to "value"))
+
+// Explicit metadata
+NodeResult.create(data = result, metadata = mapOf("key" to "value"))
 ```
 
 ## Built-in Node Types

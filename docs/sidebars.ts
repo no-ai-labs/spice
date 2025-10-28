@@ -213,6 +213,7 @@ const sidebars: SidebarsConfig = {
         'api/comm',
         'api/tool',
         'api/context',
+        'api/execution-context',
         'api/registry',
         'api/dsl',
         'api/graph',

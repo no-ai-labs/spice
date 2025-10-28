@@ -150,11 +150,11 @@ class ContextPropagationTest {
     @Test
     fun `test context available in middleware`() = runTest {
         // Given: Middleware that checks context
-        var middlewareContext: AgentContext? = null
+        var middlewareContext: ExecutionContext? = null
 
         val contextCheckMiddleware = object : Middleware {
             override suspend fun onStart(ctx: RunContext, next: suspend () -> Unit) {
-                middlewareContext = ctx.agentContext
+                middlewareContext = ctx.context
                 next()
             }
         }

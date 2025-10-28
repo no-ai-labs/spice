@@ -110,7 +110,7 @@ class DefaultGraphRunner(
             val runContext = RunContext(
                 graphId = graph.id,
                 runId = UUID.randomUUID().toString(),
-                agentContext = agentContext
+                context = execContext
             )
 
             var nodeContext = NodeContext.create(
@@ -373,19 +373,20 @@ class DefaultGraphRunner(
         config: CheckpointConfig
     ): SpiceResult<RunReport> {
         val agentContext = coroutineContext[AgentContext]
+        val inputMetaUntyped = (input["metadata"] as? Map<*, *>) ?: emptyMap<Any, Any>()
+        val inputMeta = inputMetaUntyped.entries.associate { it.key.toString() to (it.value as Any) }
+        val execContext = (agentContext?.toExecutionContext(inputMeta)) ?: ExecutionContext.of(inputMeta)
 
         val runContext = RunContext(
             graphId = graph.id,
             runId = UUID.randomUUID().toString(),
-            agentContext = agentContext
+            context = execContext
         )
 
-        val inputMetaUntyped = (input["metadata"] as? Map<*, *>) ?: emptyMap<Any, Any>()
-        val inputMeta = inputMetaUntyped.entries.associate { it.key.toString() to (it.value as Any) }
         var nodeContext = NodeContext.create(
             graphId = graph.id,
             state = input,
-            context = ((agentContext?.toExecutionContext(inputMeta)) ?: ExecutionContext.of(inputMeta))
+            context = execContext
         )
 
         // Validate initial metadata
@@ -418,15 +419,15 @@ class DefaultGraphRunner(
             val checkpoint = store.load(checkpointId).getOrThrow()
 
             val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
+            val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
+                ?: ExecutionContext.of(checkpoint.metadata)
 
             val runContext = RunContext(
                 graphId = graph.id,
                 runId = checkpoint.runId,
-                agentContext = agentContext
+                context = resumeContext
             )
 
-            val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
-                ?: ExecutionContext.of(checkpoint.metadata)
         val nodeContext = NodeContext.create(
             graphId = graph.id,
             state = checkpoint.state,
@@ -768,17 +769,19 @@ class DefaultGraphRunner(
             }
 
             val agentContext = checkpoint.agentContext ?: coroutineContext[AgentContext]
+            val resumeContext = (agentContext?.toExecutionContext(checkpoint.metadata))
+                ?: ExecutionContext.of(checkpoint.metadata)
 
             val runContext = RunContext(
                 graphId = graph.id,
                 runId = checkpoint.runId,
-                agentContext = agentContext
+                context = resumeContext
             )
 
             var nodeContext = NodeContext.create(
                 graphId = graph.id,
                 state = checkpoint.state,
-                context = ((agentContext?.toExecutionContext(checkpoint.metadata)) ?: ExecutionContext.of(checkpoint.metadata))
+                context = resumeContext
             )
 
             // Validate restored metadata
