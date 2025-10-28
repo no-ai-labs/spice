@@ -217,8 +217,12 @@ class FullCommAgentNode(
 
 **Initializing with metadata:**
 
+There are **three ways** to initialize a graph with metadata:
+
+**Method 1: Using `"comm"` key (Recommended)**
+
 ```kotlin
-// Start graph with initial metadata
+// Pass initial Comm with metadata via "comm" key
 val initialComm = Comm(
     content = "Start",
     from = "user",
@@ -226,13 +230,45 @@ val initialComm = Comm(
 )
 
 val initialState = mapOf(
-    "input" to "Start",
-    "_previousComm" to initialComm  // Initial metadata
+    "input" to initialComm.content,
+    "comm" to initialComm  // ✅ First node picks up metadata automatically
 )
 
 val report = runner.run(graph, initialState).getOrThrow()
 // All agents in the graph can access sessionId and priority!
 ```
+
+**Method 2: Using `"_previousComm"` key**
+
+```kotlin
+// Alternative: use _previousComm (same as previous node pattern)
+val initialState = mapOf(
+    "input" to "Start",
+    "_previousComm" to initialComm  // ✅ Also works
+)
+```
+
+**Method 3: Using `"metadata"` map directly**
+
+```kotlin
+// Pass metadata as a direct map (fallback pattern)
+val initialState = mapOf(
+    "input" to "Start",
+    "metadata" to mapOf(
+        "sessionId" to "session-123",
+        "priority" to "high"
+    )
+)
+```
+
+**Priority Order:**
+
+AgentNode checks for metadata in this order:
+1. `_previousComm` (from previous node)
+2. `comm` (initial Comm from graph input)
+3. `metadata` (direct metadata map)
+
+**Recommendation**: Use `"comm"` for clarity - it makes it obvious you're passing a complete Comm object with metadata.
 
 :::
 

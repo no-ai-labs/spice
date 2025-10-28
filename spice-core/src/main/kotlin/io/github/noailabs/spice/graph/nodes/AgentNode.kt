@@ -26,8 +26,13 @@ class AgentNode(
         }
 
         // 🔥 Extract previous Comm's data for propagation
+        // Priority: _previousComm (from previous node) -> comm (initial state) -> metadata (fallback)
         val previousComm = ctx.state["_previousComm"] as? Comm
-        val previousData = previousComm?.data ?: emptyMap()
+            ?: ctx.state["comm"] as? Comm  // 🆕 Support initial Comm from graph input
+
+        val previousData = previousComm?.data
+            ?: (ctx.state["metadata"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value.toString() }  // 🆕 Support direct metadata map
+            ?: emptyMap()
 
         // Create Comm from input (with AgentContext and propagated data)
         val comm = Comm(

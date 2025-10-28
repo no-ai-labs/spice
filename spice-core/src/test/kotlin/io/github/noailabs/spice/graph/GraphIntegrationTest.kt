@@ -613,4 +613,177 @@ class GraphIntegrationTest {
         assertEquals(RunStatus.SUCCESS, report.status)
         assertEquals("Found: initialValue", report.result)
     }
+
+    @Test
+    fun `test metadata from initial comm in state`() = runTest {
+        // Given: Agent that checks for metadata from initial Comm
+        val agent = object : Agent {
+            override val id = "first-agent"
+            override val name = "First Agent"
+            override val description = "First agent in graph"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Access metadata from initial Comm
+                val sessionId = comm.data["sessionId"]
+                val requestId = comm.data["requestId"]
+                return SpiceResult.success(
+                    comm.reply("Session: $sessionId, Request: $requestId", id)
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Create graph and pass initial Comm via "comm" key
+        val graph = graph("comm-init") {
+            agent("first", agent)
+            output("result") { ctx -> ctx.state["first"] }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Pass initial Comm with metadata via "comm" key (typical pattern)
+        val initialComm = Comm(
+            content = "Start processing",
+            from = "user",
+            data = mapOf(
+                "sessionId" to "session-123",
+                "requestId" to "req-456"
+            )
+        )
+
+        val initialState = mapOf(
+            "input" to initialComm.content,
+            "comm" to initialComm  // 🆕 First node picks up metadata from here!
+        )
+
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Verify first agent received initial metadata
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("Session: session-123, Request: req-456", report.result)
+    }
+
+    @Test
+    fun `test metadata from direct metadata map in state`() = runTest {
+        // Given: Agent that checks for metadata from direct map
+        val agent = object : Agent {
+            override val id = "agent"
+            override val name = "Agent"
+            override val description = "Test agent"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                val tenantId = comm.data["tenantId"]
+                val userId = comm.data["userId"]
+                return SpiceResult.success(
+                    comm.reply("Tenant: $tenantId, User: $userId", id)
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Create graph and pass metadata directly as Map
+        val graph = graph("metadata-map") {
+            agent("agent", agent)
+            output("result") { ctx -> ctx.state["agent"] }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Pass metadata directly as Map (alternative pattern)
+        val initialState = mapOf(
+            "input" to "Process request",
+            "metadata" to mapOf(
+                "tenantId" to "tenant-789",
+                "userId" to "user-abc"
+            )
+        )
+
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Verify agent received metadata from map
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("Tenant: tenant-789, User: user-abc", report.result)
+    }
+
+    @Test
+    fun `test metadata propagation priority order`() = runTest {
+        // Given: Two agents where first adds metadata
+        val agent1 = object : Agent {
+            override val id = "agent1"
+            override val name = "Agent 1"
+            override val description = "First agent"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Check initial metadata still present
+                val initialKey = comm.data["initialKey"]
+                return SpiceResult.success(
+                    comm.reply(
+                        content = "Step 1 (initial: $initialKey)",
+                        from = id,
+                        data = mapOf("agent1Key" to "agent1Value")
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        val agent2 = object : Agent {
+            override val id = "agent2"
+            override val name = "Agent 2"
+            override val description = "Second agent"
+            override val capabilities = emptyList<String>()
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Should have both initial and agent1 metadata
+                val initialKey = comm.data["initialKey"]
+                val agent1Key = comm.data["agent1Key"]
+                return SpiceResult.success(
+                    comm.reply("Step 2 (initial: $initialKey, agent1: $agent1Key)", id)
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<Tool>()
+            override fun isReady() = true
+        }
+
+        // When: Create graph with initial Comm
+        val graph = graph("priority-test") {
+            agent("first", agent1)
+            agent("second", agent2)
+            output("result") { ctx -> ctx.state["second"] }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Start with initial Comm
+        val initialComm = Comm(
+            content = "Start",
+            from = "user",
+            data = mapOf("initialKey" to "initialValue")
+        )
+
+        val initialState = mapOf(
+            "input" to initialComm.content,
+            "comm" to initialComm
+        )
+
+        val report = runner.run(graph, initialState).getOrThrow()
+
+        // Then: Verify metadata accumulated correctly
+        assertEquals(RunStatus.SUCCESS, report.status)
+        assertEquals("Step 2 (initial: initialValue, agent1: agent1Value)", report.result)
+    }
 }

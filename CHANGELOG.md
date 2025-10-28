@@ -9,6 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.2] - 2025-10-28
+
+### ✨ Enhancements
+
+#### Initial Metadata Support for Graph Nodes
+
+**Enhancement**: AgentNode now supports initializing the first graph node with metadata.
+
+**Problem**: In v0.5.1, the first node in a graph had no way to receive initial metadata from the graph orchestrator. It always started with an empty `data` map.
+
+**Solution**: AgentNode now checks multiple sources for initial metadata with priority order:
+
+1. `_previousComm` (from previous node)
+2. `comm` (initial Comm from graph input) ✨ **NEW**
+3. `metadata` (direct metadata map) ✨ **NEW**
+
+**Three Initialization Methods:**
+
+**Method 1: Using `"comm"` key (Recommended)**
+
+```kotlin
+val initialComm = Comm(
+    content = "Start processing",
+    from = "user",
+    data = mapOf("sessionId" to "session-123", "requestId" to "req-456")
+)
+
+val initialState = mapOf(
+    "input" to initialComm.content,
+    "comm" to initialComm  // ✅ First node picks up metadata!
+)
+
+val report = runner.run(graph, initialState).getOrThrow()
+```
+
+**Method 2: Using `"_previousComm"` key**
+
+```kotlin
+val initialState = mapOf(
+    "input" to "Start",
+    "_previousComm" to initialComm
+)
+```
+
+**Method 3: Using `"metadata"` map**
+
+```kotlin
+val initialState = mapOf(
+    "input" to "Start",
+    "metadata" to mapOf("sessionId" to "session-123")
+)
+```
+
+**Impact**:
+- ✅ First node can now receive initial metadata from orchestrator
+- ✅ Enables session tracking, request tracing from graph entry point
+- ✅ Three flexible initialization methods
+- ✅ Fully backward compatible with 0.5.1
+
+**Use Case - Graph Orchestrator:**
+
+```kotlin
+class KAIGraphOrchestrator {
+    suspend fun processRequest(userComm: Comm): SpiceResult<String> {
+        val enrichedComm = Comm(
+            content = userComm.content,
+            from = userComm.from,
+            data = userComm.data + mapOf(
+                "sessionId" to sessionId,
+                "correlationId" to correlationId
+            )
+        )
+
+        val input = mapOf(
+            "input" to enrichedComm.content,
+            "comm" to enrichedComm  // All agents can access metadata!
+        )
+
+        return runner.run(graph, input).map { it.result as String }
+    }
+}
+```
+
+### ✅ Added Tests
+
+**New Tests** (3 total):
+1. `test metadata from initial comm in state` - Tests `"comm"` key initialization
+2. `test metadata from direct metadata map in state` - Tests `"metadata"` key initialization
+3. `test metadata propagation priority order` - Tests priority order and accumulation
+
+**Test Results**:
+```bash
+GraphIntegrationTest > test metadata from initial comm in state() PASSED
+GraphIntegrationTest > test metadata from direct metadata map in state() PASSED
+GraphIntegrationTest > test metadata propagation priority order() PASSED
+```
+
+### 📚 Documentation
+
+**Updated Files**:
+- `orchestration/graph-nodes.md` - Added "Initializing with metadata" section with 3 methods
+
+**Key Documentation Additions**:
+- Three initialization method examples
+- Priority order explanation
+- Graph orchestrator integration examples
+- Best practices for metadata initialization
+
+**Total**: ~150 lines of new documentation
+
+---
+
 ## [0.5.1] - 2025-10-28
 
 ### 🐛 Bug Fixes
