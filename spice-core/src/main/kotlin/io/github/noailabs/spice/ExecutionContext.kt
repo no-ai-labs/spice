@@ -48,3 +48,67 @@ fun ExecutionContext.toAgentContext(): AgentContext {
     return AgentContext.of(*pairs.toTypedArray())
 }
 
+/**
+ * Get current ExecutionContext from coroutine context.
+ * Returns null if not in ExecutionContext scope.
+ *
+ * Example:
+ * ```kotlin
+ * suspend fun myService() {
+ *     val context = currentExecutionContext()
+ *     val tenantId = context?.tenantId
+ * }
+ * ```
+ */
+suspend fun currentExecutionContext(): ExecutionContext? {
+    return kotlin.coroutines.coroutineContext[ExecutionContext]
+}
+
+/**
+ * Require ExecutionContext in current coroutine.
+ * Throws if not in ExecutionContext scope.
+ *
+ * Example:
+ * ```kotlin
+ * suspend fun myService() {
+ *     val context = requireExecutionContext()
+ *     val tenantId = context.tenantId ?: error("No tenant")
+ * }
+ * ```
+ */
+suspend fun requireExecutionContext(): ExecutionContext {
+    return currentExecutionContext()
+        ?: throw IllegalStateException("No ExecutionContext in coroutine scope")
+}
+
+/**
+ * Get current tenant ID from ExecutionContext.
+ * Returns null if not in ExecutionContext scope or tenant ID not set.
+ *
+ * Example:
+ * ```kotlin
+ * suspend fun myService() {
+ *     val tenantId = getCurrentTenantId() ?: "default"
+ * }
+ * ```
+ */
+suspend fun getCurrentTenantId(): String? {
+    return currentExecutionContext()?.tenantId
+}
+
+/**
+ * Get current user ID from ExecutionContext.
+ * Returns null if not in ExecutionContext scope or user ID not set.
+ */
+suspend fun getCurrentUserId(): String? {
+    return currentExecutionContext()?.userId
+}
+
+/**
+ * Get current correlation ID from ExecutionContext.
+ * Returns null if not in ExecutionContext scope or correlation ID not set.
+ */
+suspend fun getCurrentCorrelationId(): String? {
+    return currentExecutionContext()?.correlationId
+}
+

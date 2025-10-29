@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.1] - 2025-10-29
+
+### ✨ Added
+
+#### ExecutionContext Accessor API
+
+- **NEW**: `currentExecutionContext(): ExecutionContext?` - Get context from coroutine scope
+- **NEW**: `requireExecutionContext(): ExecutionContext` - Get context or throw
+- **NEW**: `getCurrentTenantId(): String?` - Direct tenant ID accessor
+- **NEW**: `getCurrentUserId(): String?` - Direct user ID accessor  
+- **NEW**: `getCurrentCorrelationId(): String?` - Direct correlation ID accessor
+
+#### Context Propagation Enhancement
+
+- **ENHANCED**: `withAgentContext()` DSL now sets both AgentContext AND ExecutionContext
+- **ENHANCED**: `withEnrichedContext()` enriches both context types
+- Service layer can now access context without explicit parameters
+
+### 🧪 Testing
+
+- **NEW**: `ExecutionContextAccessorTest` - 11 comprehensive tests
+- All accessor functions validated
+- DSL integration tested
+
+### 📚 Documentation
+
+- **UPDATED**: `api/execution-context.md` - Accessor Functions section
+- **ADDED**: Service Layer Pattern examples
+- **ADDED**: Usage examples for all accessor functions
+
+### 🎯 Use Cases Enabled
+
+- Service layer context access without parameter passing
+- Repository layer tenant filtering
+- Audit logging with automatic context
+- Authorization checks with implicit context
+
+---
+
 ## [0.6.0] - 2025-10-28
 
 ### 🎉 Major Release: Context Unification & Immutable State

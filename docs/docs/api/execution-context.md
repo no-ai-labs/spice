@@ -133,17 +133,83 @@ val result = runner.run(
 
 ### Coroutine Propagation
 
+### Accessor Functions
+
+**Added in:** 0.6.0
+
+Convenient functions to access ExecutionContext from anywhere in your code:
+
+```kotlin
+// Get current context (returns null if not in scope)
+suspend fun myService() {
+    val context = currentExecutionContext()
+    val tenantId = context?.tenantId
+}
+
+// Require context (throws if not present)
+suspend fun myService() {
+    val context = requireExecutionContext()
+    val tenantId = context.tenantId  // Safe - won't be null
+}
+
+// Direct accessors (most convenient!)
+suspend fun myService() {
+    val tenantId = getCurrentTenantId()
+    val userId = getCurrentUserId()
+    val correlationId = getCurrentCorrelationId()
+}
+```
+
+**Available Functions:**
+- `currentExecutionContext(): ExecutionContext?` - Get context or null
+- `requireExecutionContext(): ExecutionContext` - Get context or throw
+- `getCurrentTenantId(): String?` - Get tenant ID
+- `getCurrentUserId(): String?` - Get user ID
+- `getCurrentCorrelationId(): String?` - Get correlation ID
+
+### Setting Context
+
 ```kotlin
 // ExecutionContext auto-propagates through coroutines
 withContext(ExecutionContext.of(mapOf("tenantId" to "CHIC"))) {
     // All graph/agent executions inherit context
     runner.run(graph, input)
+    
+    // Service layer can access it
+    myService()  // getCurrentTenantId() works!
 }
 
-// Access in coroutine
-suspend fun myFunction() {
-    val context = coroutineContext[ExecutionContext]
-    val tenantId = context?.tenantId
+// Or use withAgentContext DSL (sets both AgentContext + ExecutionContext)
+withAgentContext("tenantId" to "CHIC", "userId" to "user-123") {
+    runner.run(graph, input)
+    
+    // Both work!
+    val ctx1 = currentAgentContext()
+    val ctx2 = currentExecutionContext()
+}
+```
+
+### Service Layer Pattern
+
+```kotlin
+// Service doesn't need context parameter!
+suspend fun processOrder(orderId: String) {
+    val tenantId = getCurrentTenantId() ?: error("No tenant")
+    val userId = getCurrentUserId()
+    
+    // Use context
+    val order = orderRepository.findByTenant(orderId, tenantId)
+    auditLog.log("Order processed", tenantId, userId)
+}
+
+// Called from controller with context
+suspend fun handleRequest(request: OrderRequest) {
+    withAgentContext(
+        "tenantId" to request.tenantId,
+        "userId" to request.userId
+    ) {
+        processOrder(request.orderId)  // Context propagates!
+    }
 }
 ```
 

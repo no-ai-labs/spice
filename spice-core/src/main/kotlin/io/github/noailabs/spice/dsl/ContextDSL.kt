@@ -1,6 +1,8 @@
 package io.github.noailabs.spice.dsl
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.ExecutionContext
+import io.github.noailabs.spice.toExecutionContext
 import kotlinx.coroutines.withContext
 
 /**
@@ -34,8 +36,9 @@ suspend fun <T> withAgentContext(
     vararg pairs: Pair<String, Any>,
     block: suspend () -> T
 ): T {
-    val context = AgentContext.of(*pairs)
-    return withContext(context) { block() }
+    val agentContext = AgentContext.of(*pairs)
+    val execContext = agentContext.toExecutionContext()
+    return withContext(agentContext + execContext) { block() }
 }
 
 /**
@@ -53,7 +56,10 @@ suspend fun <T> withAgentContext(
 suspend fun <T> withAgentContext(
     context: AgentContext,
     block: suspend () -> T
-): T = withContext(context) { block() }
+): T {
+    val execContext = context.toExecutionContext()
+    return withContext(context + execContext) { block() }
+}
 
 /**
  * Execute block with enriched AgentContext (merges with existing context if available)
@@ -77,7 +83,8 @@ suspend fun <T> withEnrichedContext(
 ): T {
     val current = currentAgentContext()
     val enriched = current?.withAll(*pairs) ?: AgentContext.of(*pairs)
-    return withContext(enriched) { block() }
+    val execContext = enriched.toExecutionContext()
+    return withContext(enriched + execContext) { block() }
 }
 
 /**
