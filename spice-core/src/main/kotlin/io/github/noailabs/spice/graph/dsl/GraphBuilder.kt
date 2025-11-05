@@ -32,7 +32,8 @@ fun graph(id: String, block: GraphBuilder.() -> Unit): Graph {
  */
 class GraphBuilder(val id: String) {
     private val nodes = mutableMapOf<String, Node>()
-    private val edges = mutableListOf<Edge>()
+    private val autoEdges = mutableListOf<Edge>()        // Automatically added edges (sequential flow)
+    private val explicitEdges = mutableListOf<Edge>()    // User-defined conditional edges
     private val middlewares = mutableListOf<Middleware>()
     private var lastNodeId: String? = null
 
@@ -127,33 +128,52 @@ class GraphBuilder(val id: String) {
      * Add a conditional edge between two nodes.
      * This allows explicit control over graph flow based on node results.
      *
+     * Explicit edges take priority over automatic sequential edges.
+     * If you define any explicit edge from a node, automatic edges from that node are ignored.
+     *
      * @param from Source node ID
      * @param to Destination node ID
      * @param condition Predicate that determines if this edge should be followed (default: always true)
      */
     fun edge(from: String, to: String, condition: (io.github.noailabs.spice.graph.NodeResult) -> Boolean = { true }) {
-        edges.add(Edge(from = from, to = to, condition = condition))
+        explicitEdges.add(Edge(from = from, to = to, condition = condition))
     }
 
     /**
      * Automatically connect the current node to the previous node.
+     * These auto-edges are only used if no explicit edge is defined from the same node.
      */
     private fun connectToPrevious(currentId: String) {
         lastNodeId?.let { prevId ->
-            edges.add(Edge(from = prevId, to = currentId))
+            autoEdges.add(Edge(from = prevId, to = currentId))
         }
     }
 
     /**
      * Build the final Graph instance.
+     *
+     * Merges explicit and automatic edges with the following priority:
+     * 1. All explicit edges are included
+     * 2. Automatic edges are only included if there is NO explicit edge from the same source node
+     *
+     * This ensures that user-defined conditional edges take precedence over sequential flow.
      */
     fun build(): Graph {
         require(nodes.isNotEmpty()) { "Graph must have at least one node" }
 
+        // Collect all source nodes that have explicit edges
+        val explicitFromNodes = explicitEdges.map { it.from }.toSet()
+
+        // Filter out auto-edges that conflict with explicit edges
+        val nonConflictingAutoEdges = autoEdges.filterNot { it.from in explicitFromNodes }
+
+        // Merge: explicit edges first, then non-conflicting auto-edges
+        val finalEdges = explicitEdges + nonConflictingAutoEdges
+
         return Graph(
             id = id,
             nodes = nodes,
-            edges = edges,
+            edges = finalEdges,
             entryPoint = nodes.keys.first(),
             middleware = middlewares
         )

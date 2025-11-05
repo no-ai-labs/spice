@@ -140,6 +140,134 @@ class ConditionalEdgeTest {
     }
 
     @Test
+    fun `test DSL conditional edges override automatic edges`() = runTest {
+        // Given: Graph built with DSL that has conditional edges
+        var checkNodeExecuted = false
+        var pathATaken = false
+        var pathBTaken = false
+
+        val testGraph = graph("dsl-conditional-test") {
+            // Add nodes sequentially (this creates auto-edges)
+            agent("check", object : io.github.noailabs.spice.Agent {
+                override val id = "check-agent"
+                override val name = "Check Agent"
+                override val description = "Checks condition"
+                override val capabilities = emptyList<String>()
+
+                override suspend fun processComm(comm: io.github.noailabs.spice.Comm): io.github.noailabs.spice.error.SpiceResult<io.github.noailabs.spice.Comm> {
+                    checkNodeExecuted = true
+                    val value = comm.data["value"]?.toIntOrNull() ?: 0
+                    val route = if (value > 10) "path-a" else "path-b"
+                    return io.github.noailabs.spice.error.SpiceResult.success(
+                        comm.copy(data = comm.data + mapOf("route" to route))
+                    )
+                }
+
+                override fun canHandle(comm: io.github.noailabs.spice.Comm) = true
+                override fun getTools() = emptyList<io.github.noailabs.spice.Tool>()
+                override fun isReady() = true
+            })
+
+            agent("path-a", object : io.github.noailabs.spice.Agent {
+                override val id = "path-a-agent"
+                override val name = "Path A"
+                override val description = "Path A"
+                override val capabilities = emptyList<String>()
+
+                override suspend fun processComm(comm: io.github.noailabs.spice.Comm): io.github.noailabs.spice.error.SpiceResult<io.github.noailabs.spice.Comm> {
+                    pathATaken = true
+                    return io.github.noailabs.spice.error.SpiceResult.success(comm.copy(content = "Path A executed"))
+                }
+
+                override fun canHandle(comm: io.github.noailabs.spice.Comm) = true
+                override fun getTools() = emptyList<io.github.noailabs.spice.Tool>()
+                override fun isReady() = true
+            })
+
+            agent("path-b", object : io.github.noailabs.spice.Agent {
+                override val id = "path-b-agent"
+                override val name = "Path B"
+                override val description = "Path B"
+                override val capabilities = emptyList<String>()
+
+                override suspend fun processComm(comm: io.github.noailabs.spice.Comm): io.github.noailabs.spice.error.SpiceResult<io.github.noailabs.spice.Comm> {
+                    pathBTaken = true
+                    return io.github.noailabs.spice.error.SpiceResult.success(comm.copy(content = "Path B executed"))
+                }
+
+                override fun canHandle(comm: io.github.noailabs.spice.Comm) = true
+                override fun getTools() = emptyList<io.github.noailabs.spice.Tool>()
+                override fun isReady() = true
+            })
+
+            output("result")
+
+            // Define explicit conditional edges (should override auto-edges from "check")
+            edge("check", "path-a") { result ->
+                val comm = result.metadata["_previousComm"] as? io.github.noailabs.spice.Comm
+                comm?.data?.get("route") == "path-a"
+            }
+            edge("check", "path-b") { result ->
+                val comm = result.metadata["_previousComm"] as? io.github.noailabs.spice.Comm
+                comm?.data?.get("route") == "path-b"
+            }
+            edge("path-a", "result")
+            edge("path-b", "result")
+        }
+
+        // When: Run with high value (should take path-a)
+        val runner = DefaultGraphRunner()
+        checkNodeExecuted = false
+        pathATaken = false
+        pathBTaken = false
+
+        val highResult = runner.run(testGraph, mapOf(
+            "comm" to io.github.noailabs.spice.Comm(
+                content = "test",
+                from = "user",
+                data = mapOf("value" to "15")
+            )
+        )).getOrThrow()
+
+        println("=== High Value Test ===")
+        println("Node reports: ${highResult.nodeReports.map { it.nodeId }}")
+        highResult.nodeReports.forEach { report ->
+            println("Node ${report.nodeId}: status=${report.status}, output=${report.output}")
+        }
+
+        // Then: Should execute path-a, not path-b
+        assertEquals(RunStatus.SUCCESS, highResult.status)
+        assertTrue(checkNodeExecuted, "Check node should be executed")
+        assertTrue(pathATaken, "Path A should be taken for value > 10")
+        assertTrue(!pathBTaken, "Path B should NOT be taken for value > 10")
+
+        // When: Run with low value (should take path-b)
+        checkNodeExecuted = false
+        pathATaken = false
+        pathBTaken = false
+
+        val lowResult = runner.run(testGraph, mapOf(
+            "comm" to io.github.noailabs.spice.Comm(
+                content = "test",
+                from = "user",
+                data = mapOf("value" to "5")
+            )
+        )).getOrThrow()
+
+        println("=== Low Value Test ===")
+        println("Node reports: ${lowResult.nodeReports.map { it.nodeId }}")
+        lowResult.nodeReports.forEach { report ->
+            println("Node ${report.nodeId}: status=${report.status}, output=${report.output}")
+        }
+
+        // Then: Should execute path-b, not path-a
+        assertEquals(RunStatus.SUCCESS, lowResult.status)
+        assertTrue(checkNodeExecuted, "Check node should be executed")
+        assertTrue(!pathATaken, "Path A should NOT be taken for value <= 10")
+        assertTrue(pathBTaken, "Path B should be taken for value <= 10")
+    }
+
+    @Test
     fun `test multiple conditional edges priority`() = runTest {
         // Given: Node with multiple outgoing edges
         val sourceNode = object : Node {

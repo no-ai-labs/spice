@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.2] - 2025-11-05
+
+### 🐛 Fixed
+
+#### Graph DSL Conditional Edge Priority Bug
+
+- **CRITICAL FIX**: Conditional edges defined with `edge()` now correctly take precedence over automatic sequential edges
+- **GraphBuilder**: Fixed edge ordering where auto-generated edges were evaluated before explicit conditional edges
+- **Impact**: Conditional routing in Graph DSL now works as intended
+
+#### Technical Changes
+
+- **GraphBuilder**: Split edge tracking into `autoEdges` (sequential flow) and `explicitEdges` (user-defined conditions)
+- **GraphBuilder.build()**: Implemented priority-based edge merging algorithm
+  - Explicit edges are included first
+  - Auto-edges are filtered out if they conflict with explicit edges from the same source node
+- **Edge Evaluation**: GraphRunner already had correct `firstOrNull` logic, bug was in edge ordering
+
+### 🧪 Testing
+
+- **NEW**: `ConditionalEdgeTest.test DSL conditional edges override automatic edges()` - Comprehensive DSL test
+- **PASSED**: All 4 ConditionalEdgeTest tests (100% coverage for conditional edge scenarios)
+
+### 📚 Documentation
+
+- **ADDED**: Best practices for accessing `metadata["_previousComm"]` in edge conditions
+- **ADDED**: Examples of combining sequential and conditional edges
+- **ADDED**: Edge decision logging patterns
+
+### 🔄 Compatibility
+
+- ✅ **100% backward compatible** - No API changes
+- ✅ Sequential graphs without conditional edges work identically
+- ✅ Manual `Graph()` construction unchanged
+- ✅ All existing tests pass
+
+---
+
 ## [0.6.1] - 2025-10-29
 
 ### ✨ Added

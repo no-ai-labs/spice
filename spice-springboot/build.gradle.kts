@@ -43,7 +43,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot"
-            version = "0.4.4"
+            version = "0.6.2"
             
             pom {
                 name.set("Spice Spring Boot Starter")

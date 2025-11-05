@@ -1,0 +1,414 @@
+# The Bug That Made Conditional Edges... Unconditional
+
+**November 5, 2025** | Spice Framework v0.6.2 Release
+
+---
+
+## TL;DR
+
+Spice 0.6.2 fixes a critical bug where conditional edges in the Graph DSL were completely ignored. If you've been wondering why your carefully crafted routing logic just... didn't work, this release is for you.
+
+**Update now:**
+```kotlin
+implementation("com.github.no-ai-labs.spice-framework:spice-core:0.6.2")
+```
+
+---
+
+## The Discovery: "Why Isn't My Log Printing?"
+
+It started with a simple question from a user building an AI agent workflow:
+
+```kotlin
+graph("kai-agent-graph") {
+    agent("intent-filling", intentFillingAgent)
+    agent("clarification", clarificationAgent)
+    agent("workflow", workflowAgent)
+
+    edge("intent-filling", "clarification") { result ->
+        logger.info { "🔀 [Edge] Evaluating clarification..." }
+        needsClarification(result)
+    }
+
+    edge("intent-filling", "workflow") { result ->
+        logger.info { "🔀 [Edge] Skipping clarification..." }
+        !needsClarification(result)
+    }
+}
+```
+
+**Expected behavior:** Graph evaluates conditions, routes accordingly, logs edge decisions.
+
+**Actual behavior:**
+```
+14:56:20.563 ✅ [Node End] intent-filling
+14:56:20.563 📍 [Node Start] clarification  ← Wait, what?
+```
+
+No logs. No condition evaluation. Just straight to `clarification`, every single time.
+
+---
+
+## The Investigation: Edge Condition Lambdas in a Void
+
+First hypothesis: "Maybe my condition is wrong?"
+
+```kotlin
+edge("intent-filling", "clarification") { result ->
+    val comm = result.metadata["_previousComm"] as? Comm
+    val needs = comm?.data?.get("needs_clarification") == "true"
+
+    println("🔧 [DEBUG] Needs clarification: $needs")  // ❌ Never printed!
+    needs
+}
+```
+
+Nothing. The lambda literally never ran.
+
+Second hypothesis: "Maybe GraphRunner isn't calling the conditions?"
+
+Diving into `GraphRunner.kt`:
+
+```kotlin
+// Line 256-259
+val nextId = graph.edges
+    .firstOrNull { edge -> edge.from == nodeId && edge.condition(result) }
+    ?.to
+```
+
+This looks correct! It filters edges by `from` node, finds the first one where `condition(result)` is true, and takes its `to` node.
+
+So why wasn't it working?
+
+---
+
+## The Eureka Moment: Order Matters
+
+The bug wasn't in **how** edges were evaluated. It was in **what edges** were provided to the evaluator.
+
+Let's trace what happens when you write this DSL:
+
+```kotlin
+graph("my-graph") {
+    agent("a", agentA)  // Step 1
+    agent("b", agentB)  // Step 2
+
+    edge("a", "b") { condition }  // Step 3
+}
+```
+
+### Step 1: `agent("a", agentA)`
+
+```kotlin
+// GraphBuilder.kt (0.6.1 - BUG)
+fun agent(id: String, agent: Agent) {
+    nodes[id] = AgentNode(id, agent)
+    connectToPrevious(id)  // ← Auto-add edge!
+    lastNodeId = id
+}
+
+private fun connectToPrevious(currentId: String) {
+    lastNodeId?.let { prevId ->
+        edges.add(Edge(from = prevId, to = currentId))  // condition = { true }
+    }
+}
+```
+
+After Step 1:
+- `nodes = {a: AgentNode}`
+- `edges = []`
+- `lastNodeId = "a"`
+
+### Step 2: `agent("b", agentB)`
+
+```kotlin
+connectToPrevious("b")  // Adds Edge(from="a", to="b", condition={true})
+```
+
+After Step 2:
+- `nodes = {a: AgentNode, b: AgentNode}`
+- `edges = [Edge(a→b, {true})]`  ← 🔥 Auto-edge added!
+- `lastNodeId = "b"`
+
+### Step 3: `edge("a", "b") { condition }`
+
+```kotlin
+// GraphBuilder.kt (0.6.1 - BUG)
+fun edge(from: String, to: String, condition: ...) {
+    edges.add(Edge(from, to, condition))  // Appends to list!
+}
+```
+
+After Step 3:
+- `edges = [Edge(a→b, {true}), Edge(a→b, {condition})]`
+
+### The Problem
+
+GraphRunner evaluates edges with `firstOrNull`:
+
+```kotlin
+graph.edges
+    .filter { it.from == "a" }         // [Edge({true}), Edge({condition})]
+    .firstOrNull { it.condition(...) } // ← Edge({true}) matches first!
+    ?.to                                // Returns "b"
+```
+
+The auto-edge **always** matches because its condition is `{ true }`. The explicit conditional edge never gets a chance!
+
+---
+
+## The Fix: Explicit Edges Take Priority
+
+The solution was elegantly simple: **separate auto-edges from explicit edges, then merge with priority**.
+
+### Fixed Implementation (0.6.2)
+
+```kotlin
+class GraphBuilder(val id: String) {
+    private val autoEdges = mutableListOf<Edge>()        // Sequential flow
+    private val explicitEdges = mutableListOf<Edge>()    // User conditions
+
+    fun agent(id: String, agent: Agent) {
+        nodes[id] = AgentNode(id, agent)
+        connectToPrevious(id)  // Still auto-connects
+        lastNodeId = id
+    }
+
+    private fun connectToPrevious(currentId: String) {
+        lastNodeId?.let { prevId ->
+            autoEdges.add(Edge(from = prevId, to = currentId))  // Separate list!
+        }
+    }
+
+    fun edge(from: String, to: String, condition: ...) {
+        explicitEdges.add(Edge(from, to, condition))  // Different list!
+    }
+
+    fun build(): Graph {
+        // 🔥 KEY: Filter out auto-edges that conflict with explicit edges
+        val explicitFromNodes = explicitEdges.map { it.from }.toSet()
+        val finalEdges = explicitEdges +
+            autoEdges.filterNot { it.from in explicitFromNodes }
+
+        return Graph(edges = finalEdges)
+    }
+}
+```
+
+### Execution Flow (Fixed)
+
+```kotlin
+graph("my-graph") {
+    agent("a", agentA)  // autoEdges += [a→b{true}]
+    agent("b", agentB)
+
+    edge("a", "b") { condition }  // explicitEdges += [a→b{condition}]
+}
+
+// build():
+// explicitFromNodes = {"a"}
+// finalEdges = [a→b{condition}] + [].filter { it.from not in {"a"} }
+// finalEdges = [a→b{condition}]  ✅ Only explicit edge!
+```
+
+Now GraphRunner sees only the explicit edge, evaluates the condition, and routes correctly!
+
+---
+
+## Real-World Impact: Intent Classification Pipeline
+
+Here's a real workflow that now works as intended:
+
+```kotlin
+val intentGraph = graph("intent-classifier") {
+    // Classify user intent
+    agent("classifier", intentClassificationAgent)
+
+    // Low confidence → ask for clarification
+    agent("clarification", clarificationAgent)
+
+    // High confidence → execute directly
+    agent("executor", taskExecutionAgent)
+
+    // Final response
+    agent("response", responseAgent)
+
+    // ✅ NOW WORKS: Route based on confidence
+    edge("classifier", "clarification") { result ->
+        val comm = result.metadata["_previousComm"] as? Comm
+        val confidence = comm?.data?.get("confidence")?.toDoubleOrNull() ?: 0.0
+        confidence < 0.7  // Low confidence path
+    }
+
+    edge("classifier", "executor") { result ->
+        val comm = result.metadata["_previousComm"] as? Comm
+        val confidence = comm?.data?.get("confidence")?.toDoubleOrNull() ?: 1.0
+        confidence >= 0.7  // High confidence path
+    }
+
+    // Merge paths
+    edge("clarification", "executor")
+    edge("executor", "response")
+}
+```
+
+**Before 0.6.2:** Always went `classifier → clarification → executor`, regardless of confidence.
+
+**After 0.6.2:** Correctly routes based on confidence score!
+
+---
+
+## Testing: How We Caught This
+
+The existing tests all used **manual Graph construction**, which worked fine:
+
+```kotlin
+// ✅ This always worked (manual construction)
+val graph = Graph(
+    id = "test",
+    nodes = mapOf(...),
+    edges = listOf(
+        Edge("a", "b") { condition }
+    ),
+    entryPoint = "a"
+)
+```
+
+The bug only affected the **DSL**:
+
+```kotlin
+// ❌ This was broken (DSL construction)
+val graph = graph("test") {
+    agent("a", agentA)
+    agent("b", agentB)
+    edge("a", "b") { condition }
+}
+```
+
+We added a comprehensive DSL test in 0.6.2:
+
+```kotlin
+@Test
+fun `test DSL conditional edges override automatic edges`() = runTest {
+    val graph = graph("dsl-test") {
+        agent("check", checkAgent)
+        agent("path-a", pathAAgent)
+        agent("path-b", pathBAgent)
+        output("result")
+
+        edge("check", "path-a") { result ->
+            val comm = result.metadata["_previousComm"] as? Comm
+            comm?.data?.get("route") == "path-a"
+        }
+        edge("check", "path-b") { result ->
+            val comm = result.metadata["_previousComm"] as? Comm
+            comm?.data?.get("route") == "path-b"
+        }
+        edge("path-a", "result")
+        edge("path-b", "result")
+    }
+
+    // High value → path-a
+    val highResult = runner.run(graph, mapOf("value" to 15))
+    assertTrue(pathATaken && !pathBTaken)
+
+    // Low value → path-b
+    val lowResult = runner.run(graph, mapOf("value" to 5))
+    assertTrue(!pathATaken && pathBTaken)
+}
+```
+
+**Result:** All 4 ConditionalEdgeTest tests pass ✅
+
+---
+
+## Best Practices: Accessing Comm in Edge Conditions
+
+One gotcha: `NodeResult.data` contains the **output** of the node (often a String), not the full Comm.
+
+**Access the Comm from metadata:**
+
+```kotlin
+edge("my-node", "next-node") { result ->
+    // ✅ CORRECT
+    val comm = result.metadata["_previousComm"] as? Comm
+    comm?.data?.get("should_continue") == "true"
+}
+
+edge("my-node", "error-node") { result ->
+    // ❌ WRONG
+    val comm = result.data as? Comm  // null! result.data is a String
+    comm?.data?.get("error")
+}
+```
+
+**Add debug logging:**
+
+```kotlin
+edge("classifier", "processor") { result ->
+    val comm = result.metadata["_previousComm"] as? Comm
+    val shouldProcess = comm?.data?.get("should_process") == "true"
+
+    logger.info { "🔀 [Edge] classifier → processor: $shouldProcess" }
+    logger.debug { "  Comm data: ${comm?.data}" }
+
+    shouldProcess
+}
+```
+
+---
+
+## Lessons Learned
+
+### 1. **Test the User-Facing API, Not Just Internals**
+
+We had excellent test coverage for `GraphRunner` and manual `Graph` construction. But we didn't test the **DSL** itself. The DSL is what users actually use!
+
+### 2. **Order Matters in Sequential Processing**
+
+The `firstOrNull` pattern is powerful but order-dependent. When building a list that will be processed with `firstOrNull`, think carefully about insertion order.
+
+### 3. **Implicit Behavior Can Hide Bugs**
+
+The auto-edge feature was convenient for simple sequential workflows, but it had hidden complexity when mixed with explicit edges. Making it explicit (via separate lists) made the bug obvious.
+
+### 4. **User Reports Are Gold**
+
+This bug was discovered because a user took the time to file a detailed bug report with logs. If you're using Spice and something seems off, please let us know!
+
+---
+
+## Upgrade Now
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("com.github.no-ai-labs.spice-framework:spice-core:0.6.2")
+}
+```
+
+**No code changes needed** – your conditional edges will just start working! 🎉
+
+---
+
+## What's Next?
+
+We're working on 0.7.0 with some exciting features:
+
+- **Named edge conditions** for better debugging
+- **Edge visualization tools** to see your graph flow
+- **Build-time validation** for unreachable nodes
+- **Multi-condition edge syntax** for complex routing
+
+Stay tuned!
+
+---
+
+**Questions? Issues?**
+
+- GitHub: [no-ai-labs/spice-framework](https://github.com/no-ai-labs/spice-framework)
+- Docs: [spice-framework.dev](https://spice-framework.dev)
+
+**Happy routing! 🌶️**
+
+*- The Spice Team*
