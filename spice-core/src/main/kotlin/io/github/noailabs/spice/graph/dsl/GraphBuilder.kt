@@ -10,6 +10,10 @@ import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
+import io.github.noailabs.spice.graph.nodes.ParallelNode
+import io.github.noailabs.spice.graph.nodes.MergeNode
+import io.github.noailabs.spice.graph.nodes.MergeStrategies
+import io.github.noailabs.spice.graph.merge.MergePolicy
 
 /**
  * DSL entry point for creating graphs.
@@ -122,6 +126,84 @@ class GraphBuilder(val id: String) {
      */
     fun middleware(middleware: Middleware) {
         middlewares.add(middleware)
+    }
+
+    /**
+     * Add a ParallelNode to execute multiple branches concurrently.
+     *
+     * Example:
+     * ```kotlin
+     * parallel("data-processing",
+     *     branches = mapOf(
+     *         "fetch" to fetchNode,
+     *         "validate" to validateNode,
+     *         "transform" to transformNode
+     *     ),
+     *     mergePolicy = MergePolicy.Namespace
+     * )
+     * ```
+     *
+     * @param id Unique identifier for this parallel node
+     * @param branches Map of branch ID to Node for each parallel branch
+     * @param mergePolicy How to merge metadata from parallel branches (default: Namespace)
+     * @param failFast If true, fail entire parallel execution on first branch failure (default: true)
+     */
+    fun parallel(
+        id: String,
+        branches: Map<String, Node>,
+        mergePolicy: MergePolicy = MergePolicy.Namespace,
+        failFast: Boolean = true
+    ) {
+        val node = ParallelNode(
+            id = id,
+            branches = branches,
+            mergePolicy = mergePolicy,
+            failFast = failFast
+        )
+        nodes[id] = node
+        connectToPrevious(id)
+        lastNodeId = id
+    }
+
+    /**
+     * Add a MergeNode to aggregate results from a ParallelNode.
+     *
+     * Example:
+     * ```kotlin
+     * merge("aggregate", parallelNodeId = "data-processing") { results ->
+     *     mapOf(
+     *         "fetchedData" to results["fetch"],
+     *         "isValid" to results["validate"],
+     *         "transformed" to results["transform"]
+     *     )
+     * }
+     * ```
+     *
+     * Common merge strategies available in MergeStrategies:
+     * - `MergeStrategies.first` - Take first non-null result
+     * - `MergeStrategies.last` - Take last non-null result
+     * - `MergeStrategies.concatList` - Combine all into list
+     * - `MergeStrategies.vote` - Select most common result
+     * - `MergeStrategies.average` - Average numeric results
+     * - `MergeStrategies.asMap` - Return all as map (no merging)
+     *
+     * @param id Unique identifier for this merge node
+     * @param parallelNodeId ID of the ParallelNode whose results to merge
+     * @param merger Function that combines parallel branch results into single output
+     */
+    fun merge(
+        id: String,
+        parallelNodeId: String,
+        merger: (Map<String, Any?>) -> Any?
+    ) {
+        val node = MergeNode(
+            id = id,
+            parallelNodeId = parallelNodeId,
+            merger = merger
+        )
+        nodes[id] = node
+        connectToPrevious(id)
+        lastNodeId = id
     }
 
     /**
