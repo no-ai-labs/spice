@@ -9,6 +9,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2025-11-11
+
+### ✨ Added
+
+#### DynamicHumanNode - Runtime Dynamic Prompts
+
+- **NEW**: `DynamicHumanNode` class for agent-generated prompts in HITL workflows
+- **Feature**: Read prompts from `NodeContext.state` or `NodeContext.context` at runtime
+- **DSL**: `dynamicHumanNode()` GraphBuilder extension
+- **Use Case**: Agent-generated selection menus (e.g., "Select a reservation to cancel")
+
+**Example:**
+```kotlin
+graph("reservation-workflow") {
+    agent("list-reservations", listAgent)  // Generates menu
+    dynamicHumanNode(
+        id = "select-reservation",
+        promptKey = "menu_text",  // Reads from agent output
+        fallbackPrompt = "Please make a selection"
+    )
+    agent("cancel-reservation", cancelAgent)
+}
+```
+
+### 🐛 Fixed
+
+#### Critical: Checkpoint Resume Data Loss
+
+- **FIXED**: Metadata from `ExecutionContext` now propagates correctly after checkpoint resume
+- **Root Cause**: `KAIBaseAgent.toThinkingContext()` only read `comm.data`, ignored `comm.context`
+- **Solution**: Merge `comm.context + comm.data` when creating `ThinkingContext`
+- **Impact**: Resolved data loss in multi-turn HITL workflows
+
+#### WorkflowAgent Data Restoration Priority
+
+- **FIXED**: `restoreJsonDataFromSession()` now checks `comm.context` before SessionState
+- **Priority**: ExecutionContext (checkpoint) → SessionState (fallback)
+
+### 🔧 Enhanced
+
+- **KAIBaseAgent**: Enhanced `Comm.toThinkingContext()` to merge ExecutionContext data
+- **AgentNode**: Propagate `comm.data` entries to metadata for non-AgentNode access
+
+### 📚 Documentation
+
+- **ADDED**: DynamicHumanNode section in HITL documentation
+- **ADDED**: Agent-generated menu examples
+- **ADDED**: Prompt resolution order explanation
+- **UPDATED**: Graph Nodes documentation
+
+### 🧪 Testing
+
+- **NEW**: `DynamicHumanNodeTest` with 10 comprehensive test cases
+- **Coverage**: Prompt resolution, checkpoint/resume, multi-node sequences, real-world scenarios
+
+### 🔄 Compatibility
+
+- ✅ **100% backward compatible** - No breaking changes
+- ✅ Existing `HumanNode` usage unchanged
+- ✅ All existing tests pass
+
+---
+
+## [0.7.0] - 2025-11-10
+
+### ✨ Added
+
+#### ParallelNode - Concurrent Execution
+
+- **NEW**: `ParallelNode` for executing multiple agents/nodes concurrently
+- **Performance**: Up to 3x faster for independent workflows
+- **DSL**: `parallel()` GraphBuilder extension with branch support
+- **Merge Policies**: First, Last, Voting, Custom
+
+### 📚 Documentation
+
+- **ADDED**: Parallel Execution guide
+- **ADDED**: Performance optimization patterns
+- **UPDATED**: Multi-agent orchestration examples
+
+---
+
 ## [0.6.2] - 2025-11-05
 
 ### 🐛 Fixed
