@@ -80,7 +80,7 @@ const sidebars: SidebarsConfig = {
         'orchestration/agent-handoff',
         {
           type: 'category',
-          label: '🕸️ Graph System (v0.5.0)',
+          label: '🕸️ Graph System (v0.7.0)',
           collapsed: false,
           items: [
             'orchestration/graph-system',
@@ -89,6 +89,7 @@ const sidebars: SidebarsConfig = {
             'orchestration/graph-checkpoint',
             'orchestration/graph-validation',
             'orchestration/graph-hitl',
+            'orchestration/parallel-execution',
           ],
         },
       ],
