@@ -214,4 +214,56 @@ class GraphValidatorTest {
         assertTrue(result.isFailure)
         assertFalse(GraphValidator.isDAG(graph))
     }
+
+    @Test
+    fun `test cyclic graph passes validation when allowCycles is true`() {
+        // Given: Graph with cycle but allowCycles enabled
+        val graph = Graph(
+            id = "allowed-cyclic-graph",
+            nodes = mapOf(
+                "node1" to OutputNode("node1"),
+                "node2" to OutputNode("node2"),
+                "node3" to OutputNode("node3")
+            ),
+            edges = listOf(
+                Edge("node1", "node2"),
+                Edge("node2", "node3"),
+                Edge("node3", "node1")  // Cycle!
+            ),
+            entryPoint = "node1",
+            allowCycles = true
+        )
+
+        // When: Validate
+        val result = GraphValidator.validate(graph)
+
+        // Then: Should pass validation (cycles are allowed)
+        assertTrue(result.isSuccess)
+        // But isDAG should still return false (it's not a DAG)
+        assertFalse(GraphValidator.isDAG(graph))
+    }
+
+    @Test
+    fun `test self-loop passes validation when allowCycles is true`() {
+        // Given: Graph with self-loop but allowCycles enabled
+        val graph = Graph(
+            id = "allowed-self-loop-graph",
+            nodes = mapOf(
+                "workflow" to OutputNode("workflow"),
+                "response" to OutputNode("response")
+            ),
+            edges = listOf(
+                Edge("workflow", "workflow", condition = { it.data.toString().contains("continue") }),
+                Edge("workflow", "response", condition = { !it.data.toString().contains("continue") })
+            ),
+            entryPoint = "workflow",
+            allowCycles = true
+        )
+
+        // When: Validate
+        val result = GraphValidator.validate(graph)
+
+        // Then: Should pass validation (cycles are allowed)
+        assertTrue(result.isSuccess)
+    }
 }

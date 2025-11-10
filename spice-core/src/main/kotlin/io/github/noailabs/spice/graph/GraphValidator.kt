@@ -35,10 +35,12 @@ object GraphValidator {
             }
         }
 
-        // 4. Check for cycles (DFS-based cycle detection)
-        val cycleNodes = detectCycles(graph)
-        if (cycleNodes.isNotEmpty()) {
-            errors.add("Graph contains cycles involving nodes: ${cycleNodes.joinToString(", ")}")
+        // 4. Check for cycles (DFS-based cycle detection) if not explicitly allowed
+        if (!graph.allowCycles) {
+            val cycleNodes = detectCycles(graph)
+            if (cycleNodes.isNotEmpty()) {
+                errors.add("Graph contains cycles involving nodes: ${cycleNodes.joinToString(", ")}")
+            }
         }
 
         // 5. Check for unreachable nodes
