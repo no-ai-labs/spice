@@ -109,10 +109,12 @@ val invalid = Graph(
 
 ### Rule 4: No Cycles (DAG)
 
-Graphs must be Directed Acyclic Graphs - no cycles allowed.
+**Added in:** 0.6.3 - Optional cycle validation
+
+By default, graphs must be Directed Acyclic Graphs - no cycles allowed.
 
 ```kotlin
-// ❌ Invalid: Cycle in graph
+// ❌ Invalid by default: Cycle in graph
 val invalid = Graph(
     id = "cyclic",
     nodes = mapOf(
@@ -131,11 +133,44 @@ val invalid = Graph(
 // Error: "Graph contains cycles involving nodes: node1, node2, node3"
 ```
 
-**Why DAG?**
+**Why DAG by default?**
 - Predictable execution order
 - No infinite loops
 - Clear data flow
 - Easier to reason about
+
+#### Allowing Cycles (0.6.3+)
+
+For use cases requiring loops (e.g., iterative workflows, retry loops), you can explicitly allow cycles:
+
+```kotlin
+// ✅ Valid with allowCycles: Conditional loop
+val workflowWithLoop = Graph(
+    id = "workflow-loop",
+    nodes = mapOf(
+        "workflow" to workflowNode,
+        "response" to responseNode
+    ),
+    edges = listOf(
+        Edge("workflow", "workflow") { result ->
+            // Loop condition: continue if not done
+            (result.data as? Map<*, *>)?.get("continue") == true
+        },
+        Edge("workflow", "response") { result ->
+            // Exit condition: stop when done
+            (result.data as? Map<*, *>)?.get("continue") != true
+        }
+    ),
+    entryPoint = "workflow",
+    allowCycles = true  // ⭐ Explicitly allow cycles
+)
+```
+
+**Important:** When using `allowCycles = true`:
+- **Always include exit conditions** in edge predicates
+- **Implement loop guards** in your nodes to prevent infinite loops
+- **Monitor execution** - add middleware for timeout protection
+- **Consider checkpointing** for long-running loops
 
 ### Rule 5: No Unreachable Nodes
 
@@ -199,6 +234,94 @@ fun findTerminalNodes(graph: Graph): List<String>
 val terminals = GraphValidator.findTerminalNodes(graph)
 println("Terminal nodes: $terminals")
 // Useful for finding end points
+```
+
+## Cyclic Graph Use Cases
+
+### Use Case 1: Iterative Refinement Loop
+
+Process data until quality threshold is met:
+
+```kotlin
+val refinementWorkflow = graph("data-refinement") {
+    agent("refine", refineAgent)
+    agent("check-quality", qualityCheckAgent)
+    output("final-result") { it.state["refine"] }
+
+    edges {
+        edge("refine", "check-quality")
+        edge("check-quality", "refine") { result ->
+            // Loop back if quality insufficient
+            val quality = (result.data as? Map<*, *>)?.get("quality") as? Double ?: 0.0
+            quality < 0.9 && ctx.state["iterations"] as? Int ?: 0 < 10
+        }
+        edge("check-quality", "final-result") { result ->
+            // Exit when quality sufficient
+            val quality = (result.data as? Map<*, *>)?.get("quality") as? Double ?: 0.0
+            quality >= 0.9
+        }
+    }
+
+    allowCycles = true
+}
+```
+
+### Use Case 2: User Interaction Loop
+
+Collect user input until confirmation:
+
+```kotlin
+val userDialogWorkflow = graph("user-dialog") {
+    human("ask-question", prompt = "Enter your choice:")
+    agent("validate", validationAgent)
+    agent("confirm", confirmAgent)
+    output("confirmed") { it.state["confirm"] }
+
+    edges {
+        edge("ask-question", "validate")
+        edge("validate", "confirm") { it.data == true }
+        edge("validate", "ask-question") { it.data == false } // Loop back
+        edge("confirm", "ask-question") { result ->
+            // Loop if not confirmed
+            (result.data as? Boolean) != true
+        }
+        edge("confirm", "confirmed") { result ->
+            // Exit when confirmed
+            (result.data as? Boolean) == true
+        }
+    }
+
+    allowCycles = true
+}
+```
+
+### Use Case 3: Retry with Backoff
+
+Retry failing operations with exponential backoff:
+
+```kotlin
+val retryWorkflow = graph("api-retry") {
+    agent("call-api", apiAgent)
+    agent("check-result", resultCheckAgent)
+    agent("backoff", backoffAgent)
+    output("success") { it.state["call-api"] }
+
+    edges {
+        edge("call-api", "check-result")
+        edge("check-result", "success") { result ->
+            // Exit on success
+            (result.data as? Map<*, *>)?.get("success") == true
+        }
+        edge("check-result", "backoff") { result ->
+            // Retry on failure
+            val retries = ctx.state["retries"] as? Int ?: 0
+            (result.data as? Map<*, *>)?.get("success") != true && retries < 5
+        }
+        edge("backoff", "call-api") // Loop back after waiting
+    }
+
+    allowCycles = true
+}
 ```
 
 ## Validation Examples
