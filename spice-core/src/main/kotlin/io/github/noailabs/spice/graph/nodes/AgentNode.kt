@@ -51,6 +51,13 @@ class AgentNode(
                     put("agentId", agent.id)
                     put("agentName", agent.name)
                     put("_previousComm", response)  // Store Comm in metadata
+
+                    // 🆕 Propagate comm.data to metadata for non-AgentNode access
+                    // This allows DynamicHumanNode and other nodes to read agent data
+                    response.data.forEach { (key, value) ->
+                        put(key, value)
+                    }
+
                     ctx.context.tenantId?.let { put("tenantId", it) }
                     ctx.context.userId?.let { put("userId", it) }
                 }

@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "io.github.noailabs"
-    version = "0.6.3"
+    version = "0.8.0-SNAPSHOT"
 
     repositories {
         mavenCentral()

@@ -102,6 +102,49 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Add a Dynamic Human node that reads prompt from state at runtime.
+     *
+     * Unlike humanNode which has a static prompt, this node reads the prompt
+     * from NodeContext.state, allowing agents to generate prompts dynamically.
+     *
+     * Example:
+     * ```kotlin
+     * graph("menu-workflow") {
+     *     agent("generate-menu", menuAgent)  // Sets state["menu_text"]
+     *     dynamicHumanNode("select", promptKey = "menu_text")
+     *     agent("process", processAgent)     // Reads state["select"]
+     * }
+     * ```
+     *
+     * @param id Unique identifier for this node
+     * @param promptKey Key in NodeContext.state to read prompt from (default: "menu_text")
+     * @param fallbackPrompt Prompt to use if promptKey not found in state
+     * @param options List of options for multiple choice (empty for free text)
+     * @param timeout Optional timeout duration
+     * @param validator Optional function to validate human response
+     */
+    fun dynamicHumanNode(
+        id: String,
+        promptKey: String = "menu_text",
+        fallbackPrompt: String = "사용자 입력을 기다립니다...",
+        options: List<io.github.noailabs.spice.graph.nodes.HumanOption> = emptyList(),
+        timeout: java.time.Duration? = null,
+        validator: ((io.github.noailabs.spice.graph.nodes.HumanResponse) -> Boolean)? = null
+    ) {
+        val node = io.github.noailabs.spice.graph.nodes.DynamicHumanNode(
+            id = id,
+            promptKey = promptKey,
+            fallbackPrompt = fallbackPrompt,
+            options = options,
+            timeout = timeout,
+            validator = validator
+        )
+        nodes[id] = node
+        connectToPrevious(id)
+        lastNodeId = id
+    }
+
+    /**
      * Add an Output node to the graph.
      * This typically marks the end of the graph execution.
      *

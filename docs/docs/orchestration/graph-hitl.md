@@ -60,7 +60,116 @@ humanNode(
 )
 ```
 
-### 2. HumanResponse
+### 2. DynamicHumanNode (Added in 0.8.0)
+
+**Breaking free from static prompts!** `DynamicHumanNode` reads the prompt text from `NodeContext` at runtime, allowing agents to generate prompts dynamically based on their processing results.
+
+```kotlin
+dynamicHumanNode(
+    id = "select-reservation",
+    promptKey = "menu_text",  // Reads from ctx.state["menu_text"] or ctx.context["menu_text"]
+    fallbackPrompt = "Please make a selection",
+    options = emptyList(),    // Optional predefined options
+    timeout = Duration.ofMinutes(10)
+)
+```
+
+#### Key Differences from HumanNode
+
+| Feature | HumanNode | DynamicHumanNode |
+|---------|-----------|------------------|
+| **Prompt Source** | Static (compile-time) | Dynamic (runtime from NodeContext) |
+| **Use Case** | Fixed approval prompts | Agent-generated menus/messages |
+| **Flexibility** | Limited to predefined text | Adapts to execution results |
+
+#### Example: Agent-Generated Reservation Menu
+
+```kotlin
+val workflowGraph = graph("reservation-workflow") {
+    // Agent lists reservations and stores menu in state
+    agent("list-reservations", listAgent)
+
+    // DynamicHumanNode reads menu from state["menu_text"]
+    dynamicHumanNode(
+        id = "select-reservation",
+        promptKey = "menu_text",
+        fallbackPrompt = "Please make a selection"
+    )
+
+    // Agent processes user selection
+    agent("cancel-reservation", cancelAgent)
+}
+
+// In the listAgent:
+class ListReservationsAgent : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        val reservations = fetchReservations(comm)
+
+        // Generate dynamic menu
+        val menuText = buildString {
+            appendLine("어떤 예약을 선택하시겠어요?")
+            appendLine()
+            reservations.forEachIndexed { index, res ->
+                appendLine("${index + 1}. ${res.name} | ${res.checkIn} | ${res.checkOut}")
+            }
+        }
+
+        // Store menu and data in comm for next node
+        return SpiceResult.success(
+            comm.reply(
+                content = "Found ${reservations.size} reservations",
+                from = id,
+                data = mapOf(
+                    "menu_text" to menuText,
+                    "reservations_json" to reservations.toJson(),
+                    "reservations_count" to reservations.size.toString()
+                )
+            )
+        )
+    }
+}
+```
+
+#### Prompt Resolution Order
+
+`DynamicHumanNode` checks the following sources in priority order:
+
+1. **`ctx.state[promptKey]`** - Direct state updates from previous nodes
+2. **`ctx.context.get(promptKey)`** - Metadata from AgentNode (via `comm.data`)
+3. **`fallbackPrompt`** - Default if key not found
+
+This ensures maximum flexibility across different checkpoint resume scenarios.
+
+#### Checkpoint Resume Support
+
+`DynamicHumanNode` works seamlessly with checkpointing:
+
+```kotlin
+// Turn 1: Agent generates menu, graph pauses
+val pausedReport = runner.runWithCheckpoint(
+    graph = workflowGraph,
+    input = mapOf("userId" to "user123"),
+    store = checkpointStore
+).getOrThrow()
+
+// Checkpoint saves:
+// - state["menu_text"] = "1. Hotel A\n2. Hotel B\n..."
+// - context["menu_text"] = "1. Hotel A\n2. Hotel B\n..."
+// - context["reservations_json"] = "[{...}, {...}]"
+
+// Turn 2: Resume with user selection
+val finalReport = runner.resumeWithHumanResponse(
+    graph = workflowGraph,
+    checkpointId = pausedReport.checkpointId!!,
+    response = HumanResponse.text("select-reservation", "1"),
+    store = checkpointStore
+).getOrThrow()
+
+// DynamicHumanNode restores menu_text from checkpoint
+// Agent accesses reservations_json from restored context
+```
+
+### 3. HumanResponse
 
 Human's input after interaction:
 
@@ -78,7 +187,7 @@ val response = HumanResponse.text(
 )
 ```
 
-### 3. Graph Execution States
+### 4. Graph Execution States
 
 ```kotlin
 enum class GraphExecutionState {
