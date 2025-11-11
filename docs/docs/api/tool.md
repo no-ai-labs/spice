@@ -753,6 +753,516 @@ tool("search", "Search documents") {
 }
 ```
 
+## OpenAI Function Calling Integration
+
+**New in 0.8.2:** Convert Spice tools to OpenAI Function Calling specification format with zero boilerplate.
+
+### Overview
+
+Spice provides first-class support for OpenAI's function calling API through extension functions that automatically convert `ToolSchema` and `Tool` to OpenAI-compatible format. This enables seamless integration with OpenAI's models and eliminates manual schema translation.
+
+```kotlin
+// Extension functions
+fun ToolSchema.toOpenAIFunctionSpec(strict: Boolean = false): Map<String, Any>
+fun Tool.toOpenAIFunctionSpec(strict: Boolean = false): Map<String, Any>
+```
+
+**Parameters:**
+- `strict`: Enable OpenAI strict mode (enforces schema validation with `additionalProperties: false`). Default: `false`
+
+### Basic Usage
+
+Convert a Spice tool to OpenAI format:
+
+```kotlin
+import io.github.noailabs.spice.*
+
+// Your Spice tool
+val searchTool = SimpleTool(
+    name = "web_search",
+    description = "Search the web for information",
+    parameterSchemas = mapOf(
+        "query" to ParameterSchema("string", "Search query", required = true),
+        "limit" to ParameterSchema("number", "Maximum results", required = false)
+    )
+) { params ->
+    // Implementation
+    ToolResult.success("...")
+}
+
+// Convert to OpenAI spec
+val openAISpec = searchTool.toOpenAIFunctionSpec()
+```
+
+**Output:**
+```json
+{
+  "type": "function",
+  "name": "web_search",
+  "description": "Search the web for information",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search query"
+      },
+      "limit": {
+        "type": "number",
+        "description": "Maximum results"
+      }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+### Converting ToolSchema
+
+Convert a schema directly without a tool instance:
+
+```kotlin
+val schema = ToolSchema(
+    name = "create_task",
+    description = "Create a new task in the system",
+    parameters = mapOf(
+        "title" to ParameterSchema("string", "Task title", required = true),
+        "description" to ParameterSchema("string", "Task description", required = false),
+        "priority" to ParameterSchema("number", "Priority level (1-5)", required = false),
+        "assignee" to ParameterSchema("string", "User to assign", required = false),
+        "tags" to ParameterSchema("array", "Task tags", required = false)
+    )
+)
+
+val openAISpec = schema.toOpenAIFunctionSpec()
+// Ready to send to OpenAI API!
+```
+
+### Integration with OpenAI SDK
+
+Use Spice tools with OpenAI's chat completions:
+
+```kotlin
+import com.aallam.openai.api.chat.*
+import com.aallam.openai.api.model.ModelId
+import com.aallam.openai.client.OpenAI
+
+// Define your Spice tools
+val tools = listOf(
+    WebSearchTool(),
+    FileReadTool(),
+    CalculatorTool(),
+    DatabaseQueryTool(dataSource)
+)
+
+// Convert to OpenAI function specs
+val functions = tools.map { it.toOpenAIFunctionSpec() }
+
+// Create chat request with functions
+val chatRequest = ChatCompletionRequest(
+    model = ModelId("gpt-4"),
+    messages = listOf(
+        ChatMessage(
+            role = ChatRole.User,
+            content = "Search for latest AI news and save to file"
+        )
+    ),
+    functions = functions
+)
+
+// Execute with OpenAI
+val response = openai.chatCompletion(chatRequest)
+
+// Handle function calls
+response.choices.forEach { choice ->
+    choice.message.functionCall?.let { functionCall ->
+        // Find matching Spice tool
+        val tool = tools.find { it.name == functionCall.name }
+
+        // Execute using Spice
+        val result = tool?.execute(
+            parameters = Json.decodeFromString(functionCall.arguments)
+        )
+
+        // Send result back to OpenAI
+        // ...
+    }
+}
+```
+
+### Type Conversion
+
+The converter automatically maps Spice parameter types to OpenAI JSON Schema types:
+
+| Spice Type | OpenAI Type | Example |
+|------------|-------------|---------|
+| `"string"` | `"string"` | Text, emails, URLs |
+| `"number"` | `"number"` | Integers, floats, doubles |
+| `"boolean"` | `"boolean"` | true/false values |
+| `"array"` | `"array"` | Lists, collections |
+| `"object"` | `"object"` | Maps, nested structures |
+
+```kotlin
+tool("complex_tool", "Tool with various types") {
+    parameter("name", "string", "User name", required = true)
+    parameter("age", "number", "User age", required = true)
+    parameter("active", "boolean", "Is active", required = false)
+    parameter("tags", "array", "User tags", required = false)
+    parameter("metadata", "object", "Additional data", required = false)
+
+    execute { params ->
+        // Implementation
+    }
+}
+
+// All types properly converted to OpenAI format
+val spec = tool.toOpenAIFunctionSpec()
+```
+
+### Required Parameters
+
+The converter intelligently handles required parameters:
+
+```kotlin
+// Only required parameters appear in the "required" array
+ToolSchema(
+    name = "search",
+    description = "Search with filters",
+    parameters = mapOf(
+        "query" to ParameterSchema("string", "Search query", required = true),
+        "limit" to ParameterSchema("number", "Result limit", required = false),
+        "offset" to ParameterSchema("number", "Result offset", required = false)
+    )
+)
+
+// OpenAI spec:
+// "required": ["query"]
+// (limit and offset are omitted from required array)
+```
+
+If no parameters are required, the `required` field is omitted entirely:
+
+```kotlin
+ToolSchema(
+    name = "random_number",
+    description = "Generate random number",
+    parameters = mapOf(
+        "min" to ParameterSchema("number", "Minimum", required = false),
+        "max" to ParameterSchema("number", "Maximum", required = false)
+    )
+)
+
+// OpenAI spec has no "required" field ✅
+```
+
+### Default Values
+
+Default values are automatically included when present:
+
+```kotlin
+ToolSchema(
+    name = "api_call",
+    description = "Call external API",
+    parameters = mapOf(
+        "endpoint" to ParameterSchema("string", "API endpoint", required = true),
+        "timeout" to ParameterSchema(
+            type = "number",
+            description = "Request timeout in seconds",
+            required = false,
+            default = JsonPrimitive(30)
+        )
+    )
+)
+
+// OpenAI spec includes:
+// "timeout": {
+//   "type": "number",
+//   "description": "Request timeout in seconds",
+//   "default": 30
+// }
+```
+
+### Multi-Tool Workflows
+
+Build complex workflows using multiple tools:
+
+```kotlin
+// Research agent with multiple tools
+val researchAgent = buildAgent {
+    name = "Research Agent"
+
+    tools {
+        tool(WebSearchTool())
+        tool(FileReadTool())
+        tool(FileWriteTool())
+        tool(DatabaseQueryTool(dataSource))
+    }
+}
+
+// Convert all tools to OpenAI specs
+val toolSpecs = researchAgent.tools.map { it.toOpenAIFunctionSpec() }
+
+// Use with OpenAI API
+val request = ChatCompletionRequest(
+    model = ModelId("gpt-4"),
+    messages = conversations,
+    functions = toolSpecs
+)
+```
+
+### Unified Workflow Architecture
+
+Use the same tools across Spice agents and OpenAI:
+
+```kotlin
+// Define tools once
+val tools = listOf(
+    WebSearchTool(),
+    CalculatorTool(),
+    DatabaseQueryTool(dataSource)
+)
+
+// Use with Spice agents (native)
+val spiceAgent = buildAgent {
+    name = "Spice Agent"
+    tools {
+        tools.forEach { tool(it) }
+    }
+}
+
+// Use with OpenAI (via conversion)
+val openAIFunctions = tools.map { it.toOpenAIFunctionSpec() }
+
+// Use with Anthropic Claude (custom format)
+val claudeTools = tools.map { it.toClaudeToolSpec() } // Your custom converter
+
+// Perfect tool reusability across all LLM providers!
+```
+
+### Testing OpenAI Integrations
+
+Test OpenAI function calling locally using Spice tools:
+
+```kotlin
+@Test
+fun `test OpenAI function calling with Spice tools`() = runTest {
+    // Create mock tool
+    val weatherTool = SimpleTool(
+        name = "get_weather",
+        description = "Get current weather for a city",
+        parameterSchemas = mapOf(
+            "city" to ParameterSchema("string", "City name", required = true),
+            "units" to ParameterSchema("string", "Temperature units", required = false)
+        )
+    ) { params ->
+        val city = params["city"] as String
+        val units = params["units"] as? String ?: "celsius"
+        ToolResult.success("""{"temp": 22, "condition": "sunny", "city": "$city", "units": "$units"}""")
+    }
+
+    // Verify OpenAI spec compatibility
+    val spec = weatherTool.toOpenAIFunctionSpec()
+
+    assertEquals("get_weather", spec["name"])
+    assertEquals("Get current weather for a city", spec["description"])
+
+    val parameters = spec["parameters"] as Map<*, *>
+    assertEquals("object", parameters["type"])
+
+    val properties = parameters["properties"] as Map<*, *>
+    assertTrue(properties.containsKey("city"))
+    assertTrue(properties.containsKey("units"))
+
+    val required = parameters["required"] as List<*>
+    assertEquals(listOf("city"), required)
+
+    // Test local execution
+    val result = weatherTool.execute(mapOf("city" to "Seoul"))
+
+    assertTrue(result.isSuccess)
+    result.fold(
+        onSuccess = { toolResult ->
+            assertTrue(toolResult.success)
+            assertTrue(toolResult.result.contains("Seoul"))
+        },
+        onFailure = { fail("Should not fail") }
+    )
+}
+```
+
+### Best Practices
+
+**1. Use Descriptive Names and Descriptions**
+
+OpenAI's models use function descriptions to determine when to call functions. Make them clear and specific:
+
+```kotlin
+// ✅ Good - Clear, specific description
+ToolSchema(
+    name = "search_customer_database",
+    description = "Search the customer database by email, phone, or customer ID. Returns customer details including purchase history.",
+    parameters = mapOf(
+        "search_term" to ParameterSchema("string", "Email, phone number, or customer ID to search for", required = true)
+    )
+)
+
+// ❌ Bad - Vague description
+ToolSchema(
+    name = "search",
+    description = "Search",
+    parameters = mapOf(
+        "query" to ParameterSchema("string", "Query", required = true)
+    )
+)
+```
+
+**2. Mark Required Parameters Correctly**
+
+Only mark parameters as required if they're truly mandatory:
+
+```kotlin
+// ✅ Good - Sensible required/optional split
+tool("send_email", "Send an email") {
+    parameter("to", "string", "Recipient email", required = true)
+    parameter("subject", "string", "Email subject", required = true)
+    parameter("body", "string", "Email body", required = true)
+    parameter("cc", "array", "CC recipients", required = false)
+    parameter("attachments", "array", "File attachments", required = false)
+}
+
+// ❌ Bad - Making everything required
+tool("send_email", "Send an email") {
+    parameter("to", "string", "Recipient email", required = true)
+    parameter("subject", "string", "Email subject", required = true)
+    parameter("body", "string", "Email body", required = true)
+    parameter("cc", "array", "CC recipients", required = true)  // Should be optional!
+    parameter("attachments", "array", "Attachments", required = true)  // Should be optional!
+}
+```
+
+**3. Provide Parameter Examples in Descriptions**
+
+Help the model understand expected format:
+
+```kotlin
+tool("schedule_meeting", "Schedule a meeting") {
+    parameter("date", "string", "Meeting date in YYYY-MM-DD format (e.g., 2025-12-31)", required = true)
+    parameter("time", "string", "Meeting time in HH:MM format, 24-hour (e.g., 14:30)", required = true)
+    parameter("duration", "number", "Duration in minutes (e.g., 30, 60, 90)", required = true)
+}
+```
+
+**4. Test Conversion Output**
+
+Always verify the OpenAI spec matches your expectations:
+
+```kotlin
+val tool = MyCustomTool()
+val spec = tool.toOpenAIFunctionSpec()
+
+// Verify structure
+println(Json.encodeToString(JsonObject(spec)))
+
+// Or in tests
+assertEquals("expected_name", spec["name"])
+val params = spec["parameters"] as Map<*, *>
+assertTrue(params.containsKey("required"))
+```
+
+### Strict Mode
+
+OpenAI's strict mode enforces schema validation and prevents additional properties. Enable it for production APIs requiring exact schema compliance:
+
+```kotlin
+// Default: non-strict mode (flexible for development)
+val spec = tool.toOpenAIFunctionSpec()
+
+// Strict mode: enforces schema validation
+val strictSpec = tool.toOpenAIFunctionSpec(strict = true)
+```
+
+**Strict Mode Output:**
+```json
+{
+  "type": "function",
+  "name": "get_weather",
+  "description": "Get current weather for a location",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "location": {
+        "type": "string",
+        "description": "City and country (e.g., 'Seoul, South Korea')"
+      },
+      "units": {
+        "type": "string",
+        "description": "Temperature units (celsius or fahrenheit)"
+      }
+    },
+    "required": ["location", "units"],
+    "additionalProperties": false
+  },
+  "strict": true
+}
+```
+
+**When to use strict mode:**
+
+✅ **Use strict mode when:**
+- Building production APIs with strict contracts
+- Type-safe function calling is critical
+- You need to prevent unexpected properties
+- Schema validation must be enforced by OpenAI
+
+❌ **Avoid strict mode when:**
+- Prototyping and rapid development
+- You need flexibility in function arguments
+- Backward compatibility with older API versions
+
+**Example:**
+```kotlin
+// Production tool with strict validation
+val productionTool = DatabaseQueryTool(dataSource)
+val strictSpec = productionTool.toOpenAIFunctionSpec(strict = true)
+
+// Use with OpenAI chat completion
+val request = ChatCompletionRequest(
+    model = ModelId("gpt-4"),
+    messages = messages,
+    functions = listOf(strictSpec)  // Strict validation enabled
+)
+```
+
+### Limitations
+
+- **Custom JSON Schema Features**: Advanced JSON Schema features like `oneOf`, `anyOf`, `pattern`, `minLength`, etc. are not automatically generated. Use parameter descriptions to communicate constraints.
+
+- **Nested Object Schemas**: Spice's `ParameterSchema` doesn't deeply model nested object structures. For complex nested schemas, document the structure in the parameter description.
+
+- **Array Item Types**: The converter specifies type as `"array"` but doesn't specify item types. Document expected array contents in the description.
+
+```kotlin
+// Document complex types in descriptions
+parameter(
+    "filters",
+    "object",
+    """Filter criteria object with structure:
+       {
+         "status": "active" | "inactive",
+         "created_after": "YYYY-MM-DD",
+         "tags": ["tag1", "tag2"]
+       }
+    """.trimIndent(),
+    required = false
+)
+```
+
+### See Also
+
+- [OpenAI Function Calling Documentation](https://platform.openai.com/docs/guides/function-calling)
+- [Tool Patterns](../tools-extensions/tool-patterns) - Advanced tool patterns
+- [Creating Custom Tools](../tools-extensions/creating-tools) - Deep dive into tool development
+
 ## Execution & Results
 
 ### Simple Execute

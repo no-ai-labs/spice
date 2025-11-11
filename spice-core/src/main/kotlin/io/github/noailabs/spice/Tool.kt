@@ -220,7 +220,7 @@ class FileWriteTool : BaseTool() {
             "content" to ParameterSchema("string", "tool.file_write.param.content".i18n(), required = true)
         )
     )
-    
+
     override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
         val path = parameters["path"] as? String
             ?: return SpiceResult.success(ToolResult.error("tool.file_write.error.path_required".i18n()))
@@ -238,4 +238,80 @@ class FileWriteTool : BaseTool() {
             SpiceResult.success(ToolResult.error("tool.file_write.error.write_failed".i18n()))
         }
     }
-} 
+}
+
+// =====================================
+// OpenAI Function Calling Spec Export
+// =====================================
+
+/**
+ * Convert ToolSchema to OpenAI Function Calling specification format
+ *
+ * @param strict Whether to enforce strict schema validation (default: false)
+ * @return Map representation of OpenAI function calling spec
+ * @see <a href="https://platform.openai.com/docs/guides/function-calling">OpenAI Function Calling</a>
+ *
+ * Example output:
+ * ```json
+ * {
+ *   "type": "function",
+ *   "name": "web_search",
+ *   "description": "Search the web for information",
+ *   "parameters": {
+ *     "type": "object",
+ *     "properties": {
+ *       "query": {
+ *         "type": "string",
+ *         "description": "Search query"
+ *       }
+ *     },
+ *     "required": ["query"],
+ *     "additionalProperties": false
+ *   },
+ *   "strict": false
+ * }
+ * ```
+ */
+fun ToolSchema.toOpenAIFunctionSpec(strict: Boolean = false): Map<String, Any> {
+    val properties = parameters.mapValues { (_, param) ->
+        buildMap<String, Any> {
+            put("type", param.type)
+            put("description", param.description)
+            param.default?.let { put("default", it) }
+        }
+    }
+
+    val required = parameters
+        .filter { it.value.required }
+        .keys
+        .toList()
+
+    return buildMap {
+        put("type", "function")
+        put("name", name)
+        put("description", description)
+        put("parameters", buildMap<String, Any> {
+            put("type", "object")
+            put("properties", properties)
+            if (required.isNotEmpty()) {
+                put("required", required)
+            }
+            if (strict) {
+                put("additionalProperties", false)
+            }
+        })
+        if (strict) {
+            put("strict", true)
+        }
+    }
+}
+
+/**
+ * Convert Tool to OpenAI Function Calling specification format
+ *
+ * @param strict Whether to enforce strict schema validation (default: false)
+ * @return Map representation of OpenAI function calling spec
+ * @see <a href="https://platform.openai.com/docs/guides/function-calling">OpenAI Function Calling</a>
+ */
+fun Tool.toOpenAIFunctionSpec(strict: Boolean = false): Map<String, Any> =
+    schema.toOpenAIFunctionSpec(strict) 

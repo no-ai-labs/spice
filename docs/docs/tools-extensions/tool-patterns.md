@@ -1225,6 +1225,575 @@ class SmartCacheTool : Tool {
 
 ---
 
+## 7. OpenAI Function Calling Integration
+
+**New in 0.8.2:** Convert Spice tools to OpenAI Function Calling specification.
+
+### Pattern: Multi-Provider Tool Architecture
+
+Build tools that work seamlessly across Spice, OpenAI, and other LLM providers:
+
+```kotlin
+// Define tools once
+val tools = listOf(
+    WebSearchTool(),
+    DatabaseQueryTool(dataSource),
+    EmailSenderTool(smtpConfig),
+    CalculatorTool()
+)
+
+// Use with Spice agents (native)
+val spiceAgent = buildAgent {
+    name = "Spice Agent"
+    tools {
+        tools.forEach { tool(it) }
+    }
+}
+
+// Use with OpenAI (via conversion)
+val openAIFunctions = tools.map { it.toOpenAIFunctionSpec() }
+
+val chatRequest = ChatCompletionRequest(
+    model = ModelId("gpt-4"),
+    messages = messages,
+    functions = openAIFunctions
+)
+```
+
+### Pattern: Unified Workflow Tool
+
+Create tools optimized for both Spice agents and OpenAI function calling:
+
+```kotlin
+class WorkflowTool(
+    private val spiceTool: Tool
+) {
+    // Original Spice tool
+    val tool: Tool = spiceTool
+
+    // OpenAI function spec
+    val openAISpec: Map<String, Any> by lazy {
+        spiceTool.toOpenAIFunctionSpec()
+    }
+
+    // Execute via Spice (local)
+    suspend fun executeLocal(params: Map<String, Any>): SpiceResult<ToolResult> {
+        return spiceTool.execute(params)
+    }
+
+    // Execute via OpenAI (remote)
+    suspend fun executeWithOpenAI(
+        openAI: OpenAI,
+        userMessage: String,
+        context: Map<String, Any> = emptyMap()
+    ): String {
+        val request = ChatCompletionRequest(
+            model = ModelId("gpt-4"),
+            messages = listOf(
+                ChatMessage(
+                    role = ChatRole.System,
+                    content = "You are a helpful assistant with access to tools."
+                ),
+                ChatMessage(
+                    role = ChatRole.User,
+                    content = userMessage
+                )
+            ),
+            functions = listOf(openAISpec),
+            functionCall = "auto"
+        )
+
+        val response = openAI.chatCompletion(request)
+
+        response.choices.firstOrNull()?.message?.functionCall?.let { functionCall ->
+            if (functionCall.name == spiceTool.name) {
+                val params = Json.decodeFromString<Map<String, Any>>(functionCall.arguments)
+
+                // Execute locally
+                val result = spiceTool.execute(params)
+
+                result.fold(
+                    onSuccess = { toolResult ->
+                        if (toolResult.success) {
+                            return toolResult.result
+                        } else {
+                            return "Error: ${toolResult.error}"
+                        }
+                    },
+                    onFailure = { error ->
+                        return "Error: ${error.message}"
+                    }
+                )
+            }
+        }
+
+        return response.choices.firstOrNull()?.message?.content ?: "No response"
+    }
+}
+
+// Usage
+val databaseTool = DatabaseQueryTool(dataSource)
+val workflowTool = WorkflowTool(databaseTool)
+
+// Execute locally via Spice
+val localResult = workflowTool.executeLocal(mapOf("query" to "SELECT * FROM users"))
+
+// Execute remotely via OpenAI
+val remoteResult = workflowTool.executeWithOpenAI(
+    openAI = openAI,
+    userMessage = "Show me all users in the database"
+)
+```
+
+### Pattern: Adaptive Tool Router
+
+Route tool execution between local Spice and remote OpenAI based on context:
+
+```kotlin
+class AdaptiveToolRouter(
+    private val tools: List<Tool>,
+    private val openAI: OpenAI
+) {
+    enum class ExecutionMode {
+        LOCAL,      // Execute via Spice
+        OPENAI,     // Execute via OpenAI function calling
+        AUTO        // Decide automatically
+    }
+
+    suspend fun execute(
+        userMessage: String,
+        mode: ExecutionMode = ExecutionMode.AUTO,
+        context: ToolContext? = null
+    ): String {
+        val selectedMode = when (mode) {
+            ExecutionMode.AUTO -> selectMode(userMessage, context)
+            else -> mode
+        }
+
+        return when (selectedMode) {
+            ExecutionMode.LOCAL -> executeLocal(userMessage, context)
+            ExecutionMode.OPENAI -> executeWithOpenAI(userMessage)
+            ExecutionMode.AUTO -> error("Should not reach here")
+        }
+    }
+
+    private fun selectMode(message: String, context: ToolContext?): ExecutionMode {
+        // Decision logic:
+        // - Use LOCAL for simple, deterministic tasks
+        // - Use OPENAI for complex reasoning + tool use
+
+        val isSimpleQuery = message.length < 50 &&
+            (message.contains("calculate") ||
+             message.contains("search") ||
+             message.contains("query"))
+
+        return if (isSimpleQuery) {
+            ExecutionMode.LOCAL
+        } else {
+            ExecutionMode.OPENAI
+        }
+    }
+
+    private suspend fun executeLocal(message: String, context: ToolContext?): String {
+        // Parse message to extract tool + params (simple rule-based)
+        // Execute via Spice
+        // Return result
+
+        // Simplified example
+        val tool = tools.firstOrNull { message.contains(it.name) }
+            ?: return "No matching tool found"
+
+        val params = extractParameters(message, tool.schema)
+
+        val result = if (context != null) {
+            tool.execute(params, context)
+        } else {
+            tool.execute(params)
+        }
+
+        return result.fold(
+            onSuccess = { it.result },
+            onFailure = { "Error: ${it.message}" }
+        )
+    }
+
+    private suspend fun executeWithOpenAI(message: String): String {
+        val openAIFunctions = tools.map { it.toOpenAIFunctionSpec() }
+
+        val request = ChatCompletionRequest(
+            model = ModelId("gpt-4"),
+            messages = listOf(
+                ChatMessage(role = ChatRole.User, content = message)
+            ),
+            functions = openAIFunctions,
+            functionCall = "auto"
+        )
+
+        val response = openAI.chatCompletion(request)
+
+        // Handle function calls
+        response.choices.firstOrNull()?.message?.functionCall?.let { functionCall ->
+            val tool = tools.find { it.name == functionCall.name }
+
+            if (tool != null) {
+                val params = Json.decodeFromString<Map<String, Any>>(functionCall.arguments)
+                val result = tool.execute(params)
+
+                return result.fold(
+                    onSuccess = { if (it.success) it.result else "Error: ${it.error}" },
+                    onFailure = { "Error: ${it.message}" }
+                )
+            }
+        }
+
+        return response.choices.firstOrNull()?.message?.content ?: "No response"
+    }
+
+    private fun extractParameters(message: String, schema: ToolSchema): Map<String, Any> {
+        // Simple rule-based parameter extraction
+        // In production, use more sophisticated parsing
+        return emptyMap()
+    }
+}
+
+// Usage
+val router = AdaptiveToolRouter(
+    tools = listOf(
+        WebSearchTool(),
+        CalculatorTool(),
+        DatabaseQueryTool(dataSource)
+    ),
+    openAI = openAI
+)
+
+// Auto mode: Router decides execution strategy
+val result1 = router.execute(
+    "Calculate 42 * 1337",
+    mode = AdaptiveToolRouter.ExecutionMode.AUTO
+)
+
+// Force local execution
+val result2 = router.execute(
+    "Search for AI news",
+    mode = AdaptiveToolRouter.ExecutionMode.LOCAL
+)
+
+// Force OpenAI execution with reasoning
+val result3 = router.execute(
+    "Analyze sales data and suggest optimization strategies",
+    mode = AdaptiveToolRouter.ExecutionMode.OPENAI
+)
+```
+
+### Pattern: Tool Spec Validation
+
+Validate that your tools produce valid OpenAI function specs:
+
+```kotlin
+object ToolSpecValidator {
+    fun validate(tool: Tool): ValidationResult {
+        val errors = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
+
+        // Validate name
+        if (tool.name.isEmpty()) {
+            errors.add("Tool name cannot be empty")
+        }
+        if (!tool.name.matches(Regex("^[a-zA-Z0-9_-]+$"))) {
+            warnings.add("Tool name should only contain alphanumeric, underscore, or hyphen")
+        }
+
+        // Validate description
+        if (tool.description.isEmpty()) {
+            errors.add("Tool description cannot be empty")
+        }
+        if (tool.description.length < 10) {
+            warnings.add("Tool description is too short (< 10 chars). OpenAI models work better with detailed descriptions.")
+        }
+
+        // Validate parameters
+        tool.schema.parameters.forEach { (paramName, paramSchema) ->
+            if (paramName.isEmpty()) {
+                errors.add("Parameter name cannot be empty")
+            }
+            if (paramSchema.description.isEmpty()) {
+                warnings.add("Parameter '$paramName' has no description")
+            }
+            if (paramSchema.type !in listOf("string", "number", "boolean", "array", "object")) {
+                errors.add("Parameter '$paramName' has invalid type: ${paramSchema.type}")
+            }
+        }
+
+        // Validate OpenAI spec generation
+        try {
+            val spec = tool.toOpenAIFunctionSpec()
+
+            // Check structure
+            if (spec["name"] != tool.name) {
+                errors.add("OpenAI spec name doesn't match tool name")
+            }
+
+            val parameters = spec["parameters"] as? Map<*, *>
+            if (parameters == null) {
+                errors.add("OpenAI spec missing 'parameters' field")
+            } else {
+                if (parameters["type"] != "object") {
+                    errors.add("OpenAI spec 'parameters.type' must be 'object'")
+                }
+                if (!parameters.containsKey("properties")) {
+                    errors.add("OpenAI spec missing 'parameters.properties'")
+                }
+            }
+
+        } catch (e: Exception) {
+            errors.add("Failed to generate OpenAI spec: ${e.message}")
+        }
+
+        return ValidationResult(
+            valid = errors.isEmpty(),
+            errors = errors,
+            warnings = warnings
+        )
+    }
+
+    data class ValidationResult(
+        val valid: Boolean,
+        val errors: List<String>,
+        val warnings: List<String>
+    )
+}
+
+// Usage
+val tool = WebSearchTool()
+val validation = ToolSpecValidator.validate(tool)
+
+if (validation.valid) {
+    println("✓ Tool is valid")
+    if (validation.warnings.isNotEmpty()) {
+        println("⚠ Warnings:")
+        validation.warnings.forEach { println("  - $it") }
+    }
+} else {
+    println("✗ Tool validation failed:")
+    validation.errors.forEach { println("  - $it") }
+}
+```
+
+### Pattern: Testing OpenAI Integration
+
+Test your tools work correctly with OpenAI function calling:
+
+```kotlin
+class OpenAIToolIntegrationTest {
+    private lateinit var mockOpenAI: OpenAI
+    private lateinit var tools: List<Tool>
+
+    @BeforeTest
+    fun setup() {
+        tools = listOf(
+            SimpleTool(
+                name = "get_weather",
+                description = "Get weather for a city",
+                parameterSchemas = mapOf(
+                    "city" to ParameterSchema("string", "City name", required = true)
+                )
+            ) { params ->
+                val city = params["city"] as String
+                ToolResult.success("""{"city": "$city", "temp": 22, "condition": "sunny"}""")
+            }
+        )
+    }
+
+    @Test
+    fun `test tool spec generation`() {
+        val weatherTool = tools[0]
+        val spec = weatherTool.toOpenAIFunctionSpec()
+
+        // Validate spec structure
+        assertEquals("get_weather", spec["name"])
+        assertEquals("Get weather for a city", spec["description"])
+
+        val parameters = spec["parameters"] as Map<*, *>
+        assertEquals("object", parameters["type"])
+
+        val properties = parameters["properties"] as Map<*, *>
+        assertTrue(properties.containsKey("city"))
+
+        val required = parameters["required"] as List<*>
+        assertEquals(listOf("city"), required)
+    }
+
+    @Test
+    fun `test local execution matches spec`() = runTest {
+        val weatherTool = tools[0]
+
+        // Verify tool executes correctly
+        val result = weatherTool.execute(mapOf("city" to "Seoul"))
+
+        assertTrue(result.isSuccess)
+        result.fold(
+            onSuccess = { toolResult ->
+                assertTrue(toolResult.success)
+                assertTrue(toolResult.result.contains("Seoul"))
+                assertTrue(toolResult.result.contains("temp"))
+            },
+            onFailure = { fail("Should not fail") }
+        )
+    }
+
+    @Test
+    fun `test parameter validation`() {
+        val weatherTool = tools[0]
+
+        // Missing required parameter
+        val validation = weatherTool.validateParameters(emptyMap())
+
+        assertFalse(validation.valid)
+        assertTrue(validation.errors.any { it.contains("city") })
+    }
+
+    @Test
+    fun `test spec validator`() {
+        val weatherTool = tools[0]
+        val validation = ToolSpecValidator.validate(weatherTool)
+
+        assertTrue(validation.valid)
+        assertEquals(0, validation.errors.size)
+    }
+}
+```
+
+### Best Practices for OpenAI Integration
+
+**1. Descriptive Schemas**
+
+OpenAI models use function descriptions to decide when to call functions. Make them clear and detailed:
+
+```kotlin
+// ✅ Good
+ToolSchema(
+    name = "search_customer_database",
+    description = "Search the customer database by email, phone, or customer ID. Returns full customer record including contact details, purchase history, and account status.",
+    parameters = mapOf(
+        "search_term" to ParameterSchema(
+            "string",
+            "Customer email address, phone number (format: +1-555-555-5555), or customer ID (format: CUST-12345)",
+            required = true
+        )
+    )
+)
+
+// ❌ Bad
+ToolSchema(
+    name = "search",
+    description = "Search",
+    parameters = mapOf(
+        "q" to ParameterSchema("string", "Query", required = true)
+    )
+)
+```
+
+**2. Required vs Optional Parameters**
+
+Only mark parameters as required if they're truly mandatory:
+
+```kotlin
+// ✅ Good
+tool("send_notification", "Send notification to user") {
+    parameter("user_id", "string", "User ID", required = true)
+    parameter("message", "string", "Notification message", required = true)
+    parameter("channel", "string", "Notification channel (email, sms, push)", required = false) // Defaults to email
+    parameter("priority", "string", "Priority level (low, medium, high)", required = false) // Defaults to medium
+}
+```
+
+**3. Test Both Execution Paths**
+
+Test both Spice local execution and OpenAI remote execution:
+
+```kotlin
+@Test
+fun `test dual execution`() = runTest {
+    val tool = MyTool()
+
+    // Test local Spice execution
+    val localResult = tool.execute(params)
+    assertTrue(localResult.isSuccess)
+
+    // Test OpenAI spec generation
+    val spec = tool.toOpenAIFunctionSpec()
+    assertNotNull(spec["name"])
+    assertNotNull(spec["parameters"])
+
+    // Validate spec with OpenAI (mock or integration test)
+    // ...
+}
+```
+
+**4. Monitor Conversion Performance**
+
+For large tool sets, cache OpenAI specs:
+
+```kotlin
+class CachedToolRegistry(private val tools: List<Tool>) {
+    private val specCache = ConcurrentHashMap<String, Map<String, Any>>()
+
+    fun getOpenAISpecs(): List<Map<String, Any>> {
+        return tools.map { tool ->
+            specCache.getOrPut(tool.name) {
+                tool.toOpenAIFunctionSpec()
+            }
+        }
+    }
+
+    fun invalidateCache(toolName: String) {
+        specCache.remove(toolName)
+    }
+
+    fun clearCache() {
+        specCache.clear()
+    }
+}
+```
+
+**5. Use Strict Mode for Production**
+
+Enable strict mode for production APIs requiring exact schema compliance:
+
+```kotlin
+// Development: flexible, non-strict
+val devSpec = tool.toOpenAIFunctionSpec()
+
+// Production: strict validation
+val prodSpec = tool.toOpenAIFunctionSpec(strict = true)
+```
+
+**Strict mode ensures:**
+- ✅ `"type": "function"` field is always present
+- ✅ `"strict": true` enforces schema validation
+- ✅ `"additionalProperties": false` prevents unexpected properties
+- ✅ OpenAI validates all function calls against exact schema
+
+**Example: Environment-based strict mode**
+
+```kotlin
+class ToolRegistry(private val environment: String) {
+    fun getOpenAISpecs(tools: List<Tool>): List<Map<String, Any>> {
+        val useStrict = environment == "production"
+
+        return tools.map { tool ->
+            tool.toOpenAIFunctionSpec(strict = useStrict)
+        }
+    }
+}
+
+// Usage
+val registry = ToolRegistry(System.getenv("ENV") ?: "development")
+val specs = registry.getOpenAISpecs(myTools)
+```
+
+---
+
 ## Best Practices Summary
 
 ### 1. State Management
