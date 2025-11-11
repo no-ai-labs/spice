@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.github.no-ai-labs"
-version = "0.9.0"
+version = "0.9.1"
 
 repositories {
     mavenCentral()
@@ -13,7 +13,7 @@ repositories {
 dependencies {
     // Core Spice Framework
     implementation(project(":spice-core"))
-    
+
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     

@@ -2,8 +2,6 @@ package io.github.noailabs.spice.graph
 
 import io.github.noailabs.spice.ExecutionContext
 import io.github.noailabs.spice.error.SpiceResult
-import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.toPersistentMap
 
 /**
  * Core abstraction for a node in the execution graph.
@@ -20,11 +18,12 @@ interface Node {
  * Execution context passed to each node.
  * Contains the current state and execution context for the graph.
  *
- * State is immutable (PersistentMap) - use withState to modify.
+ * State is immutable - use withState to modify.
+ * Implementation uses immutable collections internally but exposes standard Map interface.
  */
 data class NodeContext(
     val graphId: String,
-    val state: PersistentMap<String, Any?>,
+    val state: Map<String, Any?>,  // ✅ Generic Map interface - no dependency leakage
     val context: ExecutionContext
 ) {
     companion object {
@@ -34,16 +33,16 @@ data class NodeContext(
             context: ExecutionContext
         ): NodeContext = NodeContext(
             graphId = graphId,
-            state = state.toPersistentMap(),
+            state = state.toMap(),  // Defensive copy
             context = context
         )
     }
 
     fun withState(key: String, value: Any?): NodeContext =
-        copy(state = state.put(key, value))
+        copy(state = state + (key to value))
 
     fun withState(updates: Map<String, Any?>): NodeContext =
-        copy(state = state.putAll(updates))
+        copy(state = state + updates)
 
     fun withContext(newContext: ExecutionContext): NodeContext =
         copy(context = newContext)

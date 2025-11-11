@@ -216,6 +216,7 @@ const sidebars: SidebarsConfig = {
         'api/agent',
         'api/comm',
         'api/tool',
+        'api/node',
         'api/context',
         'api/execution-context',
         'api/registry',

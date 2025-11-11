@@ -57,7 +57,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-extensions-sparql"
-            version = "0.9.0"
+            version = "0.9.1"
 
             pom {
                 name.set("Spice Extensions - SPARQL")
