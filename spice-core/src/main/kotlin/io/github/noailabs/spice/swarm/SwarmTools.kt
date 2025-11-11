@@ -127,7 +127,7 @@ class AIConsensusTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return try {
             val responses = parameters["responses"] as? List<*> ?: emptyList<String>()
             val criteria = parameters["criteria"] as? String ?: "balanced"
@@ -235,7 +235,7 @@ class ConflictResolverTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return try {
             val responses = parameters["conflicting_responses"] as? List<*> ?: emptyList<String>()
             val strategy = parameters["resolution_strategy"] as? String ?: "hybrid"
@@ -297,10 +297,10 @@ class QualityAssessorTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return try {
-            val content = parameters["content"] as String
-            val originalQuery = parameters["original_query"] as String
+            val content = parameters["content"] as? String ?: ""
+            val originalQuery = parameters["original_query"] as? String ?: ""
             val taskType = TaskType.valueOf(parameters["task_type"] as? String ?: "GENERAL")
 
             val assessment = if (scoringAgent != null) {
@@ -402,7 +402,7 @@ class ResultAggregatorTool(
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return try {
             val results = parameters["results"] as? List<*> ?: emptyList<String>()
             val strategy = parameters["aggregation_strategy"] as? String ?: "synthesize"
@@ -480,10 +480,10 @@ class StrategyOptimizerTool : Tool {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return try {
             val history = parameters["performance_history"] as? List<*> ?: emptyList<String>()
-            val currentTask = parameters["current_task"] as String
+            val currentTask = parameters["current_task"] as? String ?: ""
 
             val optimization = optimizeStrategy(history.map { it.toString() }, currentTask)
 

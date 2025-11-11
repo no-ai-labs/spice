@@ -210,7 +210,7 @@ class CoreAgentBuilder {
                 )
             )
             
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 return try {
                     val query = parameters["query"] as? String
                         ?: return SpiceResult.success(ToolResult.error("Query parameter required"))
@@ -470,8 +470,8 @@ suspend fun <T> withToolContext(
 class InlineToolBuilder(private val name: String) {
     var description: String = ""
     private val parametersMap: MutableMap<String, ParameterSchema> = mutableMapOf()
-    private var executeFunction: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
-    private var canExecuteFunction: ((Map<String, Any>) -> Boolean)? = null
+    private var executeFunction: (suspend (Map<String, Any?>) -> SpiceResult<ToolResult>)? = null
+    private var canExecuteFunction: ((Map<String, Any?>) -> Boolean)? = null
     
     /**
      * Set tool description
@@ -490,14 +490,14 @@ class InlineToolBuilder(private val name: String) {
     /**
      * Set the execution function
      */
-    fun execute(executor: suspend (Map<String, Any>) -> SpiceResult<ToolResult>) {
+    fun execute(executor: suspend (Map<String, Any?>) -> SpiceResult<ToolResult>) {
         executeFunction = executor
     }
 
     /**
      * Set simple execution with auto-success result
      */
-    fun execute(executor: (Map<String, Any>) -> Any?) {
+    fun execute(executor: (Map<String, Any?>) -> Any?) {
         executeFunction = { params ->
             // Validate required parameters
             val missingParams = parametersMap
@@ -518,11 +518,11 @@ class InlineToolBuilder(private val name: String) {
             }
         }
     }
-    
+
     /**
      * Set validation function
      */
-    fun canExecute(checker: (Map<String, Any>) -> Boolean) {
+    fun canExecute(checker: (Map<String, Any?>) -> Boolean) {
         canExecuteFunction = checker
     }
     
@@ -562,11 +562,11 @@ class InlineTool(
     override val name: String,
     override val description: String,
     override val schema: ToolSchema,
-    private val executeFunction: suspend (Map<String, Any>) -> SpiceResult<ToolResult>,
-    private val canExecuteFunction: ((Map<String, Any>) -> Boolean)? = null
+    private val executeFunction: suspend (Map<String, Any?>) -> SpiceResult<ToolResult>,
+    private val canExecuteFunction: ((Map<String, Any?>) -> Boolean)? = null
 ) : Tool {
 
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         // Validate parameters if canExecute function is provided
         canExecuteFunction?.let { validator ->
             if (!validator(parameters)) {
@@ -580,8 +580,8 @@ class InlineTool(
             SpiceResult.success(ToolResult.error("Tool execution failed: ${e.message}"))
         }
     }
-    
-    override fun canExecute(parameters: Map<String, Any>): Boolean {
+
+    override fun canExecute(parameters: Map<String, Any?>): Boolean {
         return canExecuteFunction?.invoke(parameters) ?: true
     }
     
@@ -592,8 +592,8 @@ class InlineTool(
         name: String = this.name,
         description: String = this.description,
         schema: ToolSchema = this.schema,
-        executeFunction: suspend (Map<String, Any>) -> SpiceResult<ToolResult> = this.executeFunction,
-        canExecuteFunction: ((Map<String, Any>) -> Boolean)? = this.canExecuteFunction
+        executeFunction: suspend (Map<String, Any?>) -> SpiceResult<ToolResult> = this.executeFunction,
+        canExecuteFunction: ((Map<String, Any?>) -> Boolean)? = this.canExecuteFunction
     ): InlineTool {
         return InlineTool(
             name = name,
@@ -618,7 +618,7 @@ class InlineTool(
      */
     fun toAgentTool(
         tags: List<String> = emptyList(),
-        metadata: Map<String, String> = emptyMap()
+        metadata: Map<String, Any?> = emptyMap()
     ): AgentTool {
         return AgentTool(
             name = name,

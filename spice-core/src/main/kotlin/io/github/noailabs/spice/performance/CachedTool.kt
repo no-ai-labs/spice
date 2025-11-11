@@ -78,13 +78,16 @@ class CachedTool(
         }
     }
 
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         // Get context from coroutine context or parameters
         val context = kotlin.coroutines.coroutineContext[AgentContext]
             ?: (parameters["__context"] as? AgentContext)
 
+        @Suppress("UNCHECKED_CAST")
+        val nonNullParams = parameters.filterValues { it != null } as Map<String, Any>
+
         // Generate cache key
-        val cacheKey = generateCacheKey(parameters, context)
+        val cacheKey = generateCacheKey(nonNullParams, context)
 
         // Check cache
         val cachedResult = checkCache(cacheKey)
@@ -268,7 +271,7 @@ class CachedTool(
     override val description: String get() = delegate.description
     override val schema: ToolSchema get() = delegate.schema
 
-    override fun canExecute(parameters: Map<String, Any>): Boolean = delegate.canExecute(parameters)
+    override fun canExecute(parameters: Map<String, Any?>): Boolean = delegate.canExecute(parameters)
 }
 
 /**

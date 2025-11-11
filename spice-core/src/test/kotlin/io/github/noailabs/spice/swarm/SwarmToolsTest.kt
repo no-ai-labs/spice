@@ -25,10 +25,10 @@ class SwarmToolsTest {
                     parameter("b", "number", "Second number", required = true)
                     parameter("operation", "string", "Operation (+, -, *, /)", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val a = (params["a"] as Number).toDouble()
-                        val b = (params["b"] as Number).toDouble()
-                        val op = params["operation"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val a = (params["a"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'a'")
+                        val b = (params["b"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'b'")
+                        val op = params["operation"]?.toString() ?: throw IllegalArgumentException("Missing 'operation'")
 
                         val result = when (op) {
                             "+" -> a + b
@@ -68,9 +68,9 @@ class SwarmToolsTest {
                     parameter("x", "number", "First number", required = true)
                     parameter("y", "number", "Second number", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val x = (params["x"] as Number).toDouble()
-                        val y = (params["y"] as Number).toDouble()
+                    execute(fun(params: Map<String, Any?>): String {
+                        val x = (params["x"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'x'")
+                        val y = (params["y"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'y'")
                         return "${x + y}"
                     })
                 }
@@ -103,8 +103,8 @@ class SwarmToolsTest {
                 tool("greet", "Greeting tool") {
                     parameter("name", "string", "Name to greet", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val name = params["name"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val name = params["name"]?.toString() ?: throw IllegalArgumentException("Missing 'name'")
                         return "Hello, $name!"
                     })
                 }
@@ -136,7 +136,7 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("swarm_tool", "Swarm's own tool") {
-                    execute(fun(_: Map<String, Any>): String {
+                    execute(fun(_: Map<String, Any?>): String {
                         return "Swarm tool executed"
                     })
                 }
@@ -163,12 +163,12 @@ class SwarmToolsTest {
 
             swarmTools {
                 tool("tool1", "Tool 1") {
-                    execute(fun(_: Map<String, Any>): String {
+                    execute(fun(_: Map<String, Any?>): String {
                         return "Tool 1"
                     })
                 }
                 tool("tool2", "Tool 2") {
-                    execute(fun(_: Map<String, Any>): String {
+                    execute(fun(_: Map<String, Any?>): String {
                         return "Tool 2"
                     })
                 }
@@ -198,8 +198,8 @@ class SwarmToolsTest {
                 tool("coordinate", "Coordination tool") {
                     parameter("action", "string", "Action to coordinate", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val action = params["action"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val action = params["action"]?.toString() ?: throw IllegalArgumentException("Missing 'action'")
                         return "Coordinating: $action"
                     })
                 }
@@ -239,9 +239,9 @@ class SwarmToolsTest {
                     parameter("numerator", "number", "Numerator", required = true)
                     parameter("denominator", "number", "Denominator", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val numerator = (params["numerator"] as Number).toDouble()
-                        val denominator = (params["denominator"] as Number).toDouble()
+                    execute(fun(params: Map<String, Any?>): String {
+                        val numerator = (params["numerator"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'numerator'")
+                        val denominator = (params["denominator"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'denominator'")
 
                         if (denominator == 0.0) {
                             throw ArithmeticException("Division by zero")

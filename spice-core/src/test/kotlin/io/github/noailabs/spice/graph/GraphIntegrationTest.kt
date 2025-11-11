@@ -112,7 +112,7 @@ class GraphIntegrationTest {
             override val description = "Converts text to uppercase"
             override val schema = ToolSchema("test", "test", emptyMap())
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 val text = parameters["text"]?.toString() ?: ""
                 return SpiceResult.success(
                     ToolResult(
@@ -162,7 +162,7 @@ class GraphIntegrationTest {
             override val description = "Formats text"
             override val schema = ToolSchema("test", "test", emptyMap())
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 val text = parameters["text"]?.toString() ?: ""
                 return SpiceResult.success(
                     ToolResult(
@@ -274,14 +274,14 @@ class GraphIntegrationTest {
             override val description = "Captures context"
             override val schema = ToolSchema("test", "test", emptyMap())
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 return SpiceResult.success(
                     ToolResult(success = true, result = "No context")
                 )
             }
 
             override suspend fun execute(
-                parameters: Map<String, Any>,
+                parameters: Map<String, Any?>,
                 context: ToolContext
             ): SpiceResult<ToolResult> {
                 // Capture context
@@ -840,12 +840,12 @@ class GraphIntegrationTest {
             override val description = "Echoes input"
             override val schema = ToolSchema("echo", "Echoes input", emptyMap())
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 val input = parameters["input"] as? String ?: ""
                 return SpiceResult.success(ToolResult(success = true, result = "Echo: $input"))
             }
 
-            override suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>, context: ToolContext): SpiceResult<ToolResult> {
                 return execute(parameters)
             }
         }
@@ -900,11 +900,11 @@ class GraphIntegrationTest {
             override val description = "Processes data"
             override val schema = ToolSchema("processor", "Processes data", emptyMap())
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 return SpiceResult.success(ToolResult(success = true, result = "Processed"))
             }
 
-            override suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>, context: ToolContext): SpiceResult<ToolResult> {
                 return execute(parameters)
             }
         }

@@ -261,9 +261,9 @@ class KafkaCommHub(
                     
                     for (record in records) {
                         val comm = json.decodeFromString<Comm>(record.value())
-                        val requestId = comm.data["request_id"] ?: continue
-                        val toolName = comm.data["tool_name"] ?: continue
-                        
+                        val requestId = comm.data["request_id"]?.toString() ?: continue
+                        val toolName = comm.data["tool_name"]?.toString() ?: continue
+
                         handler(requestId, toolName, comm.content)
                         consumer.commitSync()
                     }
@@ -368,11 +368,11 @@ class KafkaAgent(
      * Handle tool calls
      */
     private suspend fun handleToolCall(comm: Comm) {
-        val toolName = comm.data["tool_name"] ?: return
+        val toolName = comm.data["tool_name"]?.toString() ?: return
         val params = comm.data["tool_params"]?.let {
-            Json.decodeFromString<Map<String, Any>>(it)
+            Json.decodeFromString<Map<String, Any>>(it.toString())
         } ?: emptyMap()
-        
+
         // Use agent's tool if available
         val result = agent.useTool(toolName, params)
         if (result != null) {

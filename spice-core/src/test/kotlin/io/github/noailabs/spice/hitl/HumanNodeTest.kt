@@ -522,7 +522,7 @@ class HumanNodeTest {
         // Given: Agent → HumanNode → Agent workflow with metadata propagation
         var firstAgentExecuted = false
         var verifyAgentContext: io.github.noailabs.spice.ExecutionContext? = null
-        var verifyAgentCommData: Map<String, Any>? = null
+        var verifyAgentCommData: Map<String, Any?>? = null
 
         val dataGeneratorAgent = object : Agent {
             override val id = "data-generator"

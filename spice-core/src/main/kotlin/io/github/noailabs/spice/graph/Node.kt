@@ -102,9 +102,13 @@ data class NodeResult private constructor(
         fun fromContext(
             ctx: NodeContext,
             data: Any?,
-            additional: Map<String, Any> = emptyMap(),
+            additional: Map<String, Any?> = emptyMap(),
             nextEdges: List<String> = emptyList()
-        ): NodeResult = NodeResult(data, ctx.context.toMap() + additional, nextEdges)
+        ): NodeResult {
+            @Suppress("UNCHECKED_CAST")
+            val mergedMetadata = (ctx.context.toMap() + additional).filterValues { it != null } as Map<String, Any>
+            return NodeResult(data, mergedMetadata, nextEdges)
+        }
 
         /**
          * Factory specifically for creating NodeResult from HumanResponse during checkpoint resume.

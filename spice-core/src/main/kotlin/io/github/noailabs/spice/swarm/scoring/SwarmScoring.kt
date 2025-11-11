@@ -39,7 +39,7 @@ data class ScoredAgentResult(
     val success: Boolean,
     val content: String,
     val score: ScoringResult,
-    val metadata: Map<String, String> = emptyMap(),
+    val metadata: Map<String, Any?> = emptyMap(),
     val timestamp: Long = System.currentTimeMillis()
 )
 

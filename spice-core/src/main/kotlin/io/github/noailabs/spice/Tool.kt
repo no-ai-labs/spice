@@ -22,47 +22,48 @@ interface Tool {
      *
      * @return SpiceResult<ToolResult> - Success with tool result or Failure with error
      */
-    suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult>
+    suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult>
 
     /**
      * Tool execution with context
      *
      * @return SpiceResult<ToolResult> - Success with tool result or Failure with error
      */
-    suspend fun execute(parameters: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> =
+    suspend fun execute(parameters: Map<String, Any?>, context: ToolContext): SpiceResult<ToolResult> =
         execute(parameters)
-    
+
     /**
      * Check if tool can process specific parameters
      */
-    fun canExecute(parameters: Map<String, Any>): Boolean = true
+    fun canExecute(parameters: Map<String, Any?>): Boolean = true
     
     /**
      * Validate parameters before execution
      */
-    fun validateParameters(parameters: Map<String, Any>): ValidationResult {
+    fun validateParameters(parameters: Map<String, Any?>): ValidationResult {
         val errors = mutableListOf<String>()
-        
+
         schema.parameters.forEach { (name, paramSchema) ->
             if (paramSchema.required && !parameters.containsKey(name)) {
                 errors.add("Missing required parameter: $name")
             }
-            
+
             parameters[name]?.let { value ->
                 if (!isValidType(value, paramSchema.type)) {
                     errors.add("Parameter '$name' has invalid type. Expected: ${paramSchema.type}")
                 }
             }
         }
-        
+
         return if (errors.isEmpty()) {
             ValidationResult(valid = true, errors = emptyList())
         } else {
             ValidationResult(valid = false, errors = errors)
         }
     }
-    
-    private fun isValidType(value: Any, expectedType: String): Boolean {
+
+    private fun isValidType(value: Any?, expectedType: String): Boolean {
+        if (value == null) return true  // null is valid for nullable types
         return when (expectedType.lowercase()) {
             "string" -> value is String
             "number" -> value is Number
@@ -103,14 +104,15 @@ data class ToolResult(
     val success: Boolean,
     val result: String = "",
     val error: String = "",
-    val metadata: Map<String, String> = emptyMap()
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap()
 ) {
     companion object {
-        fun success(result: String, metadata: Map<String, String> = emptyMap()): ToolResult {
+        fun success(result: String, metadata: Map<String, Any?> = emptyMap()): ToolResult {
             return ToolResult(success = true, result = result, metadata = metadata)
         }
-        
-        fun error(error: String, metadata: Map<String, String> = emptyMap()): ToolResult {
+
+        fun error(error: String, metadata: Map<String, Any?> = emptyMap()): ToolResult {
             return ToolResult(success = false, error = error, metadata = metadata)
         }
     }
@@ -120,7 +122,7 @@ data class ToolResult(
  * Basic Tool implementation
  */
 abstract class BaseTool : Tool {
-    override fun canExecute(parameters: Map<String, Any>): Boolean {
+    override fun canExecute(parameters: Map<String, Any?>): Boolean {
         return true
     }
 }
@@ -133,7 +135,7 @@ data class ToolContext(
     val userId: String? = null,
     val tenantId: String? = null,
     val correlationId: String? = null,
-    val metadata: Map<String, Any> = emptyMap()
+    val metadata: Map<String, Any?> = emptyMap()
 )
 
 
@@ -152,7 +154,7 @@ class WebSearchTool : BaseTool() {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         val query = parameters["query"] as? String
             ?: return SpiceResult.success(ToolResult.error("tool.web_search.error.query_required".i18n()))
 
@@ -167,7 +169,7 @@ class WebSearchTool : BaseTool() {
 
         return SpiceResult.success(ToolResult.success(
             result = results.joinToString("\n") { "- $it" },
-            metadata = mapOf("query" to query, "resultCount" to results.size.toString())
+            metadata = mapOf("query" to query, "resultCount" to results.size)
         ))
     }
     
@@ -190,7 +192,7 @@ class FileReadTool : BaseTool() {
         )
     )
     
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         val path = parameters["path"] as? String
             ?: return SpiceResult.success(ToolResult.error("tool.file_read.error.path_required".i18n()))
 
@@ -198,7 +200,7 @@ class FileReadTool : BaseTool() {
             val content = java.io.File(path).readText()
             SpiceResult.success(ToolResult.success(
                 result = content,
-                metadata = mapOf("path" to path, "size" to content.length.toString())
+                metadata = mapOf("path" to path, "size" to content.length)
             ))
         } catch (e: Exception) {
             SpiceResult.success(ToolResult.error("tool.file_read.error.read_failed".i18n()))
@@ -221,7 +223,7 @@ class FileWriteTool : BaseTool() {
         )
     )
 
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         val path = parameters["path"] as? String
             ?: return SpiceResult.success(ToolResult.error("tool.file_write.error.path_required".i18n()))
 
@@ -232,7 +234,7 @@ class FileWriteTool : BaseTool() {
             java.io.File(path).writeText(content)
             SpiceResult.success(ToolResult.success(
                 result = "tool.file_write.success".i18n(),
-                metadata = mapOf("path" to path, "size" to content.length.toString())
+                metadata = mapOf("path" to path, "size" to content.length)
             ))
         } catch (e: Exception) {
             SpiceResult.success(ToolResult.error("tool.file_write.error.write_failed".i18n()))

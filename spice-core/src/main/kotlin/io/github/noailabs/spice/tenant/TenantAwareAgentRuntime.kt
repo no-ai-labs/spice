@@ -114,10 +114,19 @@ abstract class TenantAwareAgent(
     
     override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
         // Extract tenant from comm if available
-        val tenantId = comm.data["tenantId"]
+        val tenantId = comm.data["tenantId"]?.toString()
         return if (tenantId != null && TenantContext.current() == null) {
-            TenantContext.withTenant(tenantId) {
+            // Set tenant context before processing
+            val previous = TenantContext.current()
+            try {
+                TenantContext.set(tenantId)
                 processCommInternal(comm)
+            } finally {
+                if (previous != null) {
+                    TenantContext.set(previous)
+                } else {
+                    TenantContext.clear()
+                }
             }
         } else {
             processCommInternal(comm)

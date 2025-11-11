@@ -156,7 +156,7 @@ class ConditionalEdgeTest {
 
                 override suspend fun processComm(comm: io.github.noailabs.spice.Comm): io.github.noailabs.spice.error.SpiceResult<io.github.noailabs.spice.Comm> {
                     checkNodeExecuted = true
-                    val value = comm.data["value"]?.toIntOrNull() ?: 0
+                    val value = comm.data["value"]?.toString()?.toIntOrNull() ?: 0
                     val route = if (value > 10) "path-a" else "path-b"
                     return io.github.noailabs.spice.error.SpiceResult.success(
                         comm.copy(data = comm.data + mapOf("route" to route))

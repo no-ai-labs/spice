@@ -466,7 +466,7 @@ data class AgentResult(
     val agentId: String,
     val success: Boolean,
     val content: String,
-    val data: Map<String, String> = emptyMap()
+    val data: Map<String, Any?> = emptyMap()
 )
 
 /**

@@ -122,7 +122,7 @@ data class Snapshot(
     val version: Long,
     val timestamp: Instant,
     val data: ByteArray,
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, Any?> = emptyMap()
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

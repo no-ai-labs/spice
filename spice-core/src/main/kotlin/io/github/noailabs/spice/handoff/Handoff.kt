@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.handoff
 
 import io.github.noailabs.spice.AgentContext
+import io.github.noailabs.spice.AnyValueMapSerializer
 import kotlinx.serialization.Serializable
 import java.time.Instant
 
@@ -33,7 +34,8 @@ data class HandoffRequest(
     /**
      * Metadata for routing and tracking
      */
-    val metadata: Map<String, String> = emptyMap(),
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap(),
 
     /**
      * When this handoff was created
@@ -74,7 +76,8 @@ data class HandoffTask(
     /**
      * Additional context for this specific task
      */
-    val context: Map<String, String> = emptyMap(),
+    @Serializable(with = AnyValueMapSerializer::class)
+    val context: Map<String, Any?> = emptyMap(),
 
     /**
      * Whether this task is required or optional
@@ -149,7 +152,8 @@ data class HandoffResponse(
     /**
      * Metadata
      */
-    val metadata: Map<String, String> = emptyMap()
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap()
 )
 
 /**

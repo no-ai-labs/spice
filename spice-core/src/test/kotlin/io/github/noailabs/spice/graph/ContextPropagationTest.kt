@@ -101,7 +101,7 @@ class ContextPropagationTest {
                 parameters = emptyMap()
             )
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 return SpiceResult.success(
                     ToolResult(
                         success = true,
@@ -111,7 +111,7 @@ class ContextPropagationTest {
             }
 
             override suspend fun execute(
-                parameters: Map<String, Any>,
+                parameters: Map<String, Any?>,
                 context: ToolContext
             ): SpiceResult<ToolResult> {
                 receivedToolContext = context

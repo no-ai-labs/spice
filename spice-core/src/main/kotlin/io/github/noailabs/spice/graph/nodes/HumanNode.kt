@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.graph.nodes
 
+import io.github.noailabs.spice.AnyValueMapSerializer
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
@@ -60,7 +61,8 @@ data class HumanResponse(
     val nodeId: String,
     val selectedOption: String? = null,
     val text: String? = null,
-    val metadata: Map<String, String> = emptyMap(),
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap(),
     val timestamp: String = Instant.now().toString()
 ) {
     companion object {

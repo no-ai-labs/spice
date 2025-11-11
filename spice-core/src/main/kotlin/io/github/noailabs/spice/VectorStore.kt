@@ -136,13 +136,13 @@ interface TextVectorStore : VectorStore {
      * @param collectionName The collection to store in
      * @param id Unique identifier for the text
      * @param text The text content to store
-     * @param metadata Additional metadata as simple key-value pairs
+     * @param metadata Additional metadata with flexible types (String, Number, Boolean, etc.)
      */
     suspend fun storeText(
         collectionName: String,
         id: String,
         text: String,
-        metadata: Map<String, String> = emptyMap()
+        metadata: Map<String, Any?> = emptyMap()
     ): VectorOperationResult
     
     /**
@@ -173,7 +173,7 @@ interface TextVectorStore : VectorStore {
 data class TextDocument(
     val id: String,
     val text: String,
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, Any?> = emptyMap()
 )
 
 /**
@@ -183,7 +183,7 @@ data class TextSearchResult(
     val id: String,
     val text: String,
     val score: Float,
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, Any?> = emptyMap()
 )
 
 /**
@@ -203,13 +203,19 @@ data class VectorDocument(
             id: String,
             text: String,
             vector: List<Float>,
-            additionalMetadata: Map<String, String> = emptyMap()
+            additionalMetadata: Map<String, Any?> = emptyMap()
         ): VectorDocument {
             val metadata = mutableMapOf<String, JsonElement>(
                 "text" to JsonPrimitive(text)
             )
             additionalMetadata.forEach { (key, value) ->
-                metadata[key] = JsonPrimitive(value)
+                metadata[key] = when (value) {
+                    null -> kotlinx.serialization.json.JsonNull
+                    is String -> JsonPrimitive(value)
+                    is Number -> JsonPrimitive(value)
+                    is Boolean -> JsonPrimitive(value)
+                    else -> JsonPrimitive(value.toString())
+                }
             }
             return VectorDocument(id, vector, metadata)
         }
@@ -585,7 +591,7 @@ class QdrantVectorStore(
         collectionName: String,
         id: String,
         text: String,
-        metadata: Map<String, String>
+        metadata: Map<String, Any?>
     ): VectorOperationResult {
         val embedding = embeddingGenerator?.invoke(text) ?: generateDummyEmbedding(text)
         
@@ -593,7 +599,13 @@ class QdrantVectorStore(
             "text" to JsonPrimitive(text)
         )
         metadata.forEach { (key, value) ->
-            jsonMetadata[key] = JsonPrimitive(value)
+            jsonMetadata[key] = when (value) {
+                null -> kotlinx.serialization.json.JsonNull
+                is String -> JsonPrimitive(value)
+                is Number -> JsonPrimitive(value)
+                is Boolean -> JsonPrimitive(value)
+                else -> JsonPrimitive(value.toString())
+            }
         }
         
         val doc = VectorDocument(id, embedding, jsonMetadata)
@@ -611,7 +623,13 @@ class QdrantVectorStore(
                 "text" to JsonPrimitive(textDoc.text)
             )
             textDoc.metadata.forEach { (key, value) ->
-                jsonMetadata[key] = JsonPrimitive(value)
+                jsonMetadata[key] = when (value) {
+                    null -> kotlinx.serialization.json.JsonNull
+                    is String -> JsonPrimitive(value)
+                    is Number -> JsonPrimitive(value)
+                    is Boolean -> JsonPrimitive(value)
+                    else -> JsonPrimitive(value.toString())
+                }
             }
             
             VectorDocument(textDoc.id, embedding, jsonMetadata)

@@ -36,7 +36,7 @@ class ContextAwareToolTest {
                 // Context automatically injected!
                 val tenantId = context.tenantId ?: "default"
                 val userId = context.userId ?: "unknown"
-                val action = params["action"] as String
+                val action = params["action"]?.toString() ?: throw IllegalArgumentException("Missing 'action'")
 
                 "Tenant: $tenantId, User: $userId, Action: $action"
             }
@@ -230,7 +230,7 @@ class ContextAwareToolTest {
 
                 execute { params, context ->
                     val tenantId = context.tenantId ?: throw IllegalStateException("No tenant")
-                    val action = params["action"] as String
+                    val action = params["action"]?.toString() ?: throw IllegalArgumentException("Missing 'action'")
                     "Tenant $tenantId: $action"
                 }
             }

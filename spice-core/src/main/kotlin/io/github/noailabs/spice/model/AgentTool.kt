@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.model
 
+import io.github.noailabs.spice.AnyValueMapSerializer
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.ToolSchema
@@ -25,26 +26,28 @@ data class AgentTool(
     val description: String,
     val parameters: Map<String, ParameterSchema> = emptyMap(),
     val tags: List<String> = emptyList(),
-    val metadata: Map<String, String> = emptyMap(),
-    
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap(),
+
     /**
      * Implementation type identifier for deserialization
      * Examples: "kotlin-function", "http-api", "script", "custom"
      */
     val implementationType: String = "kotlin-function",
-    
+
     /**
      * Implementation details (varies by type)
      * For "http-api": {"url": "...", "method": "POST"}
      * For "script": {"language": "python", "code": "..."}
      */
-    val implementationDetails: Map<String, String> = emptyMap(),
-    
+    @Serializable(with = AnyValueMapSerializer::class)
+    val implementationDetails: Map<String, Any?> = emptyMap(),
+
     /**
      * The actual implementation function (transient, not serialized)
      */
     @Transient
-    private val implementation: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
+    private val implementation: (suspend (Map<String, Any?>) -> SpiceResult<ToolResult>)? = null
 ) {
 
     /**
@@ -55,14 +58,14 @@ data class AgentTool(
     /**
      * Create a copy with implementation
      */
-    fun withImplementation(impl: suspend (Map<String, Any>) -> SpiceResult<ToolResult>): AgentTool {
+    fun withImplementation(impl: suspend (Map<String, Any?>) -> SpiceResult<ToolResult>): AgentTool {
         return copy(implementation = impl)
     }
 
     /**
      * Execute the tool (if implementation is available)
      */
-    suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return implementation?.invoke(parameters)
             ?: SpiceResult.success(ToolResult.error("No implementation available for tool '$name'"))
     }
@@ -92,11 +95,11 @@ internal class AgentToolAdapter(
     override val description: String = agentTool.description
     override val schema: ToolSchema = agentTool.getSchema()
 
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
         return agentTool.execute(parameters)
     }
 
-    override fun canExecute(parameters: Map<String, Any>): Boolean {
+    override fun canExecute(parameters: Map<String, Any?>): Boolean {
         return agentTool.hasImplementation()
     }
 }
@@ -108,10 +111,10 @@ class AgentToolBuilder(private val name: String) {
     var description: String = ""
     private val parameters = mutableMapOf<String, ParameterSchema>()
     private val tags = mutableListOf<String>()
-    private val metadata = mutableMapOf<String, String>()
+    private val metadata = mutableMapOf<String, Any?>()
     var implementationType: String = "kotlin-function"
-    private val implementationDetails = mutableMapOf<String, String>()
-    private var implementation: (suspend (Map<String, Any>) -> SpiceResult<ToolResult>)? = null
+    private val implementationDetails = mutableMapOf<String, Any?>()
+    private var implementation: (suspend (Map<String, Any?>) -> SpiceResult<ToolResult>)? = null
     
     /**
      * Set description
@@ -150,23 +153,23 @@ class AgentToolBuilder(private val name: String) {
     /**
      * Add metadata
      */
-    fun metadata(key: String, value: String) {
+    fun metadata(key: String, value: Any?) {
         metadata[key] = value
     }
-    
+
     /**
      * Set implementation type and details
      */
-    fun implementationType(type: String, details: Map<String, String> = emptyMap()) {
+    fun implementationType(type: String, details: Map<String, Any?> = emptyMap()) {
         implementationType = type
         implementationDetails.clear()
         implementationDetails.putAll(details)
     }
-    
+
     /**
      * Set Kotlin function implementation
      */
-    fun implement(handler: suspend (Map<String, Any>) -> SpiceResult<ToolResult>) {
+    fun implement(handler: suspend (Map<String, Any?>) -> SpiceResult<ToolResult>) {
         implementation = handler
         implementationType = "kotlin-function"
     }
@@ -231,7 +234,7 @@ fun agentTool(name: String, block: AgentToolBuilder.() -> Unit): AgentTool {
  */
 fun Tool.toAgentTool(
     tags: List<String> = emptyList(),
-    metadata: Map<String, String> = emptyMap()
+    metadata: Map<String, Any?> = emptyMap()
 ): AgentTool {
     return AgentTool(
         name = this.name,

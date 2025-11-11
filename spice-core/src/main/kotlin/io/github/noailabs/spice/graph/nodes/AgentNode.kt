@@ -52,7 +52,7 @@ class AgentNode(
         return agent.processComm(comm)
             .map { response ->
                 // 🔥 Store full response Comm in metadata for next node to access
-                val additional = buildMap<String, Any> {
+                val additional = buildMap<String, Any?> {
                     put("agentId", agent.id)
                     put("agentName", agent.name)
                     put("_previousComm", response)  // Store Comm in metadata

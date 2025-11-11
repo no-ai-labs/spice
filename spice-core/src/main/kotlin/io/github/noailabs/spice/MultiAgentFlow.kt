@@ -510,7 +510,7 @@ class SwarmAgent(
         val capabilities = mutableListOf<String>()
         
         // Check data for explicit capabilities
-        comm.data["required_capabilities"]?.let { caps ->
+        comm.data["required_capabilities"]?.toString()?.let { caps ->
             capabilities.addAll(caps.split(",").map { it.trim() })
         }
         

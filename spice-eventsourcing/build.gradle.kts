@@ -87,7 +87,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-eventsourcing"
-            version = "0.8.2"
+            version = "0.9.0"
 
             pom {
                 name.set("Spice EventSourcing")

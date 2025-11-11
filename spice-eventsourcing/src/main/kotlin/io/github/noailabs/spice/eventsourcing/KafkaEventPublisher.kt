@@ -110,7 +110,7 @@ class KafkaEventPublisher(
         if (isInitialized) return
         
         kafkaCommHub.subscribeAgent("event-publisher") { comm ->
-            if (comm.type == CommType.DATA && comm.data["is_event"] == "true") {
+            if (comm.type == CommType.DATA && comm.getDataAsBoolean("is_event") == true) {
                 GlobalScope.launch {
                     try {
                         val event = commToEvent(comm)
@@ -143,11 +143,11 @@ class KafkaEventPublisher(
             type = CommType.DATA,
             role = CommRole.SYSTEM,
             data = mapOf(
-                "is_event" to "true",
+                "is_event" to true,
                 "event_id" to event.eventId,
                 "event_type" to event.eventType,
                 "stream_id" to event.streamId,
-                "version" to event.version.toString(),
+                "version" to event.version,
                 "timestamp" to event.timestamp.toString(),
                 "metadata" to Json.encodeToString(event.metadata),
                 "data" to Base64.getEncoder().encodeToString(event.toProto())
@@ -157,13 +157,13 @@ class KafkaEventPublisher(
     
     private fun commToEvent(comm: Comm): Event {
         return GenericEvent(
-            eventId = comm.data["event_id"] as String,
-            eventType = comm.data["event_type"] as String,
-            streamId = comm.data["stream_id"] as String,
-            version = (comm.data["version"] as String).toLong(),
-            timestamp = java.time.Instant.parse(comm.data["timestamp"] as String),
-            metadata = Json.decodeFromString(comm.data["metadata"] as String),
-            data = Base64.getDecoder().decode(comm.data["data"] as String)
+            eventId = comm.getDataAsString("event_id") ?: throw IllegalArgumentException("Missing event_id"),
+            eventType = comm.getDataAsString("event_type") ?: throw IllegalArgumentException("Missing event_type"),
+            streamId = comm.getDataAsString("stream_id") ?: throw IllegalArgumentException("Missing stream_id"),
+            version = comm.getDataAsLong("version") ?: throw IllegalArgumentException("Missing version"),
+            timestamp = java.time.Instant.parse(comm.getDataAsString("timestamp") ?: throw IllegalArgumentException("Missing timestamp")),
+            metadata = Json.decodeFromString(comm.getDataAsString("metadata") ?: "{}"),
+            data = Base64.getDecoder().decode(comm.getDataAsString("data") ?: throw IllegalArgumentException("Missing data"))
         )
     }
 }

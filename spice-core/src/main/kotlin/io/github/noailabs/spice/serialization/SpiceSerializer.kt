@@ -209,7 +209,9 @@ object SpiceSerializer {
         
         if (metadata.isNotEmpty()) {
             putJsonObject("x-metadata") {
-                metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                metadata.forEach { (k, v) ->
+                    put(k, v.toJsonElement())
+                }
             }
         }
         
@@ -218,8 +220,8 @@ object SpiceSerializer {
             put("type", implementationType)
             if (implementationDetails.isNotEmpty()) {
                 putJsonObject("details") {
-                    implementationDetails.forEach { (k, v) -> 
-                        put(k, JsonPrimitive(v)) 
+                    implementationDetails.forEach { (k, v) ->
+                        put(k, v.toJsonElement())
                     }
                 }
             }
@@ -393,7 +395,14 @@ object SpiceSerializer {
         if (data.isNotEmpty()) {
             putJsonObject("data") {
                 data.forEach { (key, value) ->
-                    put(key, value)
+                    when (value) {
+                        null -> put(key, JsonNull)
+                        is String -> put(key, JsonPrimitive(value))
+                        is Number -> put(key, JsonPrimitive(value))
+                        is Boolean -> put(key, JsonPrimitive(value))
+                        is JsonElement -> put(key, value)
+                        else -> put(key, JsonPrimitive(value.toString()))
+                    }
                 }
             }
         }

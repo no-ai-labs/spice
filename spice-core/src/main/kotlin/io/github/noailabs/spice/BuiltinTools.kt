@@ -205,13 +205,15 @@ class SimpleTool(
         parameters = parameterSchemas
     )
 
-    override fun canExecute(parameters: Map<String, Any>): Boolean {
+    override fun canExecute(parameters: Map<String, Any?>): Boolean {
         // Check if all required parameters are present
         val validation = validateParameters(parameters)
         return validation.valid
     }
 
-    override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
-        return SpiceResult.success(executor(parameters))
+    override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
+        @Suppress("UNCHECKED_CAST")
+        val nonNullParams = parameters.filterValues { it != null } as Map<String, Any>
+        return SpiceResult.success(executor(nonNullParams))
     }
 } 

@@ -34,7 +34,7 @@ class CachedToolTest {
             // Simulate expensive operation
             executionCount.incrementAndGet()
             Thread.sleep(100)  // Simulate latency
-            val id = params["id"] as String
+            val id = params["id"]?.toString() ?: throw IllegalArgumentException("Missing 'id'")
             ToolResult.success("Result for $id")
         }
     }
@@ -144,7 +144,7 @@ class CachedToolTest {
     fun `test custom key builder`() = runBlocking {
         val customKeyBuilder: (Map<String, Any>, AgentContext) -> String = { params, context ->
             // Ignore version parameter in cache key
-            val id = params["id"] as String
+            val id = params["id"]?.toString() ?: throw IllegalArgumentException("Missing 'id'")
             val tenantId = context.tenantId ?: "default"
             "$tenantId:$id"
         }

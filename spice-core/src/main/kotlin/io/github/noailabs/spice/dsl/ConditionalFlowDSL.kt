@@ -121,7 +121,7 @@ object DataConditions {
     
     fun keyContains(key: String, substring: String): ConditionEvaluator {
         return SimpleCondition { comm ->
-            comm.data[key]?.contains(substring) == true
+            comm.data[key]?.toString()?.contains(substring) == true
         }
     }
     

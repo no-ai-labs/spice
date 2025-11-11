@@ -132,3 +132,118 @@ sparql:
   label: SPARQL
   permalink: /sparql
   description: SPARQL query support
+
+context:
+  label: Context
+  permalink: /context
+  description: Context management and propagation
+
+multi-tenancy:
+  label: Multi-Tenancy
+  permalink: /multi-tenancy
+  description: Multi-tenant architecture support
+
+production:
+  label: Production
+  permalink: /production
+  description: Production-ready features
+
+execution-context:
+  label: Execution Context
+  permalink: /execution-context
+  description: Execution context system
+
+accessor-api:
+  label: Accessor API
+  permalink: /accessor-api
+  description: Type-safe accessor methods
+
+graph-dsl:
+  label: Graph DSL
+  permalink: /graph-dsl
+  description: Graph domain-specific language
+
+conditional-edges:
+  label: Conditional Edges
+  permalink: /conditional-edges
+  description: Conditional edge routing in graphs
+
+immutable-state:
+  label: Immutable State
+  permalink: /immutable-state
+  description: Immutable state management
+
+openai:
+  label: OpenAI
+  permalink: /openai
+  description: OpenAI integration
+
+function-calling:
+  label: Function Calling
+  permalink: /function-calling
+  description: Function calling and tool use
+
+tools:
+  label: Tools
+  permalink: /tools
+  description: Tool system and integrations
+
+integration:
+  label: Integration
+  permalink: /integration
+  description: Third-party integrations
+
+llm:
+  label: LLM
+  permalink: /llm
+  description: Large Language Model features
+
+type-system:
+  label: Type System
+  permalink: /type-system
+  description: Type system and safety
+
+metadata:
+  label: Metadata
+  permalink: /metadata
+  description: Metadata handling and storage
+
+human-in-the-loop:
+  label: Human-in-the-Loop
+  permalink: /human-in-the-loop
+  description: Human-in-the-loop workflows
+
+context-propagation:
+  label: Context Propagation
+  permalink: /context-propagation
+  description: Context propagation patterns
+
+feature:
+  label: Feature
+  permalink: /feature
+  description: New feature announcements
+
+graphs:
+  label: Graphs
+  permalink: /graphs
+  description: Graph-based orchestration
+
+cycles:
+  label: Cycles
+  permalink: /cycles
+  description: Cycle detection and handling
+
+workflows:
+  label: Workflows
+  permalink: /workflows
+  description: Workflow orchestration
+
+parallel-execution:
+  label: Parallel Execution
+  permalink: /parallel-execution
+  description: Parallel execution support
+
+dynamic-prompts:
+  label: Dynamic Prompts
+  permalink: /dynamic-prompts
+  description: Dynamic prompt generation

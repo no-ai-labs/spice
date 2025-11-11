@@ -184,7 +184,7 @@ class DefaultMementoSnapshotStore(
  */
 interface MementoSerializer {
     fun serialize(memento: AggregateMemento): ByteArray
-    fun deserialize(data: ByteArray, metadata: Map<String, String>): AggregateMemento
+    fun deserialize(data: ByteArray, metadata: Map<String, Any?>): AggregateMemento
 }
 
 /**
@@ -207,7 +207,7 @@ class JsonMementoSerializer : MementoSerializer {
         return baos.toByteArray()
     }
     
-    override fun deserialize(data: ByteArray, metadata: Map<String, String>): AggregateMemento {
+    override fun deserialize(data: ByteArray, metadata: Map<String, Any?>): AggregateMemento {
         // For now, use Java deserialization
         // In production, use proper JSON deserialization with type registry
         val bais = java.io.ByteArrayInputStream(data)

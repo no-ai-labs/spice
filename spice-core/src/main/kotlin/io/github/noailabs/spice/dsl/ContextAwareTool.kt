@@ -136,7 +136,7 @@ class CacheConfigBlock {
  *     execute { params, context ->
  *         val tenantId = context.tenantId ?: "CHIC"  // ✅ Auto from context!
  *         val userId = context.userId ?: "unknown"
- *         val policyType = params["policyType"] as String
+ *         val policyType = params["policyType"]?.toString() ?: throw IllegalArgumentException("Missing 'policyType'")
  *
  *         policyService.lookup(tenantId, policyType)
  *     }
@@ -236,7 +236,7 @@ class ContextAwareToolBuilder(val name: String) {
                 parameters = params
             )
 
-            override suspend fun execute(parameters: Map<String, Any>): SpiceResult<ToolResult> {
+            override suspend fun execute(parameters: Map<String, Any?>): SpiceResult<ToolResult> {
                 val context = coroutineContext[AgentContext]
                     ?: return SpiceResult.success(ToolResult.error(
                         "No AgentContext available. Use withAgentContext { } block or provide runtime context."
@@ -246,8 +246,11 @@ class ContextAwareToolBuilder(val name: String) {
                 val enrichedParams = parameters.toMutableMap()
                 enrichedParams["__context"] = context
 
+                @Suppress("UNCHECKED_CAST")
+                val nonNullParams = parameters.filterValues { it != null } as Map<String, Any>
+
                 return try {
-                    val result = handler?.invoke(parameters, context)
+                    val result = handler?.invoke(nonNullParams, context)
                         ?: return SpiceResult.success(ToolResult.error("No handler defined"))
 
                     // Validate output if validator is configured
@@ -297,7 +300,7 @@ class ContextAwareToolBuilder(val name: String) {
  *
  *     execute { params, context ->
  *         val tenantId = context.tenantId ?: "CHIC"
- *         val policyType = params["policyType"] as String
+ *         val policyType = params["policyType"]?.toString() ?: throw IllegalArgumentException("Missing 'policyType'")
  *         policyService.lookup(tenantId, policyType)
  *     }
  * }
@@ -344,7 +347,8 @@ fun simpleContextTool(
  *
  *         execute { params, context ->
  *             val tenantId = context.tenantId ?: "CHIC"  // ✅ Auto!
- *             policyService.lookup(tenantId, params["policyType"] as String)
+ *             val policyType = params["policyType"]?.toString() ?: throw IllegalArgumentException("Missing 'policyType'")
+ *             policyService.lookup(tenantId, policyType)
  *         }
  *     }
  * }
@@ -365,7 +369,7 @@ fun CoreAgentBuilder.contextAwareTool(name: String, config: ContextAwareToolBuil
             parameter(paramName, paramSchema.type, paramSchema.description, paramSchema.required)
         }
 
-        val executor: suspend (Map<String, Any>) -> SpiceResult<ToolResult> = { params ->
+        val executor: suspend (Map<String, Any?>) -> SpiceResult<ToolResult> = { params ->
             val result = contextTool.execute(params)
             result.fold(
                 onSuccess = { toolResult ->
@@ -406,7 +410,7 @@ fun CoreAgentBuilder.simpleContextTool(
 
     this.tool(name) {
         description(description)
-        val executor: suspend (Map<String, Any>) -> SpiceResult<ToolResult> = { params ->
+        val executor: suspend (Map<String, Any?>) -> SpiceResult<ToolResult> = { params ->
             val result = contextTool.execute(params)
             result.fold(
                 onSuccess = { toolResult ->

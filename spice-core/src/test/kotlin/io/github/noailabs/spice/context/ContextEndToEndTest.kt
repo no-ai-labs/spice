@@ -91,7 +91,7 @@ class ContextEndToEndTest {
                 param("policyType", "string", "Policy type")
 
                 execute { params, context ->
-                    val policyType = params["policyType"] as String
+                    val policyType = params["policyType"]?.toString() ?: throw IllegalArgumentException("Missing 'policyType'")
 
                     // Service automatically gets context!
                     val policy = policyRepo.findByType(policyType)
@@ -324,8 +324,8 @@ class ContextEndToEndTest {
                 param("policyType", "string", "Policy type")
 
                 execute { params, context ->
-                    val items = (params["items"] as List<*>).map { it.toString() }
-                    val policyType = params["policyType"] as String
+                    val items = (params["items"] as? List<*>)?.map { it.toString() } ?: throw IllegalArgumentException("Missing 'items'")
+                    val policyType = params["policyType"]?.toString() ?: throw IllegalArgumentException("Missing 'policyType'")
 
                     compositeService.createOrderWithPolicy(items, policyType)
                 }
@@ -435,7 +435,7 @@ class ContextEndToEndTest {
                 param("resourceType", "string", "Resource type")
 
                 execute { params, context ->
-                    val resourceType = params["resourceType"] as String
+                    val resourceType = params["resourceType"]?.toString() ?: throw IllegalArgumentException("Missing 'resourceType'")
 
                     // Multiple audit logs
                     auditService.logOperation("VALIDATE_$resourceType")

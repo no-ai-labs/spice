@@ -87,13 +87,13 @@ class ToolDSL(
     /**
      * Execute tool in current context
      */
-    suspend fun runTool(name: String, params: Map<String, Any> = emptyMap()): Any? {
+    suspend fun runTool(name: String, params: Map<String, Any?> = emptyMap()): Any? {
         val context = coroutineContext[ToolContext]
             ?: return "[Error] No tool context available. Use withToolContext { } block."
-        
+
         val tool = context.findTool(name)
             ?: return "[Error] Tool '$name' not found. Available: ${context.getAvailableTools().joinToString(", ")}"
-        
+
         return try {
             if (!tool.canExecute(params)) {
                 "[Error] Invalid parameters for tool '$name'"
@@ -108,11 +108,11 @@ class ToolDSL(
             "[Error] Tool '$name' execution failed: ${e.message}"
         }
     }
-    
+
     /**
      * Execute tool or throw exception on failure
      */
-    suspend fun runToolOrError(name: String, params: Map<String, Any> = emptyMap()): Any {
+    suspend fun runToolOrError(name: String, params: Map<String, Any?> = emptyMap()): Any {
         val result = runTool(name, params)
         if (result is String && result.startsWith("[Error]")) {
             throw ToolExecutionException(result)
@@ -123,13 +123,13 @@ class ToolDSL(
     /**
      * Execute tool and return result with metadata
      */
-    suspend fun runToolWithMetadata(name: String, params: Map<String, Any> = emptyMap()): ToolResultWithMeta {
+    suspend fun runToolWithMetadata(name: String, params: Map<String, Any?> = emptyMap()): ToolResultWithMeta {
         val context = coroutineContext[ToolContext]
             ?: return ToolResultWithMeta(null, "[Error] No tool context", emptyMap())
-        
+
         val tool = context.findTool(name)
             ?: return ToolResultWithMeta(null, "[Error] Tool '$name' not found", emptyMap())
-        
+
         return try {
             val result = tool.execute(params)
             result.fold(
@@ -139,8 +139,8 @@ class ToolDSL(
                         error = toolResult.error,
                         metadata = toolResult.metadata + mapOf(
                             "tool_name" to name,
-                            "execution_time" to System.currentTimeMillis().toString(),
-                            "success" to toolResult.success.toString()
+                            "execution_time" to System.currentTimeMillis(),
+                            "success" to toolResult.success
                         )
                     )
                 },
@@ -156,7 +156,7 @@ class ToolDSL(
     /**
      * Create response comm (sugar for Comm.reply)
      */
-    fun respond(content: String, data: Map<String, String> = emptyMap()): Comm {
+    fun respond(content: String, data: Map<String, Any?> = emptyMap()): Comm {
         return currentMessage.reply(
             content = content,
             from = agentId,
@@ -240,7 +240,7 @@ suspend fun <T> withToolContext(
 data class ToolResultWithMeta(
     val result: Any?,
     val error: String?,
-    val metadata: Map<String, String>
+    val metadata: Map<String, Any?>
 )
 
 /**
@@ -256,7 +256,7 @@ object ToolExecutor {
     /**
      * Execute tool from global registry
      */
-    suspend fun runTool(name: String, parameters: Map<String, Any> = emptyMap()): Any? {
+    suspend fun runTool(name: String, parameters: Map<String, Any?> = emptyMap()): Any? {
         val tool = ToolRegistry.getTool(name)
             ?: return "[Error] Tool '$name' not found in global registry"
 

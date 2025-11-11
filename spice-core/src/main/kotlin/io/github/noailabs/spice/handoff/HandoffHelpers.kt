@@ -17,7 +17,7 @@ class HandoffRequestBuilder(
     var toAgentId: String = "human-agent-pool"
     private val tasks = mutableListOf<HandoffTask>()
     private val conversationHistory = mutableListOf<String>()
-    private val metadata = mutableMapOf<String, String>()
+    private val metadata = mutableMapOf<String, Any?>()
 
     /**
      * Add a task for the human to complete
@@ -26,7 +26,7 @@ class HandoffRequestBuilder(
         description: String,
         type: HandoffTaskType = HandoffTaskType.RESPOND,
         required: Boolean = true,
-        context: Map<String, String> = emptyMap()
+        context: Map<String, Any?> = emptyMap()
     ) {
         tasks.add(
             HandoffTask(
@@ -49,7 +49,7 @@ class HandoffRequestBuilder(
     /**
      * Add metadata
      */
-    fun addMetadata(key: String, value: String) {
+    fun addMetadata(key: String, value: Any?) {
         metadata[key] = value
     }
 
@@ -110,14 +110,14 @@ fun Comm.handoff(
  * Extension: Check if this Comm is a handoff request
  */
 fun Comm.isHandoff(): Boolean {
-    return data[HandoffMetadataKeys.IS_HANDOFF] == "true"
+    return data[HandoffMetadataKeys.IS_HANDOFF]?.toString() == "true"
 }
 
 /**
  * Extension: Get the handoff request from this Comm
  */
 fun Comm.getHandoffRequest(): HandoffRequest? {
-    val requestJson = data[HandoffMetadataKeys.HANDOFF_REQUEST] ?: return null
+    val requestJson = data[HandoffMetadataKeys.HANDOFF_REQUEST]?.toString() ?: return null
     return try {
         Json.decodeFromString<HandoffRequest>(requestJson)
     } catch (e: Exception) {
@@ -134,8 +134,8 @@ fun Comm.returnFromHandoff(
     completedTasks: List<CompletedTask> = emptyList(),
     notes: String? = null
 ): Comm {
-    val handoffId = data[HandoffMetadataKeys.HANDOFF_ID] ?: UUID.randomUUID().toString()
-    val originalAgentId = data[HandoffMetadataKeys.ORIGINAL_AGENT] ?: "unknown"
+    val handoffId = data[HandoffMetadataKeys.HANDOFF_ID]?.toString() ?: UUID.randomUUID().toString()
+    val originalAgentId = data[HandoffMetadataKeys.ORIGINAL_AGENT]?.toString() ?: "unknown"
 
     val response = HandoffResponse(
         handoffId = handoffId,
@@ -166,14 +166,14 @@ fun Comm.returnFromHandoff(
  * Extension: Check if this Comm is a return from handoff
  */
 fun Comm.isReturnFromHandoff(): Boolean {
-    return data[HandoffMetadataKeys.IS_RETURN_FROM_HANDOFF] == "true"
+    return data[HandoffMetadataKeys.IS_RETURN_FROM_HANDOFF]?.toString() == "true"
 }
 
 /**
  * Extension: Get the handoff response from this Comm
  */
 fun Comm.getHandoffResponse(): HandoffResponse? {
-    val responseJson = data[HandoffMetadataKeys.HANDOFF_RESPONSE] ?: return null
+    val responseJson = data[HandoffMetadataKeys.HANDOFF_RESPONSE]?.toString() ?: return null
     return try {
         Json.decodeFromString<HandoffResponse>(responseJson)
     } catch (e: Exception) {

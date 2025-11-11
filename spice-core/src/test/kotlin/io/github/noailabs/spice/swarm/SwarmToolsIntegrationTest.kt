@@ -27,10 +27,10 @@ class SwarmToolsIntegrationTest {
                     parameter("b", "number", "Second number", required = true)
                     parameter("operation", "string", "Operation", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val a = (params["a"] as Number).toDouble()
-                        val b = (params["b"] as Number).toDouble()
-                        val op = params["operation"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val a = (params["a"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'a'")
+                        val b = (params["b"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'b'")
+                        val op = params["operation"]?.toString() ?: throw IllegalArgumentException("Missing 'operation'")
 
                         val result = when (op) {
                             "+" -> a + b
@@ -76,9 +76,9 @@ class SwarmToolsIntegrationTest {
                     parameter("text", "string", "Text to format", required = true)
                     parameter("style", "string", "Format style", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val text = params["text"] as String
-                        val style = params["style"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val text = params["text"]?.toString() ?: throw IllegalArgumentException("Missing 'text'")
+                        val style = params["style"]?.toString() ?: throw IllegalArgumentException("Missing 'style'")
 
                         return when (style) {
                             "upper" -> text.uppercase()
@@ -125,13 +125,13 @@ class SwarmToolsIntegrationTest {
 
             swarmTools {
                 tool("shared_tool", "First definition") {
-                    execute(fun(_: Map<String, Any>): String {
+                    execute(fun(_: Map<String, Any?>): String {
                         return "First"
                     })
                 }
 
                 tool("shared_tool", "Second definition") {
-                    execute(fun(_: Map<String, Any>): String {
+                    execute(fun(_: Map<String, Any?>): String {
                         return "Second"
                     })
                 }
@@ -162,10 +162,10 @@ class SwarmToolsIntegrationTest {
                     parameter("required2", "number", "Second required", required = true)
                     parameter("optional", "string", "Optional param", required = false)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val r1 = params["required1"] as String
-                        val r2 = (params["required2"] as Number).toInt()
-                        val opt = params["optional"] as? String ?: "default"
+                    execute(fun(params: Map<String, Any?>): String {
+                        val r1 = params["required1"]?.toString() ?: throw IllegalArgumentException("Missing 'required1'")
+                        val r2 = (params["required2"] as? Number)?.toInt() ?: throw IllegalArgumentException("Missing 'required2'")
+                        val opt = params["optional"]?.toString() ?: "default"
 
                         return "r1=$r1, r2=$r2, opt=$opt"
                     })
@@ -213,9 +213,9 @@ class SwarmToolsIntegrationTest {
                     parameter("numerator", "number", "Numerator", required = true)
                     parameter("denominator", "number", "Denominator", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val num = (params["numerator"] as Number).toDouble()
-                        val den = (params["denominator"] as Number).toDouble()
+                    execute(fun(params: Map<String, Any?>): String {
+                        val num = (params["numerator"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'numerator'")
+                        val den = (params["denominator"] as? Number)?.toDouble() ?: throw IllegalArgumentException("Missing 'denominator'")
 
                         if (den == 0.0) {
                             throw ArithmeticException("Cannot divide by zero!")
@@ -256,8 +256,8 @@ class SwarmToolsIntegrationTest {
                 tool("validate", "Validates data") {
                     parameter("data", "string", "Data to validate", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val data = params["data"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val data = params["data"]?.toString() ?: throw IllegalArgumentException("Missing 'data'")
                         return if (data.isNotEmpty()) "valid" else "invalid"
                     })
                 }
@@ -267,9 +267,9 @@ class SwarmToolsIntegrationTest {
                     parameter("data", "string", "Data to transform", required = true)
                     parameter("operation", "string", "Operation", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val data = params["data"] as String
-                        val op = params["operation"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val data = params["data"]?.toString() ?: throw IllegalArgumentException("Missing 'data'")
+                        val op = params["operation"]?.toString() ?: throw IllegalArgumentException("Missing 'operation'")
 
                         return when (op) {
                             "reverse" -> data.reversed()
@@ -284,8 +284,8 @@ class SwarmToolsIntegrationTest {
                 tool("aggregate", "Aggregates results") {
                     parameter("results", "string", "Results to aggregate", required = true)
 
-                    execute(fun(params: Map<String, Any>): String {
-                        val results = params["results"] as String
+                    execute(fun(params: Map<String, Any?>): String {
+                        val results = params["results"]?.toString() ?: throw IllegalArgumentException("Missing 'results'")
                         return "Aggregated: $results"
                     })
                 }

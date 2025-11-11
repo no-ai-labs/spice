@@ -154,7 +154,7 @@ class GraphContextIntegrationTest {
         val createTool = contextAwareTool("create") {
             param("product", "string", "Product name")
             execute { params, context ->
-                val product = params["product"] as String
+                val product = params["product"]?.toString() ?: throw IllegalArgumentException("Missing 'product'")
                 val order = orderRepo.createOrder(product)
                 "created=${order.id},tenant=${context.tenantId}"
             }
@@ -281,7 +281,7 @@ class GraphContextIntegrationTest {
         val processTool = contextAwareTool("process_order") {
             param("product", "string", "Product name")
             execute { params, context ->
-                val product = params["product"] as String
+                val product = params["product"]?.toString() ?: throw IllegalArgumentException("Missing 'product'")
                 orderService.processOrder(product)
             }
         }

@@ -252,7 +252,7 @@ data class ToolWrapperEx(
     override val tool: Tool,
     val source: String = "direct",
     val tags: List<String> = emptyList(),
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, Any?> = emptyMap()
 ) : ToolWrapper(id, tool)
 
 /**

@@ -2,6 +2,11 @@ package io.github.noailabs.spice
 
 import kotlinx.coroutines.*
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.encoding.*
+import kotlinx.serialization.json.*
 import java.util.*
 import java.time.Instant
 
@@ -63,12 +68,59 @@ enum class Priority {
 }
 
 // =====================================
+// SERIALIZERS
+// =====================================
+
+/**
+ * Custom serializer for Map<String, Any?> that handles null values
+ */
+object AnyValueMapSerializer : KSerializer<Map<String, Any?>> {
+    private val delegateSerializer = MapSerializer(String.serializer(), JsonElement.serializer())
+
+    override val descriptor: SerialDescriptor = delegateSerializer.descriptor
+
+    override fun serialize(encoder: Encoder, value: Map<String, Any?>) {
+        val jsonMap = value.mapValues { (_, v) ->
+            when (v) {
+                null -> JsonNull
+                is String -> JsonPrimitive(v)
+                is Number -> JsonPrimitive(v)
+                is Boolean -> JsonPrimitive(v)
+                is JsonElement -> v
+                else -> JsonPrimitive(v.toString())
+            }
+        }
+        encoder.encodeSerializableValue(delegateSerializer, jsonMap)
+    }
+
+    override fun deserialize(decoder: Decoder): Map<String, Any?> {
+        val jsonMap = decoder.decodeSerializableValue(delegateSerializer)
+        return jsonMap.mapValues { (_, element) ->
+            when (element) {
+                is JsonNull -> null
+                is JsonPrimitive -> {
+                    when {
+                        element.isString -> element.content
+                        element.booleanOrNull != null -> element.boolean
+                        element.longOrNull != null -> element.long
+                        element.doubleOrNull != null -> element.double
+                        else -> element.content
+                    }
+                }
+                is JsonArray -> element.toString()
+                is JsonObject -> element.toString()
+            }
+        }
+    }
+}
+
+// =====================================
 // CORE COMM CLASS
 // =====================================
 
 /**
  * 💬 Universal Communication Unit
- * 
+ *
  * The foundation of all communication in modern Spice Framework.
  * The unified communication type for the Spice Framework.
  */
@@ -91,7 +143,8 @@ data class Comm(
     val parentId: String? = null,
 
     // Flexible metadata (replaces rigid fields)
-    val data: Map<String, String> = emptyMap(),
+    @Serializable(with = AnyValueMapSerializer::class)
+    val data: Map<String, Any?> = emptyMap(),
 
     // Execution Context (since 0.6.0 - unified context)
     @kotlinx.serialization.Transient
@@ -134,11 +187,11 @@ data class Comm(
      * Create reply (with data)
      */
     fun reply(
-        content: String, 
+        content: String,
         from: String,
         type: CommType = CommType.TEXT,
         role: CommRole = CommRole.ASSISTANT,
-        data: Map<String, String> = emptyMap()
+        data: Map<String, Any?> = emptyMap()
     ): Comm = copy(
         id = "comm-${UUID.randomUUID()}",
         content = content,
@@ -165,14 +218,14 @@ data class Comm(
     /**
      * Add metadata
      */
-    fun withData(key: String, value: String): Comm = copy(
+    fun withData(key: String, value: Any?): Comm = copy(
         data = data + (key to value)
     )
-    
+
     /**
      * Add multiple metadata entries
      */
-    fun withData(vararg pairs: Pair<String, String>): Comm = copy(
+    fun withData(vararg pairs: Pair<String, Any?>): Comm = copy(
         data = data + pairs.toMap()
     )
     
@@ -242,7 +295,48 @@ data class Comm(
      * @since 0.4.0
      */
     fun getContextValue(key: String): String? {
-        return context?.get(key)?.toString() ?: data[key]
+        return context?.get(key)?.toString() ?: data[key]?.toString()
+    }
+
+    /**
+     * Safe accessor for string data
+     */
+    fun getDataAsString(key: String): String? = data[key]?.toString()
+
+    /**
+     * Safe accessor for boolean data
+     */
+    fun getDataAsBoolean(key: String): Boolean? = when (val value = data[key]) {
+        is Boolean -> value
+        is String -> value.toBoolean()
+        else -> null
+    }
+
+    /**
+     * Safe accessor for int data
+     */
+    fun getDataAsInt(key: String): Int? = when (val value = data[key]) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+
+    /**
+     * Safe accessor for long data
+     */
+    fun getDataAsLong(key: String): Long? = when (val value = data[key]) {
+        is Number -> value.toLong()
+        is String -> value.toLongOrNull()
+        else -> null
+    }
+
+    /**
+     * Safe accessor for double data
+     */
+    fun getDataAsDouble(key: String): Double? = when (val value = data[key]) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull()
+        else -> null
     }
 
     /**
@@ -347,7 +441,8 @@ data class MediaItem(
     val type: String,
     val size: Long = 0,
     val caption: String? = null,
-    val metadata: Map<String, String> = emptyMap()
+    @Serializable(with = AnyValueMapSerializer::class)
+    val metadata: Map<String, Any?> = emptyMap()
 )
 
 /**
@@ -446,13 +541,13 @@ class CommBuilder(private val content: String) {
     private var conversationId: String? = null
     private var thread: String? = null
     private var parentId: String? = null
-    private val data = mutableMapOf<String, String>()
+    private val data = mutableMapOf<String, Any?>()
     private val media = mutableListOf<MediaItem>()
     private val mentions = mutableListOf<String>()
     private var priority: Priority = Priority.NORMAL
     private var encrypted: Boolean = false
     private var ttl: Long? = null
-    
+
     fun from(sender: String) { this.from = sender }
     fun to(recipient: String) { this.to = recipient }
     fun type(type: CommType) { this.type = type }
@@ -460,9 +555,9 @@ class CommBuilder(private val content: String) {
     fun conversation(id: String) { this.conversationId = id }
     fun thread(id: String) { this.thread = id }
     fun replyTo(parentId: String) { this.parentId = parentId }
-    
-    fun data(key: String, value: String) { this.data[key] = value }
-    fun data(vararg pairs: Pair<String, String>) { this.data.putAll(pairs) }
+
+    fun data(key: String, value: Any?) { this.data[key] = value }
+    fun data(vararg pairs: Pair<String, Any?>) { this.data.putAll(pairs) }
     
     fun mention(vararg users: String) { this.mentions.addAll(users) }
     fun urgent() { this.priority = Priority.URGENT }
@@ -527,9 +622,9 @@ fun Comm.isTool(): Boolean = type == CommType.TOOL_CALL || type == CommType.TOOL
 /**
  * Get tool name from comm
  */
-fun Comm.getToolName(): String? = data["tool_name"]
+fun Comm.getToolName(): String? = data["tool_name"]?.toString()
 
 /**
  * Get tool params from comm
  */
-fun Comm.getToolParams(): String? = data["tool_params"] 
+fun Comm.getToolParams(): String? = data["tool_params"]?.toString() 
