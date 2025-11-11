@@ -42,6 +42,18 @@ class GraphBuilder(val id: String) {
     private var lastNodeId: String? = null
 
     /**
+     * Add a custom Node to the graph.
+     * Use this for custom node implementations.
+     *
+     * @param node The custom Node instance to add
+     */
+    fun node(node: Node) {
+        nodes[node.id] = node
+        connectToPrevious(node.id)
+        lastNodeId = node.id
+    }
+
+    /**
      * Add an Agent node to the graph.
      *
      * @param id Unique identifier for this node

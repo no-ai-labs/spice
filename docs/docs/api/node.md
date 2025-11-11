@@ -338,6 +338,33 @@ class ProcessingNode(
 }
 ```
 
+### Using Custom Nodes in Graph DSL
+
+Use the `node()` function to add custom node instances:
+
+```kotlin
+val graph = graph("my-workflow") {
+    // Built-in nodes
+    agent("analyzer", analyzerAgent)
+
+    // ✅ Custom node
+    node(ProcessingNode(
+        id = "processor",
+        processor = { input -> input.uppercase() }
+    ))
+
+    // Another custom node
+    node(ConditionalNode(
+        id = "decision",
+        condition = { ctx -> ctx.state["score"] as? Int ?: 0 > 50 },
+        trueEdge = "success",
+        falseEdge = "retry"
+    ))
+
+    output("result")
+}
+```
+
 ### Conditional Node
 
 ```kotlin
