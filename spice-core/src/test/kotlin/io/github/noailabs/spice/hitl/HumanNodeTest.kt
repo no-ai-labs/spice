@@ -516,4 +516,155 @@ class HumanNodeTest {
 
         assertEquals(RunStatus.SUCCESS, result.status)
     }
+
+    @Test
+    fun `test HumanResponse metadata propagates to next AgentNode via ExecutionContext`() = runTest {
+        // Given: Agent → HumanNode → Agent workflow with metadata propagation
+        var firstAgentExecuted = false
+        var verifyAgentContext: io.github.noailabs.spice.ExecutionContext? = null
+        var verifyAgentCommData: Map<String, Any>? = null
+
+        val dataGeneratorAgent = object : Agent {
+            override val id = "data-generator"
+            override val name = "Data Generator"
+            override val description = "Generates data for user selection"
+            override val capabilities = listOf("data-generation")
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                firstAgentExecuted = true
+                // Generate menu and important context data
+                return SpiceResult.success(
+                    comm.reply(
+                        "Menu: 1. Item A, 2. Item B, 3. Item C",
+                        id,
+                        data = mapOf(
+                            "menu_text" to "1. Item A\n2. Item B\n3. Item C",
+                            "items_json" to """["Item A", "Item B", "Item C"]""",
+                            "session_id" to "SESSION123"
+                        )
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<io.github.noailabs.spice.Tool>()
+            override fun isReady() = true
+        }
+
+        val verifyAgent = object : Agent {
+            override val id = "verify-agent"
+            override val name = "Verification Agent"
+            override val description = "Verifies data from previous steps"
+            override val capabilities = listOf("verification")
+
+            override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+                // Capture context and data for verification
+                verifyAgentContext = comm.context
+                verifyAgentCommData = comm.data
+
+                // Try to read data from ExecutionContext
+                val sessionId = comm.context?.get("session_id")
+                val itemsJson = comm.context?.get("items_json")
+                val selectedId = comm.context?.get("selected_item_id")
+                val userId = comm.context?.get("user_id")
+
+                return SpiceResult.success(
+                    comm.reply(
+                        "Verified: sessionId=$sessionId, itemsJson=$itemsJson, selectedId=$selectedId, userId=$userId",
+                        id
+                    )
+                )
+            }
+
+            override fun canHandle(comm: Comm) = true
+            override fun getTools() = emptyList<io.github.noailabs.spice.Tool>()
+            override fun isReady() = true
+        }
+
+        val metadataGraph = graph("metadata-propagation-test") {
+            // First agent generates data with context
+            agent("generate", dataGeneratorAgent)
+
+            // Human selects an option
+            humanNode(
+                id = "select",
+                prompt = "Please select an item",
+                options = listOf(
+                    HumanOption("item-a", "Item A"),
+                    HumanOption("item-b", "Item B"),
+                    HumanOption("item-c", "Item C")
+                )
+            )
+
+            // Second agent verifies it can access all context
+            agent("verify", verifyAgent)
+        }
+
+        val runner = DefaultGraphRunner()
+        val checkpointStore = InMemoryCheckpointStore()
+
+        // Step 1: Start with initial ExecutionContext
+        val pausedResult = runner.runWithCheckpoint(
+            graph = metadataGraph,
+            input = mapOf(
+                "metadata" to mapOf(
+                    "userId" to "user-123",
+                    "tenantId" to "tenant-456"
+                )
+            ),
+            store = checkpointStore
+        ).getOrThrow()
+
+        // Verify first agent executed and graph paused
+        assertTrue(firstAgentExecuted)
+        assertEquals(RunStatus.PAUSED, pausedResult.status)
+        assertNotNull(pausedResult.checkpointId)
+
+        // Verify checkpoint saved the agent's data
+        val checkpoint = checkpointStore.load(pausedResult.checkpointId!!).getOrThrow()
+        assertTrue(checkpoint.metadata.containsKey("menu_text"))
+        assertTrue(checkpoint.metadata.containsKey("items_json"))
+        assertTrue(checkpoint.metadata.containsKey("session_id"))
+        assertEquals("SESSION123", checkpoint.metadata["session_id"])
+
+        // Step 2: Resume with HumanResponse containing metadata
+        val humanResponse = HumanResponse(
+            nodeId = "select",
+            selectedOption = "item-b",
+            metadata = mapOf(
+                "selected_item_id" to "RSV002",
+                "selected_item_name" to "Item B",
+                "user_id" to "user-123"  // User info from UI
+            )
+        )
+
+        val finalResult = runner.resumeWithHumanResponse(
+            graph = metadataGraph,
+            checkpointId = pausedResult.checkpointId!!,
+            response = humanResponse,
+            store = checkpointStore
+        ).getOrThrow()
+
+        // Step 3: Verify second agent received ALL context data
+        assertEquals(RunStatus.SUCCESS, finalResult.status)
+        assertNotNull(verifyAgentContext, "Verify agent should have received ExecutionContext")
+
+        // Verify ExecutionContext contains original tenant/user info
+        assertEquals("tenant-456", verifyAgentContext?.tenantId)
+        assertEquals("user-123", verifyAgentContext?.userId)
+
+        // Verify ExecutionContext contains first agent's data
+        assertEquals("SESSION123", verifyAgentContext?.get("session_id"))
+        assertEquals("""["Item A", "Item B", "Item C"]""", verifyAgentContext?.get("items_json"))
+
+        // 🔥 CRITICAL: Verify ExecutionContext contains HumanResponse metadata
+        assertEquals("RSV002", verifyAgentContext?.get("selected_item_id"))
+        assertEquals("Item B", verifyAgentContext?.get("selected_item_name"))
+        assertEquals("user-123", verifyAgentContext?.get("user_id"))
+
+        // Verify comm.data also contains the propagated metadata
+        assertNotNull(verifyAgentCommData)
+        assertEquals("SESSION123", verifyAgentCommData?.get("session_id"))
+        assertEquals("RSV002", verifyAgentCommData?.get("selected_item_id"))
+    }
 }

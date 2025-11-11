@@ -105,6 +105,31 @@ data class NodeResult private constructor(
             additional: Map<String, Any> = emptyMap(),
             nextEdges: List<String> = emptyList()
         ): NodeResult = NodeResult(data, ctx.context.toMap() + additional, nextEdges)
+
+        /**
+         * Factory specifically for creating NodeResult from HumanResponse during checkpoint resume.
+         * Automatically propagates HumanResponse.metadata to ensure it's available in ExecutionContext
+         * for subsequent nodes (especially AgentNode).
+         *
+         * This is the recommended way to convert HumanResponse to NodeResult in resume flows.
+         *
+         * @param ctx NodeContext that should already have HumanResponse.metadata merged into its context
+         * @param response The HumanResponse to convert
+         * @return NodeResult with HumanResponse data and metadata properly propagated
+         */
+        fun fromHumanResponse(
+            ctx: NodeContext,
+            response: io.github.noailabs.spice.graph.nodes.HumanResponse
+        ): NodeResult {
+            // Convert HumanResponse.metadata (Map<String, String>) to Map<String, Any>
+            val humanMetadata = response.metadata.mapValues { it.value as Any }
+
+            return fromContext(
+                ctx = ctx,
+                data = response,
+                additional = humanMetadata
+            )
+        }
     }
 }
 

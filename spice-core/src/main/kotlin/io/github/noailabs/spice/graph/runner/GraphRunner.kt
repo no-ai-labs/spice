@@ -791,15 +791,19 @@ class DefaultGraphRunner(
                 is SpiceResult.Success -> Unit
             }
 
-            // Store the human response in the node state
+            // Store the human response in the node state AND merge metadata into context
+            // This ensures next AgentNode can access HumanResponse.metadata via ExecutionContext
+            val humanMetadata = response.metadata.mapValues { it.value as Any }
             nodeContext = nodeContext
                 .withState(checkpoint.currentNodeId, response)
                 .withState("_previous", response)
+                .withContext(nodeContext.context.plusAll(humanMetadata))  // 🔥 Propagate to ExecutionContext
 
             // Find the next node after the HumanNode
             val currentResult = io.github.noailabs.spice.graph.NodeResult.fromContext(
                 ctx = nodeContext,
-                data = response
+                data = response,
+                additional = humanMetadata  // 🔥 Explicitly include in metadata
             )
             val nextNodeId = graph.edges
                 .firstOrNull { edge ->

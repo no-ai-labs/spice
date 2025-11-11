@@ -185,7 +185,97 @@ val response = HumanResponse.text(
     nodeId = "feedback",
     text = "Please add more details to section 3"
 )
+
+// Response with metadata (Added in 0.8.1) ⭐ NEW
+val response = HumanResponse(
+    nodeId = "select-reservation",
+    selectedOption = "option-2",
+    metadata = mapOf(
+        "selected_item_id" to "RSV002",
+        "selected_item_name" to "Hotel California",
+        "user_notes" to "Need early check-in"
+    )
+)
 ```
+
+#### Metadata Propagation (0.8.1+) ⭐ NEW
+
+`HumanResponse` includes a `metadata` field that **automatically propagates to ExecutionContext** when resuming from a checkpoint. This ensures the next node (especially AgentNode) can access user selection data.
+
+**How It Works:**
+
+```kotlin
+// Step 1: Agent generates data and pauses at HumanNode
+val listAgent = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        val items = fetchItems()
+        return SpiceResult.success(
+            comm.reply(
+                "Found ${items.size} items",
+                id,
+                data = mapOf(
+                    "items_json" to items.toJson(),
+                    "session_id" to "SESSION123"
+                )
+            )
+        )
+    }
+}
+
+// Step 2: Graph pauses, checkpoint saves agent data
+val pausedResult = runner.runWithCheckpoint(
+    graph, input, store
+).getOrThrow()
+
+// Checkpoint contains:
+// - context["items_json"] = "[{...}, {...}]"
+// - context["session_id"] = "SESSION123"
+
+// Step 3: Resume with HumanResponse containing metadata
+val response = HumanResponse(
+    nodeId = "select-item",
+    selectedOption = "item-2",
+    metadata = mapOf(
+        "selected_id" to "ITEM002",
+        "user_comment" to "Looks good!"
+    )
+)
+
+val finalResult = runner.resumeWithHumanResponse(
+    graph, pausedResult.checkpointId!!, response, store
+).getOrThrow()
+
+// Step 4: Next AgentNode receives ALL context
+val processAgent = object : Agent {
+    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
+        // ✅ Access original agent data
+        val itemsJson = comm.context?.get("items_json")
+        val sessionId = comm.context?.get("session_id")
+
+        // ✅ Access HumanResponse metadata
+        val selectedId = comm.context?.get("selected_id")
+        val userComment = comm.context?.get("user_comment")
+
+        // Process with complete context!
+        return processItem(selectedId, itemsJson, userComment)
+    }
+}
+```
+
+**Key Benefits:**
+- ✅ Zero manual data passing between nodes
+- ✅ Complete context preservation across checkpoint/resume
+- ✅ Type-safe access to user input via ExecutionContext
+- ✅ Works seamlessly with multi-agent workflows
+
+**Under the Hood:**
+
+When `resumeWithHumanResponse()` is called, the framework automatically:
+1. Restores ExecutionContext from checkpoint
+2. Merges `HumanResponse.metadata` into ExecutionContext
+3. Passes merged context to next node
+
+See [Context API Documentation](/docs/api/execution-context) for more details.
 
 ### 4. Graph Execution States
 

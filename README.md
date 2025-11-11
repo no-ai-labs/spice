@@ -856,6 +856,9 @@ cd spice-framework
 - ✅ Unified Communication (Comm)
 - ✅ Tool Management System
 - ✅ LLM Integrations (OpenAI, Anthropic)
+- ✅ Graph System with Checkpoint/Resume & HITL (Human-in-the-Loop)
+- ✅ DynamicHumanNode for runtime-generated prompts (v0.8.0)
+- ✅ HumanResponse metadata propagation (v0.8.1 - Critical fix)
 - ✅ Spring Boot Starter
 - ✅ JSON Serialization System
 - ✅ PSI (Program Structure Interface) - DSL to tree conversion
@@ -864,7 +867,7 @@ cd spice-framework
 - ✅ OpenTelemetry Integration (Distributed tracing & metrics)
 - ✅ TracedAgent Wrapper (Automatic observability)
 - ✅ MCP Protocol Support (Model Context Protocol integration)
-- ✅ Multi-Tenant Support with ThreadLocal context propagation
+- ✅ Multi-Tenant Support with ExecutionContext propagation
 - ✅ Dynamic Platform Management System
 - ✅ Policy Versioning with rollback capability
 - ✅ Tenant-aware storage abstractions

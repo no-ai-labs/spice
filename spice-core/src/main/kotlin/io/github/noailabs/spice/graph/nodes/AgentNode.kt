@@ -35,12 +35,17 @@ class AgentNode(
             ?: (ctx.state["metadata"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value.toString() }  // 🆕 Support direct metadata map
             ?: emptyMap()
 
+        // 🔥 Merge ctx.context into comm.data for Checkpoint HITL support!
+        // This ensures Agent receives all ExecutionContext data (e.g., reservations_json from Checkpoint)
+        val contextData = ctx.context.toMap().mapValues { it.value.toString() }
+        val mergedData = contextData + previousData  // context first, then previousData overwrites
+
         // Create Comm from input (with ExecutionContext and propagated data)
         val comm = Comm(
             content = inputContent,
             from = "graph-${ctx.graphId}",
             context = ctx.context,  // ✨ Context propagation via ExecutionContext!
-            data = previousData           // 🔥 Metadata propagation!
+            data = mergedData             // 🔥 Metadata propagation with ExecutionContext merge!
         )
 
         // Execute agent and map to NodeResult (chain SpiceResult)
