@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "io.github.noailabs"
-version = "0.9.2"
+version = "0.9.3"
 
 repositories {
     mavenCentral()
@@ -87,7 +87,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-eventsourcing"
-            version = "0.9.2"
+            version = "0.9.3"
 
             pom {
                 name.set("Spice EventSourcing")

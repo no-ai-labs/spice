@@ -66,7 +66,7 @@ class DynamicHumanNodeTest {
             )
 
             edge("menu", "select") { result ->
-                (result.data as? Map<*, *>)?.get("needs_selection") == "true"
+                result.metadata["needs_selection"] == "true"
             }
 
             output("result") { it.state["select"] }
@@ -141,7 +141,7 @@ class DynamicHumanNodeTest {
             )
 
             edge("process", "input") { result ->
-                (result.data as? Map<*, *>)?.get("needs_input") == "true"
+                result.metadata["needs_input"] == "true"
             }
 
             output("result") { it.state["input"] }
@@ -200,7 +200,7 @@ class DynamicHumanNodeTest {
             )
 
             edge("reservations", "select") { result ->
-                (result.data as? Map<*, *>)?.get("needs_selection") == "true"
+                result.metadata["needs_selection"] == "true"
             }
 
             output("result") { it.state["select"] }

@@ -226,14 +226,18 @@ class DefaultGraphRunner(
                 // Store result in context and propagate metadata
                 val previousMetadata = nodeContext.context.toMap()
                 val enrichedContext = nodeContext.context.plusAll(result.metadata)
-                
-                // Extract _previousComm from metadata if present
+
+                // 🔥 Propagate result.metadata to state for next node access
+                // This ensures all node results (including Comm.data from AgentNode) are accessible via state
                 val stateUpdates = mutableMapOf<String, Any?>(
                     nodeId to result.data,
                     "_previous" to result.data
                 )
-                result.metadata["_previousComm"]?.let { stateUpdates["_previousComm"] = it }
-                
+                // Add all metadata to state
+                result.metadata.forEach { (key, value) ->
+                    stateUpdates[key] = value
+                }
+
                 nodeContext = nodeContext
                     .withState(stateUpdates)
                     .withContext(enrichedContext)
@@ -584,14 +588,18 @@ class DefaultGraphRunner(
                 // Store result and propagate metadata
                 val previousMetadata = nodeContext.context.toMap()
                 val enrichedContext = nodeContext.context.plusAll(result.metadata)
-                
-                // Extract _previousComm from metadata if present
+
+                // 🔥 Propagate result.metadata to state for next node access
+                // This ensures all node results (including Comm.data from AgentNode) are accessible via state
                 val stateUpdates = mutableMapOf<String, Any?>(
                     nodeId to result.data,
                     "_previous" to result.data
                 )
-                result.metadata["_previousComm"]?.let { stateUpdates["_previousComm"] = it }
-                
+                // Add all metadata to state
+                result.metadata.forEach { (key, value) ->
+                    stateUpdates[key] = value
+                }
+
                 nodeContext = nodeContext
                     .withState(stateUpdates)
                     .withContext(enrichedContext)
