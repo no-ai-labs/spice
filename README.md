@@ -10,6 +10,10 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
+<p align="center">
+  <strong>🍽️ We're eating our own dogfood.</strong>
+</p>
+
 ---
 
 > **🚨 MAJOR UPDATE COMING: v0.5.0 - Agent Framework Revolution**
