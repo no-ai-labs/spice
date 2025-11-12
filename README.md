@@ -14,22 +14,6 @@
   <strong>🍽️ We're eating our own dogfood.</strong>
 </p>
 
----
-
-> **🚨 MAJOR UPDATE COMING: v0.5.0 - Agent Framework Revolution**
->
-> We're rebuilding Spice with a **Microsoft Agent Framework-inspired architecture**: unified graph-based runtime, OpenTelemetry-native observability, checkpoint/replay, and middleware pipeline.
->
-> **⚠️ Breaking Changes Ahead** | **📅 Target: Week 10** | **📖 [Read the Roadmap →](docs/docs/roadmap/overview.md)**
->
-> - **Current users**: 0.4.x will have 6 months LTS support
-> - **Migration tools**: Auto-migration CLI provided
-> - **Early access**: 0.5.0-beta coming Week 8
->
-> Join the discussion: [GitHub Discussions](https://github.com/no-ai-labs/spice/discussions) | [Discord](#)
-
----
-
 ## 🎯 What is Spice?
 
 Spice Framework is a modern, type-safe, coroutine-first framework for building AI-powered applications in Kotlin. It provides a clean DSL for creating agents, managing tools, and orchestrating complex AI workflows with multiple LLM providers.
