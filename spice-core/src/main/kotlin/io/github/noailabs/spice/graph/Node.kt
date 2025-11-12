@@ -46,6 +46,43 @@ data class NodeContext(
 
     fun withContext(newContext: ExecutionContext): NodeContext =
         copy(context = newContext)
+
+    /**
+     * Helper: Access the previous Agent's Comm object.
+     * AgentNode stores the full Comm in state["_previousComm"] after execution.
+     *
+     * This is useful when a custom Node needs to access the previous Agent's
+     * communication data, especially in HITL (Human-in-the-Loop) scenarios.
+     *
+     * Example:
+     * ```kotlin
+     * class ResponseNode : Node {
+     *     override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+     *         val message = ctx.previousContent
+     *             ?: ctx.state["workflow_message"]?.toString()
+     *             ?: "Default message"
+     *         // ...
+     *     }
+     * }
+     * ```
+     */
+    val previousComm: io.github.noailabs.spice.Comm?
+        get() = state["_previousComm"] as? io.github.noailabs.spice.Comm
+
+    /**
+     * Helper: Access the previous Agent's content (message).
+     * Shortcut for `previousComm?.content`.
+     *
+     * This provides a convenient way to get the message from the previous Agent
+     * without manually casting and accessing the Comm object.
+     *
+     * Example:
+     * ```kotlin
+     * val agentMessage = ctx.previousContent  // Simple access!
+     * ```
+     */
+    val previousContent: String?
+        get() = previousComm?.content
 }
 
 /**
