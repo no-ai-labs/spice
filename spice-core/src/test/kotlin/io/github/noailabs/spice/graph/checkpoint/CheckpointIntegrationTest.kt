@@ -133,7 +133,7 @@ class CheckpointIntegrationTest {
         assertEquals(checkpoint.graphId, loaded.graphId)
         assertEquals(checkpoint.currentNodeId, loaded.currentNodeId)
         assertEquals("value1", loaded.state["key1"])
-        assertEquals(42, loaded.state["key2"])
+        assertEquals(42L, loaded.state["key2"])  // JSON numbers become Long after serialization
     }
 
     @Test

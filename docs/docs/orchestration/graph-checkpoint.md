@@ -138,13 +138,18 @@ store.size()   // Get count
 
 ### Example: Redis Store
 
+**⚠️ IMPORTANT:** Use `CheckpointSerializer` for production stores to ensure nested Map/List structures are preserved correctly.
+
 ```kotlin
+import io.github.noailabs.spice.graph.checkpoint.CheckpointSerializer
+
 class RedisCheckpointStore(
     private val redis: RedisClient
 ) : CheckpointStore {
     override suspend fun save(checkpoint: Checkpoint): SpiceResult<String> {
         return SpiceResult.catching {
-            val json = Json.encodeToString(checkpoint)
+            // ✅ Use CheckpointSerializer for type-safe serialization
+            val json = CheckpointSerializer.serialize(checkpoint)
             redis.set("checkpoint:${checkpoint.id}", json)
             checkpoint.id
         }
@@ -154,7 +159,8 @@ class RedisCheckpointStore(
         return SpiceResult.catching {
             val json = redis.get("checkpoint:$checkpointId")
                 ?: throw NoSuchElementException("Checkpoint not found")
-            Json.decodeFromString(json)
+            // ✅ Deserialize with type preservation
+            CheckpointSerializer.deserialize(json)
         }
     }
 
@@ -165,6 +171,8 @@ class RedisCheckpointStore(
 ### Example: Database Store
 
 ```kotlin
+import io.github.noailabs.spice.graph.checkpoint.CheckpointSerializer
+
 class DatabaseCheckpointStore(
     private val database: Database
 ) : CheckpointStore {
@@ -176,7 +184,8 @@ class DatabaseCheckpointStore(
                     it[runId] = checkpoint.runId
                     it[graphId] = checkpoint.graphId
                     it[currentNodeId] = checkpoint.currentNodeId
-                    it[state] = Json.encodeToString(checkpoint.state)
+                    // ✅ Use CheckpointSerializer for the entire checkpoint
+                    it[checkpointJson] = CheckpointSerializer.serialize(checkpoint)
                     it[timestamp] = checkpoint.timestamp
                 }
             }
@@ -184,7 +193,165 @@ class DatabaseCheckpointStore(
         }
     }
 
+    override suspend fun load(checkpointId: String): SpiceResult<Checkpoint> {
+        return SpiceResult.catching {
+            database.transaction {
+                val json = CheckpointTable
+                    .select { CheckpointTable.id eq checkpointId }
+                    .firstOrNull()
+                    ?.get(CheckpointTable.checkpointJson)
+                    ?: throw NoSuchElementException("Checkpoint not found")
+
+                // ✅ Deserialize with preserved types
+                CheckpointSerializer.deserialize(json)
+            }
+        }
+    }
+
     // ... other methods
+}
+```
+
+## Type-Safe Checkpoint Serialization
+
+**Added in:** 0.9.5
+
+### The Problem: Type Loss with Default Jackson
+
+When storing checkpoints in Redis or databases, default Jackson serialization loses nested type information:
+
+```kotlin
+// ❌ BEFORE: Default Jackson (Type Loss)
+val checkpoint = Checkpoint(
+    state = mapOf(
+        "structured_data" to mapOf("key" to "value")  // Map<String, String>
+    )
+)
+
+// After Redis → Jackson deserialize:
+state["structured_data"] = LinkedHashMap<String, Any?>()  // Type lost!
+
+// When app tries to use it:
+val data = state["structured_data"] as Map<*, *>
+val json = objectMapper.writeValueAsString(data)
+// Result: "{key=value}" ← NOT proper JSON! 💥
+```
+
+This causes issues when:
+- Workflows use nested data structures in state
+- Agents store complex configurations in checkpoint
+- HITL workflows pass structured data between resume sessions
+
+### The Solution: CheckpointSerializer
+
+**CheckpointSerializer** uses Kotlin Serialization to preserve nested structures:
+
+```kotlin
+import io.github.noailabs.spice.graph.checkpoint.CheckpointSerializer
+
+// ✅ Type-safe serialization
+val json = CheckpointSerializer.serialize(checkpoint)
+val restored = CheckpointSerializer.deserialize(json)
+
+// Nested structures are preserved!
+val data = restored.state["structured_data"] as Map<*, *>
+// ✅ Proper Map restored, not LinkedHashMap<String, Any?>!
+```
+
+### How It Works
+
+CheckpointSerializer:
+1. Recursively converts nested Maps/Lists to JSON elements
+2. Preserves structure through JSON serialization
+3. Reconstructs typed objects during deserialization
+4. Handles special types (Instant, ExecutionContext, HumanInteraction)
+
+**Important Notes:**
+
+1. **Number Type Caveat**: JSON doesn't distinguish Int/Long or Float/Double
+   - Int becomes Long after round-trip
+   - Float becomes Double after round-trip
+   - This is a JSON spec limitation, not a bug
+
+2. **Null Value Handling**: Explicit nulls in `Map<String, Any?>` may not round-trip perfectly
+   - Acceptable as storing explicit nulls in state is rare
+   - Prefer omitting keys instead of storing null values
+
+3. **InMemoryCheckpointStore**: Now uses JSON serialization internally
+   - Ensures consistent behavior between in-memory and persistent stores
+   - Tests verify nested structure preservation
+
+### Migration Guide
+
+If you have existing custom CheckpointStore implementations:
+
+```kotlin
+// ❌ BEFORE (Dangerous - loses type information)
+class MyCheckpointStore : CheckpointStore {
+    private val objectMapper = jacksonObjectMapper()
+
+    override suspend fun save(checkpoint: Checkpoint): SpiceResult<String> {
+        return SpiceResult.catching {
+            val json = objectMapper.writeValueAsString(checkpoint)  // ❌ Type loss!
+            redis.set(checkpoint.id, json)
+            checkpoint.id
+        }
+    }
+}
+
+// ✅ AFTER (Safe - preserves nested structures)
+class MyCheckpointStore : CheckpointStore {
+    override suspend fun save(checkpoint: Checkpoint): SpiceResult<String> {
+        return SpiceResult.catching {
+            val json = CheckpointSerializer.serialize(checkpoint)  // ✅ Type-safe!
+            redis.set(checkpoint.id, json)
+            checkpoint.id
+        }
+    }
+
+    override suspend fun load(checkpointId: String): SpiceResult<Checkpoint> {
+        return SpiceResult.catching {
+            val json = redis.get(checkpointId) ?: error("Not found")
+            CheckpointSerializer.deserialize(json)  // ✅ Restores types!
+        }
+    }
+}
+```
+
+### Testing Nested Structures
+
+Verify your custom store preserves nested structures:
+
+```kotlin
+@Test
+fun `test nested structures survive serialization`() = runTest {
+    val store = MyCustomCheckpointStore()
+
+    val checkpoint = Checkpoint(
+        id = "test",
+        runId = "run-1",
+        graphId = "graph-1",
+        currentNodeId = "node1",
+        state = mapOf(
+            "nested" to mapOf(
+                "list" to listOf(
+                    mapOf("id" to "1", "data" to "value1"),
+                    mapOf("id" to "2", "data" to "value2")
+                )
+            )
+        )
+    )
+
+    // Save → Load
+    store.save(checkpoint).getOrThrow()
+    val restored = store.load("test").getOrThrow()
+
+    // Verify nested structure preserved
+    val nested = restored.state["nested"] as Map<*, *>
+    val list = nested["list"] as List<*>
+    val firstItem = list[0] as Map<*, *>
+
+    assertEquals("value1", firstItem["data"])  // ✅ Preserved!
 }
 ```
 
@@ -347,18 +514,22 @@ val result = runner.resume(graph, checkpointId, store)
 
 1. **Checkpoint frequently** in long-running workflows
 2. **Use persistent stores** for production (Redis, DB)
-3. **Clean up old checkpoints** periodically
-4. **Test resume scenarios** thoroughly
-5. **Log checkpoint IDs** for debugging
-6. **Include metadata** for context
+3. **Use CheckpointSerializer** for custom stores (0.9.5+)
+4. **Clean up old checkpoints** periodically
+5. **Test resume scenarios** thoroughly
+6. **Test nested structure preservation** in custom stores
+7. **Log checkpoint IDs** for debugging
+8. **Include metadata** for context
 
 ### ❌ Don'ts
 
 1. **Don't checkpoint too frequently** - impacts performance
 2. **Don't store large objects** in state - use references
 3. **Don't rely on in-memory store** in production
-4. **Don't forget to handle resume failures**
-5. **Don't modify checkpoint data** manually
+4. **Don't use default Jackson** for custom stores - use CheckpointSerializer
+5. **Don't forget to handle resume failures**
+6. **Don't modify checkpoint data** manually
+7. **Don't assume Int/Float types** are preserved - they become Long/Double
 
 ## Error Scenarios
 

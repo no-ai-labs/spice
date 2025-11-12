@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.github.noailabs"
-version = "0.9.4"
+version = "0.9.5"
 
 repositories {
     mavenCentral()
@@ -57,7 +57,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-extensions-sparql"
-            version = "0.9.4"
+            version = "0.9.5"
 
             pom {
                 name.set("Spice Extensions - SPARQL")
