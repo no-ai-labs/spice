@@ -25,9 +25,9 @@ object GraphValidator {
             errors.add("Entry point '${graph.entryPoint}' does not exist in graph")
         }
 
-        // 3. Check all edges reference existing nodes
+        // 3. Check all edges reference existing nodes (allow "*" as wildcard)
         graph.edges.forEach { edge ->
-            if (!graph.nodes.containsKey(edge.from)) {
+            if (edge.from != "*" && !graph.nodes.containsKey(edge.from)) {
                 errors.add("Edge references non-existent 'from' node: ${edge.from}")
             }
             if (!graph.nodes.containsKey(edge.to)) {
@@ -107,19 +107,35 @@ object GraphValidator {
 
     /**
      * Find nodes that are unreachable from the entry point.
+     * Considers wildcard edges ("*") as potentially reaching all nodes.
      */
     private fun findUnreachableNodes(graph: Graph): List<String> {
         val reachable = mutableSetOf<String>()
+
+        // Check if there are any wildcard edges
+        val hasWildcardEdges = graph.edges.any { it.from == "*" }
+
+        // If there are wildcard edges, collect all their target nodes
+        val wildcardTargets = if (hasWildcardEdges) {
+            graph.edges.filter { it.from == "*" }.map { it.to }.toSet()
+        } else {
+            emptySet()
+        }
 
         fun dfs(nodeId: String) {
             if (reachable.contains(nodeId)) return
 
             reachable.add(nodeId)
 
-            // Visit all outgoing nodes
+            // Visit all outgoing nodes from specific edges
             graph.edges
                 .filter { it.from == nodeId }
                 .forEach { edge -> dfs(edge.to) }
+
+            // If current node can potentially use wildcard edges, mark those targets as reachable
+            if (hasWildcardEdges) {
+                wildcardTargets.forEach { target -> dfs(target) }
+            }
         }
 
         // Start DFS from entry point

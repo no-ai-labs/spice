@@ -3,6 +3,7 @@ package io.github.noailabs.spice.graph.dsl
 import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.graph.Edge
+import io.github.noailabs.spice.graph.EdgeGroup
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
@@ -268,12 +269,71 @@ class GraphBuilder(val id: String) {
      * Explicit edges take priority over automatic sequential edges.
      * If you define any explicit edge from a node, automatic edges from that node are ignored.
      *
-     * @param from Source node ID
+     * @param from Source node ID (use "*" for wildcard matching all nodes)
      * @param to Destination node ID
+     * @param priority Lower values are evaluated first (default: 0)
+     * @param name Optional edge name for debugging (default: null)
      * @param condition Predicate that determines if this edge should be followed (default: always true)
      */
-    fun edge(from: String, to: String, condition: (io.github.noailabs.spice.graph.NodeResult) -> Boolean = { true }) {
-        explicitEdges.add(Edge(from = from, to = to, condition = condition))
+    fun edge(
+        from: String,
+        to: String,
+        priority: Int = 0,
+        name: String? = null,
+        condition: (io.github.noailabs.spice.graph.NodeResult) -> Boolean = { true }
+    ) {
+        explicitEdges.add(Edge(from = from, to = to, priority = priority, isFallback = false, name = name, condition = condition))
+    }
+
+    /**
+     * Add a default (fallback) edge that is only used when no regular edges match.
+     * This prevents graph termination when all conditional edges fail.
+     *
+     * Default edges are evaluated AFTER all regular edges fail.
+     * You can have multiple default edges from the same node - they will be evaluated by priority.
+     *
+     * @param from Source node ID (use "*" for wildcard matching all nodes)
+     * @param to Destination node ID
+     * @param priority Lower values are evaluated first among fallback edges (default: Int.MAX_VALUE)
+     * @param name Optional edge name for debugging (default: null)
+     */
+    fun defaultEdge(from: String, to: String, priority: Int = Int.MAX_VALUE, name: String? = null) {
+        explicitEdges.add(Edge(from = from, to = to, priority = priority, isFallback = true, name = name, condition = { true }))
+    }
+
+    /**
+     * Add an edge with multiple conditions using EdgeGroup builder.
+     * Supports OR and AND composition of conditions, with metadata helpers.
+     *
+     * Example:
+     * ```kotlin
+     * complexEdge("node1", "node2", priority = 1) {
+     *     where { it.data == "confirm" }
+     *     orWhen { it.metadata["type"] == "yes" }
+     *     named("confirm-edge")
+     * }
+     *
+     * complexEdge("node1", "node3", priority = 2) {
+     *     whenMetadata("status", equals = "completed")
+     *     andWhenMetadata("verified", equals = true)
+     * }
+     * ```
+     *
+     * @param from Source node ID (use "*" for wildcard matching all nodes)
+     * @param to Destination node ID
+     * @param priority Lower values are evaluated first (default: 0)
+     * @param name Optional edge name for debugging (default: null)
+     * @param builder EdgeGroup configuration block
+     */
+    fun complexEdge(
+        from: String,
+        to: String,
+        priority: Int = 0,
+        name: String? = null,
+        builder: EdgeGroup.() -> Unit
+    ) {
+        val group = EdgeGroup(from, to, priority, name).apply(builder)
+        explicitEdges.add(group.toEdge())
     }
 
     /**

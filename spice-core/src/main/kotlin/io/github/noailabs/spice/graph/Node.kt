@@ -61,7 +61,7 @@ fun NodeContext.preserveMetadata(additional: Map<String, Any> = emptyMap()): Map
 data class NodeResult private constructor(
     val data: Any?,
     val metadata: Map<String, Any>,
-    val nextEdges: List<String> = emptyList()
+    val nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
 ) {
     init {
         // Soft size policy (warning by default). Hard limit is opt-in via policy.
@@ -92,7 +92,7 @@ data class NodeResult private constructor(
         fun create(
             data: Any?,
             metadata: Map<String, Any>,
-            nextEdges: List<String> = emptyList()
+            nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
         ): NodeResult = NodeResult(data, metadata, nextEdges)
 
         /**
@@ -102,7 +102,7 @@ data class NodeResult private constructor(
             ctx: NodeContext,
             data: Any?,
             additional: Map<String, Any?> = emptyMap(),
-            nextEdges: List<String> = emptyList()
+            nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
         ): NodeResult {
             @Suppress("UNCHECKED_CAST")
             val mergedMetadata = (ctx.context.toMap() + additional).filterValues { it != null } as Map<String, Any>

@@ -256,11 +256,8 @@ class DefaultGraphRunner(
                     )
                 )
 
-                // Find next node
-                val nextId = graph.edges
-                    .firstOrNull { edge -> edge.from == nodeId && edge.condition(result) }
-                    ?.to
-                currentNodeId = nextId
+                // Find next node using improved routing logic
+                currentNodeId = findNextNode(nodeId, result, graph)
             }
 
             val graphEndTime = Instant.now()
@@ -658,10 +655,8 @@ class DefaultGraphRunner(
                 lastCheckpointTime = endTime
             }
 
-            // Find next node
-            currentNodeId = graph.edges
-                .firstOrNull { edge -> edge.from == nodeId && edge.condition(result) }
-                ?.to
+            // Find next node using improved routing logic
+            currentNodeId = findNextNode(nodeId, result, graph)
         }
 
         val graphEndTime = Instant.now()
@@ -813,11 +808,8 @@ class DefaultGraphRunner(
                 data = response,
                 additional = humanMetadata  // 🔥 Explicitly include in metadata
             )
-            val nextNodeId = graph.edges
-                .firstOrNull { edge ->
-                    edge.from == checkpoint.currentNodeId && edge.condition(currentResult)
-                }
-                ?.to
+            // Find next node using improved routing logic
+            val nextNodeId = findNextNode(checkpoint.currentNodeId, currentResult, graph)
 
             // Continue execution from the next node
             executeGraphWithCheckpoint(
@@ -831,6 +823,60 @@ class DefaultGraphRunner(
         }.recoverWith { error ->
             SpiceResult.failure(error)
         }
+    }
+
+    /**
+     * Find the next node to execute based on edge routing logic.
+     * Priority order:
+     * 1. Dynamic edges from NodeResult.nextEdges (highest priority)
+     * 2. Regular graph edges (non-fallback) sorted by priority
+     * 3. Fallback edges sorted by priority
+     *
+     * Supports wildcard matching: edges with from="*" match any node.
+     *
+     * @param nodeId Current node ID
+     * @param result Result from the current node execution
+     * @param graph Graph containing edge definitions
+     * @return Next node ID, or null if no matching edge found
+     */
+    private fun findNextNode(
+        nodeId: String,
+        result: NodeResult,
+        graph: Graph
+    ): String? {
+        // 1. Check dynamic edges from NodeResult.nextEdges (runtime routing)
+        result.nextEdges?.let { dynamicEdges ->
+            dynamicEdges
+                .filter { matchesNode(it.from, nodeId) && !it.isFallback }
+                .sortedBy { it.priority }
+                .firstOrNull { it.condition(result) }
+                ?.let { return it.to }
+        }
+
+        // 2. Check regular (non-fallback) graph edges
+        graph.edges
+            .filter { matchesNode(it.from, nodeId) && !it.isFallback }
+            .sortedBy { it.priority }
+            .firstOrNull { it.condition(result) }
+            ?.let { return it.to }
+
+        // 3. Check fallback edges (last resort)
+        graph.edges
+            .filter { matchesNode(it.from, nodeId) && it.isFallback }
+            .sortedBy { it.priority }
+            .firstOrNull()
+            ?.let { return it.to }
+
+        // No matching edge found - graph will terminate
+        return null
+    }
+
+    /**
+     * Check if edge.from matches the current nodeId.
+     * Supports wildcard: "*" matches any node.
+     */
+    private fun matchesNode(edgeFrom: String, nodeId: String): Boolean {
+        return edgeFrom == nodeId || edgeFrom == "*"
     }
 }
 
