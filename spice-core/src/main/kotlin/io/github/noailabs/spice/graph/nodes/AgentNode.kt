@@ -7,6 +7,8 @@ import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.NodeResult
 import io.github.noailabs.spice.toAgentContext
+import io.github.noailabs.spice.toolspec.getToolCalls
+import io.github.noailabs.spice.toolspec.hasToolCalls
 
 /**
  * Node that executes an Agent.
@@ -61,6 +63,15 @@ class AgentNode(
                     // This allows DynamicHumanNode and other nodes to read agent data
                     response.data.forEach { (key, value) ->
                         put(key, value)
+                    }
+
+                    // 🔧 0.10.0: Propagate tool_calls if present
+                    // This enables next nodes to access tool calls via state
+                    if (response.hasToolCalls()) {
+                        val toolCalls = response.getToolCalls()
+                        put("tool_calls", toolCalls)
+                        put("has_tool_calls", true)
+                        put("tool_call_count", toolCalls.size)
                     }
 
                     ctx.context.tenantId?.let { put("tenantId", it) }

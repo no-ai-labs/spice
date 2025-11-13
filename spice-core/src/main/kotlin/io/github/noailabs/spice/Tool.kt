@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
  * Defines tools that agents can use.
  *
  * @since 0.2.0 - execute now returns SpiceResult<ToolResult> for type-safe error handling
+ * @since 0.10.0 - Added toToolSpec() for OpenAI Function Calling compatibility
  */
 interface Tool {
     val name: String
@@ -36,7 +37,35 @@ interface Tool {
      * Check if tool can process specific parameters
      */
     fun canExecute(parameters: Map<String, Any?>): Boolean = true
-    
+
+    /**
+     * Export tool schema as OpenAI Function Calling spec
+     *
+     * Returns a map that can be directly used with OpenAI, Anthropic, or other
+     * LLM APIs that support function calling.
+     *
+     * Example output:
+     * ```json
+     * {
+     *   "type": "function",
+     *   "name": "web_search",
+     *   "description": "Search the web",
+     *   "parameters": {
+     *     "type": "object",
+     *     "properties": {
+     *       "query": { "type": "string", "description": "Search query" }
+     *     },
+     *     "required": ["query"]
+     *   }
+     * }
+     * ```
+     *
+     * @param strict Whether to enforce strict schema validation (default: false)
+     * @return Map representation of OpenAI function calling spec
+     * @since 0.10.0
+     */
+    fun toToolSpec(strict: Boolean = false): Map<String, Any> = schema.toOpenAIFunctionSpec(strict)
+
     /**
      * Validate parameters before execution
      */
