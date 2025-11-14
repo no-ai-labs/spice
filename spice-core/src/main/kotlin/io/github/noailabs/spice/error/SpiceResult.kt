@@ -1,7 +1,5 @@
 package io.github.noailabs.spice.error
 
-import io.github.noailabs.spice.Comm
-import io.github.noailabs.spice.CommType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -186,15 +184,7 @@ sealed class SpiceResult<T> {
 }
 
 /**
- * Extension: Convert Comm to Result based on error type
  */
-fun Comm.toResult(): SpiceResult<Comm> {
-    return if (this.type == CommType.ERROR) {
-        SpiceResult.failure(SpiceError.CommError(this.content, this))
-    } else {
-        SpiceResult.success(this)
-    }
-}
 
 /**
  * Extension: Apply Result to Flow

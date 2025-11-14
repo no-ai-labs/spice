@@ -1,6 +1,5 @@
 package io.github.noailabs.spice.error
 
-import io.github.noailabs.spice.Comm
 
 /**
  * 🚨 Spice Error Hierarchy
@@ -45,7 +44,7 @@ sealed class SpiceError {
      */
     fun withContext(vararg pairs: Pair<String, Any>): SpiceError = when (this) {
         is AgentError -> copy(context = context + pairs.toMap())
-        is CommError -> copy(context = context + pairs.toMap())
+        is ExecutionError -> copy(context = context + pairs.toMap())
         is ToolError -> copy(context = context + pairs.toMap())
         is ConfigurationError -> copy(context = context + pairs.toMap())
         is ValidationError -> copy(context = context + pairs.toMap())
@@ -75,15 +74,16 @@ sealed class SpiceError {
     }
 
     /**
-     * Communication (Comm) errors
+     * Graph/Node execution errors
      */
-    data class CommError(
+    data class ExecutionError(
         override val message: String,
-        val comm: Comm? = null,
+        val graphId: String? = null,
+        val nodeId: String? = null,
         override val cause: Throwable? = null,
         override val context: Map<String, Any> = emptyMap()
     ) : SpiceError() {
-        override val code: String = "COMM_ERROR"
+        override val code: String = "EXECUTION_ERROR"
     }
 
     /**
@@ -251,8 +251,6 @@ sealed class SpiceError {
         /**
          * Create comm error
          */
-        fun commError(message: String, comm: Comm? = null, cause: Throwable? = null) =
-            CommError(message, comm, cause)
 
         /**
          * Create tool error

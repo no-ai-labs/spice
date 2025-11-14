@@ -28,134 +28,58 @@ import io.github.noailabs.spice.error.SpiceResult
  *
  * @since 1.0.0
  */
-interface Agent : Identifiable {
-    override val id: String
+interface Agent {
+    val id: String
     val name: String
     val description: String
     val capabilities: List<String>
 
     /**
-     * Process incoming message and return response
+     * Process a message and return a response
      *
-     * **Core method** - All agents must implement this.
-     *
-     * **State Machine:**
-     * - Input message state: typically RUNNING
-     * - Output message state: RUNNING (continue), WAITING (HITL), COMPLETED (done)
-     *
-     * **Tool Calls:**
-     * - Use `message.withToolCall(toolCall)` to add tool calls
-     * - Tool calls are automatically propagated to next nodes
-     *
-     * @param message Input message with execution context
-     * @return SpiceResult with response message or error
+     * @param message Input message
+     * @return Response message or error
      */
     suspend fun processMessage(message: SpiceMessage): SpiceResult<SpiceMessage>
 
     /**
-     * Process with runtime context
-     * Optional override for agents that need runtime access
+     * Process a message with runtime context
      *
      * @param message Input message
-     * @param runtime Agent runtime (LLM client, vector store, etc.)
-     * @return SpiceResult with response message or error
+     * @param runtime Agent runtime providing access to system services
+     * @return Response message or error
      */
     suspend fun processMessage(message: SpiceMessage, runtime: AgentRuntime): SpiceResult<SpiceMessage> {
         return processMessage(message)
     }
 
     /**
-     * Check if this Agent can handle the given message
-     * Used for dynamic agent routing
+     * Check if this agent can handle the given message
      *
-     * @param message Input message
-     * @return true if agent can process this message
+     * @param message Message to check
+     * @return True if agent can process this message
      */
-    fun canHandle(message: SpiceMessage): Boolean
+    fun canHandle(message: SpiceMessage): Boolean = true
 
     /**
-     * Get Tools available to this Agent
-     * Used for LLM tool calling integration
+     * Get tools available to this agent
      *
-     * @return List of tools this agent can use
+     * @return List of tools
      */
-    fun getTools(): List<Tool>
+    fun getTools(): List<Tool> = emptyList()
 
     /**
-     * Check if Agent is ready for operation
-     * Called before graph execution starts
+     * Check if agent is ready to process messages
      *
-     * @return true if agent is initialized and ready
+     * @return True if ready
      */
-    fun isReady(): Boolean
-
-    /**
-     * Get agent configuration
-     * @return AgentConfig with LLM settings, timeouts, etc.
-     */
-    fun getConfig(): AgentConfig = AgentConfig()
-
-    /**
-     * Initialize agent with runtime
-     * Called once during agent setup
-     *
-     * @param runtime Agent runtime with LLM client, vector store, etc.
-     */
-    suspend fun initialize(runtime: AgentRuntime) {}
-
-    /**
-     * Cleanup resources
-     * Called during shutdown or agent disposal
-     */
-    suspend fun cleanup() {}
-
-    /**
-     * Get VectorStore by name (if configured)
-     * @param name Vector store identifier
-     * @return VectorStore instance or null
-     */
-    fun getVectorStore(name: String): VectorStore? = null
-
-    /**
-     * Get all VectorStores configured for this agent
-     * @return Map of store name to VectorStore instance
-     */
-    fun getVectorStores(): Map<String, VectorStore> = emptyMap()
-
-    /**
-     * Get agent metrics
-     * @return AgentMetrics with performance stats
-     */
-    fun getMetrics(): AgentMetrics = AgentMetrics()
+    fun isReady(): Boolean = true
 }
 
 /**
- * 🔧 Base Agent implementation providing common functionality
+ * 🏗️ Base Agent implementation with common functionality
  *
- * Provides default implementations for:
- * - Tool management
- * - Vector store management
- * - Metrics tracking
- * - Runtime lifecycle
- *
- * **Usage:**
- * ```kotlin
- * class MyAgent : BaseAgent(
- *     id = "my-agent",
- *     name = "My Agent",
- *     description = "Does amazing things",
- *     capabilities = listOf("text_generation", "tool_calling")
- * ) {
- *     override suspend fun processMessage(message: SpiceMessage): SpiceResult<SpiceMessage> {
- *         // Your logic here
- *         return SpiceResult.success(message.reply("Done", id))
- *     }
- *
- *     override fun canHandle(message: SpiceMessage): Boolean {
- *         return message.content.isNotBlank()
- *     }
- * }
- * ```
+ * Provides default implementations for tool management and readiness checks.
  *
  * @since 1.0.0
  */
@@ -168,160 +92,67 @@ abstract class BaseAgent(
 ) : Agent {
 
     private val _tools = mutableListOf<Tool>()
-    private val _vectorStores = mutableMapOf<String, VectorStore>()
-    private var runtime: AgentRuntime? = null
-    private val metrics = AgentMetrics()
 
     /**
      * Add a tool to this agent
-     * @param tool Tool to add
      */
     fun addTool(tool: Tool) {
         _tools.add(tool)
     }
 
-    /**
-     * Add a vector store to this agent
-     * @param name Store identifier
-     * @param store VectorStore instance
-     */
-    fun addVectorStore(name: String, store: VectorStore) {
-        _vectorStores[name] = store
-    }
-
     override fun getTools(): List<Tool> = _tools.toList()
 
-    override fun getVectorStore(name: String): VectorStore? = _vectorStores[name]
+    override fun canHandle(message: SpiceMessage): Boolean = true
 
-    override fun getVectorStores(): Map<String, VectorStore> = _vectorStores.toMap()
-
-    override fun getConfig(): AgentConfig = config
-
-    override fun isReady(): Boolean {
-        return runtime != null
-    }
-
-    override suspend fun initialize(runtime: AgentRuntime) {
-        this.runtime = runtime
-    }
-
-    override suspend fun cleanup() {
-        _tools.clear()
-        _vectorStores.clear()
-        runtime = null
-    }
-
-    override fun getMetrics(): AgentMetrics = metrics
-
-    /**
-     * Get current runtime
-     * @return AgentRuntime or null if not initialized
-     */
-    protected fun getRuntime(): AgentRuntime? = runtime
-
-    /**
-     * Record successful message processing
-     */
-    protected fun recordSuccess() {
-        metrics.incrementSuccess()
-    }
-
-    /**
-     * Record failed message processing
-     */
-    protected fun recordFailure() {
-        metrics.incrementFailure()
-    }
-
-    /**
-     * Default canHandle implementation
-     * Override for custom logic
-     */
-    override fun canHandle(message: SpiceMessage): Boolean {
-        return true  // Accept all messages by default
-    }
+    override fun isReady(): Boolean = true
 }
 
 /**
- * 📊 Agent Configuration
+ * ⚙️ Agent Configuration
  *
- * Configuration options for agent behavior
- *
- * @property timeout Maximum execution time for agent
+ * @property timeout Maximum execution time
  * @property retryPolicy Retry policy for failed executions
- * @property llmConfig LLM-specific configuration (temperature, model, etc.)
+ * @since 1.0.0
  */
 data class AgentConfig(
-    val timeout: kotlin.time.Duration = kotlin.time.Duration.parse("30s"),
-    val retryPolicy: RetryPolicy = RetryPolicy.default(),
-    val llmConfig: Map<String, Any> = emptyMap()
+    val timeout: kotlin.time.Duration? = null,
+    val retryPolicy: RetryPolicy = RetryPolicy()
 )
 
 /**
  * 🔄 Retry Policy
  *
  * @property maxRetries Maximum number of retries
- * @property backoffStrategy Backoff strategy (EXPONENTIAL, LINEAR, FIXED)
+ * @property backoffMultiplier Multiplier for exponential backoff
  * @property initialDelay Initial delay before first retry
+ * @since 1.0.0
  */
 data class RetryPolicy(
     val maxRetries: Int = 3,
-    val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+    val backoffMultiplier: Double = 2.0,
     val initialDelay: kotlin.time.Duration = kotlin.time.Duration.parse("1s")
-) {
-    companion object {
-        fun default() = RetryPolicy()
-        fun noRetry() = RetryPolicy(maxRetries = 0)
-    }
-}
-
-/**
- * Backoff strategy for retries
- */
-enum class BackoffStrategy {
-    EXPONENTIAL,  // 1s, 2s, 4s, 8s...
-    LINEAR,       // 1s, 2s, 3s, 4s...
-    FIXED         // 1s, 1s, 1s, 1s...
-}
-
-/**
- * 📈 Agent Metrics
- *
- * Performance metrics for agent execution
- */
-data class AgentMetrics(
-    private var successCount: Long = 0,
-    private var failureCount: Long = 0,
-    private var totalLatencyMs: Long = 0
-) {
-    fun incrementSuccess() {
-        successCount++
-    }
-
-    fun incrementFailure() {
-        failureCount++
-    }
-
-    fun recordLatency(latencyMs: Long) {
-        totalLatencyMs += latencyMs
-    }
-
-    fun getSuccessRate(): Double {
-        val total = successCount + failureCount
-        return if (total > 0) (successCount.toDouble() / total) * 100 else 0.0
-    }
-
-    fun getAverageLatency(): Double {
-        return if (successCount > 0) totalLatencyMs.toDouble() / successCount else 0.0
-    }
-}
+)
 
 /**
  * 🏃 Agent Runtime
  *
- * Runtime dependencies provided to agents
- * Placeholder for 1.0.0 - will be expanded in future versions
+ * Provides access to system services during agent execution.
+ *
+ * @since 1.0.0
  */
 interface AgentRuntime {
-    // LLM client, vector store, etc. will be added here
+    /**
+     * Call another agent
+     */
+    suspend fun callAgent(agentId: String, message: SpiceMessage): SpiceResult<SpiceMessage>
+
+    /**
+     * Publish an event
+     */
+    suspend fun publishEvent(topic: String, message: SpiceMessage): SpiceResult<Unit>
+
+    /**
+     * Get system logger
+     */
+    fun getLogger(name: String): Any? = null
 }

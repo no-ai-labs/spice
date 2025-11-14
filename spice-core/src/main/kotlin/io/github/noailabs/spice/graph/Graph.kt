@@ -1,6 +1,4 @@
 package io.github.noailabs.spice.graph
-
-import io.github.noailabs.spice.Identifiable
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.middleware.Middleware
@@ -52,7 +50,7 @@ import io.github.noailabs.spice.idempotency.IdempotencyStore
  * @since 1.0.0
  */
 data class Graph(
-    override val id: String,
+    val id: String,
     val nodes: Map<String, Node>,
     val edges: List<Edge>,
     val entryPoint: String,
@@ -60,7 +58,7 @@ data class Graph(
     val allowCycles: Boolean = false,
     val eventBus: EventBus? = null,
     val idempotencyStore: IdempotencyStore? = null
-) : Identifiable
+)
 
 /**
  * 🔗 Edge for Spice Framework 1.0.0

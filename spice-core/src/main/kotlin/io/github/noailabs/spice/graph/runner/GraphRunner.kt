@@ -113,9 +113,9 @@ class DefaultGraphRunner(
      */
     override suspend fun execute(graph: Graph, message: SpiceMessage): SpiceResult<SpiceMessage> {
         // Validate graph structure
-        val validation = validateGraph(graph)
-        if (validation is SpiceResult.Failure) {
-            return validation
+        when (val validation = validateGraph(graph)) {
+            is SpiceResult.Failure -> return SpiceResult.failure(validation.error)
+            is SpiceResult.Success -> Unit
         }
 
         // Validate message state (should be READY or RUNNING)

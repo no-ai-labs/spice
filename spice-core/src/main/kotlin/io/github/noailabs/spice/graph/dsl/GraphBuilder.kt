@@ -1,378 +1,287 @@
 package io.github.noailabs.spice.graph.dsl
 
 import io.github.noailabs.spice.Agent
+import io.github.noailabs.spice.ExecutionState
+import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
+import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
-import io.github.noailabs.spice.graph.EdgeGroup
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.Node
-import io.github.noailabs.spice.graph.NodeContext
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
+import io.github.noailabs.spice.graph.nodes.HumanNode
+import io.github.noailabs.spice.graph.nodes.HumanOption
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
-import io.github.noailabs.spice.graph.nodes.ParallelNode
-import io.github.noailabs.spice.graph.nodes.MergeNode
-import io.github.noailabs.spice.graph.nodes.MergeStrategies
-import io.github.noailabs.spice.graph.merge.MergePolicy
+import io.github.noailabs.spice.idempotency.IdempotencyStore
+import kotlin.time.Duration
 
 /**
- * DSL entry point for creating graphs.
+ * 🏗️ GraphBuilder DSL for Spice Framework 1.0.0
  *
- * Example:
+ * Fluent API for building graphs with SpiceMessage-based execution.
+ *
+ * **BREAKING CHANGE from 0.x:**
+ * - All nodes work with SpiceMessage (not Comm/NodeContext)
+ * - EventBus and IdempotencyStore are first-class citizens
+ * - Edge conditions use SpiceMessage
+ *
+ * **Usage:**
  * ```kotlin
- * val graph = graph("my-workflow") {
- *     agent("greeter", myAgent)
- *     tool("processor", myTool)
+ * val graph = graph("booking-workflow") {
+ *     // Configure event bus (optional)
+ *     eventBus(myEventBus)
+ *
+ *     // Configure idempotency (optional)
+ *     idempotencyStore(myStore)
+ *
+ *     // Define nodes
+ *     agent("search", searchAgent)
+ *     human("select", "Please select a reservation")
+ *     agent("confirm", confirmAgent)
  *     output("result")
+ *
+ *     // Define edges
+ *     edge("search", "select")
+ *     edge("select", "confirm")
+ *     edge("confirm", "result")
  * }
  * ```
- */
-fun graph(id: String, block: GraphBuilder.() -> Unit): Graph {
-    return GraphBuilder(id).apply(block).build()
-}
-
-/**
- * Builder for constructing graphs using DSL.
+ *
+ * @since 1.0.0
  */
 class GraphBuilder(val id: String) {
     private val nodes = mutableMapOf<String, Node>()
-    private val autoEdges = mutableListOf<Edge>()        // Automatically added edges (sequential flow)
-    private val explicitEdges = mutableListOf<Edge>()    // User-defined conditional edges
-    private val middlewares = mutableListOf<Middleware>()
-    private var lastNodeId: String? = null
+    private val edges = mutableListOf<Edge>()
+    private var entryPoint: String? = null
+    private val middleware = mutableListOf<Middleware>()
+    private var allowCycles = false
+    private var eventBus: EventBus? = null
+    private var idempotencyStore: IdempotencyStore? = null
 
     /**
-     * Add a custom Node to the graph.
-     * Use this for custom node implementations.
+     * Add an agent node
      *
-     * @param node The custom Node instance to add
-     */
-    fun node(node: Node) {
-        nodes[node.id] = node
-        connectToPrevious(node.id)
-        lastNodeId = node.id
-    }
-
-    /**
-     * Add an Agent node to the graph.
-     *
-     * @param id Unique identifier for this node
-     * @param agent The Spice Agent to execute
+     * @param id Node ID
+     * @param agent Agent instance
      */
     fun agent(id: String, agent: Agent) {
-        val node = AgentNode(id, agent)
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
+        nodes[id] = AgentNode(agent)
+        if (entryPoint == null) entryPoint = id
     }
 
     /**
-     * Add a Tool node to the graph.
+     * Add a tool node
      *
-     * @param id Unique identifier for this node
-     * @param tool The Spice Tool to execute
-     * @param paramMapper Optional function to map context to tool parameters
+     * @param id Node ID
+     * @param tool Tool instance
+     * @param paramMapper Function to extract tool parameters from message
      */
     fun tool(
         id: String,
         tool: Tool,
-        paramMapper: (NodeContext) -> Map<String, Any?> = { it.state }
+        paramMapper: (SpiceMessage) -> Map<String, Any?> = { it.data }
     ) {
-        val node = ToolNode(id, tool, paramMapper)
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
+        nodes[id] = ToolNode(id, tool, paramMapper)
+        if (entryPoint == null) entryPoint = id
     }
 
     /**
-     * Add a Human node to the graph for HITL (Human-in-the-Loop).
-     * This node pauses graph execution and waits for human input.
+     * Add a human-in-the-loop node
      *
-     * @param id Unique identifier for this node
-     * @param prompt Message to show the human
-     * @param options List of options for multiple choice (empty for free text)
-     * @param timeout Optional timeout duration
-     * @param validator Optional function to validate human response
+     * @param id Node ID
+     * @param prompt Message to display to human
+     * @param options Multiple choice options (optional)
+     * @param timeout Timeout duration (optional)
+     * @param allowFreeText Allow free-form text input
      */
-    fun humanNode(
+    fun human(
         id: String,
         prompt: String,
-        options: List<io.github.noailabs.spice.graph.nodes.HumanOption> = emptyList(),
-        timeout: java.time.Duration? = null,
-        validator: ((io.github.noailabs.spice.graph.nodes.HumanResponse) -> Boolean)? = null
+        options: List<HumanOption> = emptyList(),
+        timeout: Duration? = null,
+        allowFreeText: Boolean = options.isEmpty()
     ) {
-        val node = io.github.noailabs.spice.graph.nodes.HumanNode(
-            id = id,
-            prompt = prompt,
-            options = options,
-            timeout = timeout,
-            validator = validator
-        )
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
+        nodes[id] = HumanNode(id, prompt, options, timeout, allowFreeText = allowFreeText)
+        if (entryPoint == null) entryPoint = id
     }
 
     /**
-     * Add a Dynamic Human node that reads prompt from state at runtime.
+     * Add an output node (final result)
      *
-     * Unlike humanNode which has a static prompt, this node reads the prompt
-     * from NodeContext.state, allowing agents to generate prompts dynamically.
-     *
-     * Example:
-     * ```kotlin
-     * graph("menu-workflow") {
-     *     agent("generate-menu", menuAgent)  // Sets state["menu_text"]
-     *     dynamicHumanNode("select", promptKey = "menu_text")
-     *     agent("process", processAgent)     // Reads state["select"]
-     * }
-     * ```
-     *
-     * @param id Unique identifier for this node
-     * @param promptKey Key in NodeContext.state to read prompt from (default: "menu_text")
-     * @param fallbackPrompt Prompt to use if promptKey not found in state
-     * @param options List of options for multiple choice (empty for free text)
-     * @param timeout Optional timeout duration
-     * @param validator Optional function to validate human response
-     */
-    fun dynamicHumanNode(
-        id: String,
-        promptKey: String = "menu_text",
-        fallbackPrompt: String = "사용자 입력을 기다립니다...",
-        options: List<io.github.noailabs.spice.graph.nodes.HumanOption> = emptyList(),
-        timeout: java.time.Duration? = null,
-        validator: ((io.github.noailabs.spice.graph.nodes.HumanResponse) -> Boolean)? = null
-    ) {
-        val node = io.github.noailabs.spice.graph.nodes.DynamicHumanNode(
-            id = id,
-            promptKey = promptKey,
-            fallbackPrompt = fallbackPrompt,
-            options = options,
-            timeout = timeout,
-            validator = validator
-        )
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
-    }
-
-    /**
-     * Add an Output node to the graph.
-     * This typically marks the end of the graph execution.
-     *
-     * @param id Unique identifier for this node (defaults to "output")
-     * @param selector Function to select the output value from context
+     * @param id Node ID
+     * @param selector Function to extract final output from message
      */
     fun output(
-        id: String = "output",
-        selector: (NodeContext) -> Any? = { it.state["result"] }
-    ) {
-        val node = OutputNode(id, selector)
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
-    }
-
-    /**
-     * Add middleware to the graph.
-     * Middleware will be executed in the order they are added.
-     *
-     * @param middleware The middleware to add
-     */
-    fun middleware(middleware: Middleware) {
-        middlewares.add(middleware)
-    }
-
-    /**
-     * Add a ParallelNode to execute multiple branches concurrently.
-     *
-     * Example:
-     * ```kotlin
-     * parallel("data-processing",
-     *     branches = mapOf(
-     *         "fetch" to fetchNode,
-     *         "validate" to validateNode,
-     *         "transform" to transformNode
-     *     ),
-     *     mergePolicy = MergePolicy.Namespace
-     * )
-     * ```
-     *
-     * @param id Unique identifier for this parallel node
-     * @param branches Map of branch ID to Node for each parallel branch
-     * @param mergePolicy How to merge metadata from parallel branches (default: Namespace)
-     * @param failFast If true, fail entire parallel execution on first branch failure (default: true)
-     */
-    fun parallel(
         id: String,
-        branches: Map<String, Node>,
-        mergePolicy: MergePolicy = MergePolicy.Namespace,
-        failFast: Boolean = true
+        selector: (SpiceMessage) -> Any? = { it.content }
     ) {
-        val node = ParallelNode(
-            id = id,
-            branches = branches,
-            mergePolicy = mergePolicy,
-            failFast = failFast
-        )
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
+        nodes[id] = OutputNode(id, selector)
     }
 
     /**
-     * Add a MergeNode to aggregate results from a ParallelNode.
+     * Add a custom node
      *
-     * Example:
-     * ```kotlin
-     * merge("aggregate", parallelNodeId = "data-processing") { results ->
-     *     mapOf(
-     *         "fetchedData" to results["fetch"],
-     *         "isValid" to results["validate"],
-     *         "transformed" to results["transform"]
-     *     )
-     * }
-     * ```
-     *
-     * Common merge strategies available in MergeStrategies:
-     * - `MergeStrategies.first` - Take first non-null result
-     * - `MergeStrategies.last` - Take last non-null result
-     * - `MergeStrategies.concatList` - Combine all into list
-     * - `MergeStrategies.vote` - Select most common result
-     * - `MergeStrategies.average` - Average numeric results
-     * - `MergeStrategies.asMap` - Return all as map (no merging)
-     *
-     * @param id Unique identifier for this merge node
-     * @param parallelNodeId ID of the ParallelNode whose results to merge
-     * @param merger Function that combines parallel branch results into single output
+     * @param id Node ID (if not provided, uses node.id)
+     * @param node Custom node implementation
      */
-    fun merge(
-        id: String,
-        parallelNodeId: String,
-        merger: (Map<String, Any?>) -> Any?
-    ) {
-        val node = MergeNode(
-            id = id,
-            parallelNodeId = parallelNodeId,
-            merger = merger
-        )
-        nodes[id] = node
-        connectToPrevious(id)
-        lastNodeId = id
+    fun node(id: String? = null, node: Node) {
+        val nodeId = id ?: node.id
+        nodes[nodeId] = node
+        if (entryPoint == null) entryPoint = nodeId
     }
 
     /**
-     * Add a conditional edge between two nodes.
-     * This allows explicit control over graph flow based on node results.
+     * Add a simple edge between two nodes
      *
-     * Explicit edges take priority over automatic sequential edges.
-     * If you define any explicit edge from a node, automatic edges from that node are ignored.
+     * @param from Source node ID
+     * @param to Target node ID
+     * @param priority Lower values evaluated first (default: 0)
+     * @param name Optional name for debugging
+     */
+    fun edge(
+        from: String,
+        to: String,
+        priority: Int = 0,
+        name: String? = null
+    ) {
+        edges.add(Edge(from, to, priority, name = name))
+    }
+
+    /**
+     * Add a conditional edge
      *
-     * @param from Source node ID (use "*" for wildcard matching all nodes)
-     * @param to Destination node ID
-     * @param priority Lower values are evaluated first (default: 0)
-     * @param name Optional edge name for debugging (default: null)
-     * @param condition Predicate that determines if this edge should be followed (default: always true)
+     * @param from Source node ID
+     * @param to Target node ID
+     * @param priority Lower values evaluated first
+     * @param name Optional name for debugging
+     * @param condition Predicate to determine if edge should be followed
      */
     fun edge(
         from: String,
         to: String,
         priority: Int = 0,
         name: String? = null,
-        condition: (io.github.noailabs.spice.graph.NodeResult) -> Boolean = { true }
+        condition: (SpiceMessage) -> Boolean
     ) {
-        explicitEdges.add(Edge(from = from, to = to, priority = priority, isFallback = false, name = name, condition = condition))
+        edges.add(Edge(from, to, priority, name = name, condition = condition))
     }
 
     /**
-     * Add a default (fallback) edge that is only used when no regular edges match.
-     * This prevents graph termination when all conditional edges fail.
+     * Add a fallback edge (used when no regular edges match)
      *
-     * Default edges are evaluated AFTER all regular edges fail.
-     * You can have multiple default edges from the same node - they will be evaluated by priority.
-     *
-     * @param from Source node ID (use "*" for wildcard matching all nodes)
-     * @param to Destination node ID
-     * @param priority Lower values are evaluated first among fallback edges (default: Int.MAX_VALUE)
-     * @param name Optional edge name for debugging (default: null)
+     * @param from Source node ID
+     * @param to Target node ID
+     * @param name Optional name for debugging
      */
-    fun defaultEdge(from: String, to: String, priority: Int = Int.MAX_VALUE, name: String? = null) {
-        explicitEdges.add(Edge(from = from, to = to, priority = priority, isFallback = true, name = name, condition = { true }))
+    fun fallbackEdge(from: String, to: String, name: String? = null) {
+        edges.add(Edge(from, to, priority = 0, isFallback = true, name = name))
     }
 
     /**
-     * Add an edge with multiple conditions using EdgeGroup builder.
-     * Supports OR and AND composition of conditions, with metadata helpers.
-     *
-     * Example:
-     * ```kotlin
-     * complexEdge("node1", "node2", priority = 1) {
-     *     where { it.data == "confirm" }
-     *     orWhen { it.metadata["type"] == "yes" }
-     *     named("confirm-edge")
-     * }
-     *
-     * complexEdge("node1", "node3", priority = 2) {
-     *     whenMetadata("status", equals = "completed")
-     *     andWhenMetadata("verified", equals = true)
-     * }
-     * ```
-     *
-     * @param from Source node ID (use "*" for wildcard matching all nodes)
-     * @param to Destination node ID
-     * @param priority Lower values are evaluated first (default: 0)
-     * @param name Optional edge name for debugging (default: null)
-     * @param builder EdgeGroup configuration block
+     * Add middleware
      */
-    fun complexEdge(
-        from: String,
-        to: String,
-        priority: Int = 0,
-        name: String? = null,
-        builder: EdgeGroup.() -> Unit
-    ) {
-        val group = EdgeGroup(from, to, priority, name).apply(builder)
-        explicitEdges.add(group.toEdge())
+    fun middleware(vararg middleware: Middleware) {
+        this.middleware.addAll(middleware)
     }
 
     /**
-     * Automatically connect the current node to the previous node.
-     * These auto-edges are only used if no explicit edge is defined from the same node.
+     * Set entry point (first node to execute)
      */
-    private fun connectToPrevious(currentId: String) {
-        lastNodeId?.let { prevId ->
-            autoEdges.add(Edge(from = prevId, to = currentId))
-        }
+    fun entryPoint(nodeId: String) {
+        this.entryPoint = nodeId
     }
 
     /**
-     * Build the final Graph instance.
-     *
-     * Merges explicit and automatic edges with the following priority:
-     * 1. All explicit edges are included
-     * 2. Automatic edges are only included if there is NO explicit edge from the same source node
-     *
-     * This ensures that user-defined conditional edges take precedence over sequential flow.
+     * Allow cycles in the graph
+     */
+    fun allowCycles(allow: Boolean = true) {
+        this.allowCycles = allow
+    }
+
+    /**
+     * Configure event bus for event-driven workflows
+     */
+    fun eventBus(eventBus: EventBus) {
+        this.eventBus = eventBus
+    }
+
+    /**
+     * Configure idempotency store for duplicate detection
+     */
+    fun idempotencyStore(store: IdempotencyStore) {
+        this.idempotencyStore = store
+    }
+
+    /**
+     * Build the graph
      */
     fun build(): Graph {
         require(nodes.isNotEmpty()) { "Graph must have at least one node" }
-
-        // Collect all source nodes that have explicit edges
-        val explicitFromNodes = explicitEdges.map { it.from }.toSet()
-
-        // Filter out auto-edges that conflict with explicit edges
-        val nonConflictingAutoEdges = autoEdges.filterNot { it.from in explicitFromNodes }
-
-        // Merge: explicit edges first, then non-conflicting auto-edges
-        val finalEdges = explicitEdges + nonConflictingAutoEdges
+        require(entryPoint != null) { "Graph must have an entry point" }
+        require(entryPoint in nodes) { "Entry point '$entryPoint' not found in nodes" }
 
         return Graph(
             id = id,
             nodes = nodes,
-            edges = finalEdges,
-            entryPoint = nodes.keys.first(),
-            middleware = middlewares
+            edges = edges,
+            entryPoint = entryPoint!!,
+            middleware = middleware,
+            allowCycles = allowCycles,
+            eventBus = eventBus,
+            idempotencyStore = idempotencyStore
         )
     }
+}
+
+/**
+ * DSL entry point for building a graph
+ *
+ * **Usage:**
+ * ```kotlin
+ * val graph = graph("my-graph") {
+ *     agent("step1", myAgent)
+ *     output("result")
+ *     edge("step1", "result")
+ * }
+ * ```
+ */
+fun graph(id: String, block: GraphBuilder.() -> Unit): Graph {
+    val builder = GraphBuilder(id)
+    builder.block()
+    return builder.build()
+}
+
+/**
+ * 🎯 Edge Builder for complex routing logic
+ *
+ * **Usage:**
+ * ```kotlin
+ * graph("workflow") {
+ *     // ... nodes ...
+ *
+ *     // Conditional routing based on state
+ *     edge("agent", "success") { message ->
+ *         message.state == ExecutionState.COMPLETED
+ *     }
+ *
+ *     // Routing based on metadata
+ *     edge("agent", "retry") { message ->
+ *         message.getMetadata<Int>("retry_count")?.let { it < 3 } ?: false
+ *     }
+ *
+ *     // Routing based on tool calls
+ *     edge("agent", "human") { message ->
+ *         message.hasToolCall("request_user_selection")
+ *     }
+ * }
+ * ```
+ */
+
+/**
+ * Helper: Create a human option
+ */
+fun humanOption(id: String, label: String, description: String? = null): HumanOption {
+    return HumanOption(id, label, description)
 }

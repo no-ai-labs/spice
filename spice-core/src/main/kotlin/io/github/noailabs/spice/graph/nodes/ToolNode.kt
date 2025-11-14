@@ -73,8 +73,8 @@ class ToolNode(
         // Extract tool parameters from message
         val params = paramMapper(message)
 
-        // Filter out null values (Tool.execute expects Map<String, Any>)
-        val nonNullParams = params.filterValues { it != null }
+        // Filter out null values and ensure type is Map<String, Any>
+        val nonNullParams: Map<String, Any> = params.filterValues { it != null }
             .mapValues { it.value!! }
 
         // Create ToolContext from message metadata
@@ -83,7 +83,7 @@ class ToolNode(
             userId = message.getMetadata("userId"),
             tenantId = message.getMetadata("tenantId"),
             correlationId = message.correlationId,
-            metadata = message.metadata
+            metadata = message.metadata.filterValues { it != null }.mapValues { it.value!! }
         )
 
         // Execute tool
@@ -92,20 +92,19 @@ class ToolNode(
                 val toolResult = result.value
 
                 // Embed tool result in message
+                val dataUpdates = buildMap<String, Any> {
+                    toolResult.result?.let { put("tool_result", it) }
+                    put("tool_success", toolResult.success)
+                    put("tool_name", tool.name)
+                }
+                val metadataUpdates = mapOf<String, Any>(
+                    "tool_executed" to tool.name,
+                    "tool_success" to toolResult.success
+                )
+
                 val output = message
-                    .withData(
-                        mapOf(
-                            "tool_result" to toolResult.result,
-                            "tool_success" to toolResult.success,
-                            "tool_name" to tool.name
-                        )
-                    )
-                    .withMetadata(
-                        mapOf(
-                            "tool_executed" to tool.name,
-                            "tool_success" to toolResult.success
-                        )
-                    )
+                    .withData(dataUpdates)
+                    .withMetadata(metadataUpdates)
 
                 SpiceResult.success(output)
             }
@@ -115,10 +114,4 @@ class ToolNode(
             }
         }
     }
-
-    /**
-     * Get wrapped tool
-     * @return Tool instance
-     */
-    fun getTool(): Tool = tool
 }

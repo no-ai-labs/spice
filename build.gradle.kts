@@ -24,4 +24,19 @@ subprojects {
     tasks.withType<Test> {
         useJUnitPlatform()
     }
+
+    plugins.withId("maven-publish") {
+        extensions.configure<org.gradle.api.publish.PublishingExtension>("publishing") {
+            repositories {
+                maven {
+                    name = "private"
+                    url = uri("http://localhost:8080/repository/maven-releases/")
+                    credentials {
+                        username = findProperty("repoUser") as String? ?: System.getenv("REPO_USER")
+                        password = findProperty("repoPass") as String? ?: System.getenv("REPO_PASS")
+                    }
+                }
+            }
+        }
+    }
 }
