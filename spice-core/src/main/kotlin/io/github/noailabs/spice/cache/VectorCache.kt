@@ -4,6 +4,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import redis.clients.jedis.JedisPool
+import redis.clients.jedis.params.ScanParams
 import kotlin.math.sqrt
 import kotlin.time.Duration
 
@@ -75,5 +81,71 @@ class InMemoryVectorCache : VectorCache {
 
         val denominator = sqrt(magA) * sqrt(magB)
         return if (denominator == 0.0) 0.0 else dot / denominator
+    }
+}
+
+/**
+ * Redis-backed vector cache using cosine similarity computed client-side.
+ */
+class RedisVectorCache(
+    private val jedisPool: JedisPool,
+    private val namespace: String = "spice:vector",
+    private val json: Json = Json { ignoreUnknownKeys = true }
+) : VectorCache {
+
+    @Serializable
+    private data class VectorRecord(
+        val vector: List<Float>,
+        val metadata: Map<String, String>,
+        val expiresAt: Long
+    )
+
+    private fun key(id: String) = "$namespace:$id"
+
+    override suspend fun put(key: String, vector: FloatArray, metadata: Map<String, Any>, ttl: Duration) {
+        val record = VectorRecord(
+            vector = vector.toList(),
+            metadata = metadata.mapValues { it.value?.toString() ?: "" },
+            expiresAt = Clock.System.now().toEpochMilliseconds() + ttl.inWholeMilliseconds
+        )
+        jedisPool.resource.use { jedis ->
+            jedis.set(this.key(key), json.encodeToString(record))
+            jedis.pexpire(this.key(key), ttl.inWholeMilliseconds)
+        }
+    }
+
+    override suspend fun query(vector: FloatArray, topK: Int): List<VectorMatch> {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return jedisPool.resource.use { jedis ->
+            val params = ScanParams().match("$namespace:*").count(200)
+            var cursor = ScanParams.SCAN_POINTER_START
+            val matches = mutableListOf<VectorMatch>()
+            do {
+                val result = jedis.scan(cursor, params)
+                result.result.forEach { redisKey ->
+                    val payload = jedis.get(redisKey) ?: return@forEach
+                    val record = runCatching { json.decodeFromString<VectorRecord>(payload) }.getOrNull()
+                        ?: return@forEach
+                    if (record.expiresAt <= now) {
+                        jedis.del(redisKey)
+                        return@forEach
+                    }
+                    val score = cosineSimilarity(vector, record.vector.toFloatArray())
+                    matches += VectorMatch(
+                        key = redisKey.removePrefix("$namespace:"),
+                        score = score,
+                        metadata = record.metadata
+                    )
+                }
+                cursor = result.cursor
+            } while (cursor != ScanParams.SCAN_POINTER_START)
+            matches.sortedByDescending { it.score }.take(topK)
+        }
+    }
+
+    override suspend fun invalidate(key: String) {
+        jedisPool.resource.use { jedis ->
+            jedis.del(this.key(key))
+        }
     }
 }

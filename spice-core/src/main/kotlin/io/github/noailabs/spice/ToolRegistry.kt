@@ -120,6 +120,9 @@ object ToolRegistry : Registry<ToolWrapper>("ToolRegistry") {
     fun getBySource(source: String): List<Tool> =
         ids(sourceIndex[source]).mapNotNull { get(it)?.tool }
 
+    fun getWrapper(name: String, namespace: String = "global"): ToolWrapper? =
+        get(idFor(namespace, name))
+
     fun getAgentTools(): List<Pair<Tool, Map<String, Any>>> =
         getAll()
             .filter { it.source == "agent-tool" }

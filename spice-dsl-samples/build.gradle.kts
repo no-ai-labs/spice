@@ -16,6 +16,7 @@ dependencies {
 
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("net.objecthunter:exp4j:0.4.8")
     
     // Logging
     implementation("ch.qos.logback:logback-classic:1.4.14")

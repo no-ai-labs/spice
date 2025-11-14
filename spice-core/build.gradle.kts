@@ -43,6 +43,9 @@ dependencies {
     implementation("io.opentelemetry:opentelemetry-exporter-otlp:1.34.1")
     implementation("io.opentelemetry.semconv:opentelemetry-semconv:1.23.1-alpha")
     implementation("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:2.1.0")
+
+    // Redis clients for MQ/Cache/Idempotency backends
+    implementation("redis.clients:jedis:5.1.2")
     
     // 🚀 Kafka Support (Optional)
     compileOnly("org.apache.kafka:kafka-clients:3.7.1")

@@ -2,18 +2,23 @@ package io.github.noailabs.spice.graph.runner
 
 import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.cache.CacheKind
+import io.github.noailabs.spice.cache.CachePolicy
+import io.github.noailabs.spice.cache.IdempotencyManager
+import io.github.noailabs.spice.cache.VectorCache
+import io.github.noailabs.spice.error.ErrorReport
+import io.github.noailabs.spice.error.ErrorReportAdapter
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.middleware.Middleware
-import io.github.noailabs.spice.idempotency.IdempotencyKey
-import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.validation.SchemaValidationPipeline
+import io.github.noailabs.spice.validation.ValidationError
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * 🚀 GraphRunner for Spice Framework 1.0.0
@@ -105,7 +110,11 @@ interface GraphRunner {
  */
 class DefaultGraphRunner(
     private val enableIdempotency: Boolean = true,
-    private val enableEvents: Boolean = true
+    private val enableEvents: Boolean = true,
+    private val validationPipeline: SchemaValidationPipeline = SchemaValidationPipeline(),
+    private val stateMachine: ExecutionStateMachine = ExecutionStateMachine(),
+    private val cachePolicy: CachePolicy = CachePolicy(),
+    private val vectorCache: VectorCache? = null
 ) : GraphRunner {
 
     /**
@@ -118,33 +127,59 @@ class DefaultGraphRunner(
             is SpiceResult.Success -> Unit
         }
 
+        // Validate incoming message before execution
+        val initialMessage = when (val guard = guardMessage(message, graph, "execute:init")) {
+            is SpiceResult.Failure -> return guard
+            is SpiceResult.Success -> guard.value
+        }
+        recordIntentVector(initialMessage)
+
         // Validate message state (should be READY or RUNNING)
-        if (message.state.isTerminal()) {
+        if (initialMessage.state.isTerminal()) {
             return SpiceResult.failure(
                 SpiceError.executionError(
-                    "Cannot execute graph with terminal message state: ${message.state}",
+                    "Cannot execute graph with terminal message state: ${initialMessage.state}",
                     graphId = graph.id
                 )
             )
         }
 
         // Transition to RUNNING state if not already
-        val runningMessage = if (message.state == ExecutionState.READY) {
-            message.transitionTo(
-                newState = ExecutionState.RUNNING,
-                reason = "Graph execution started",
-                nodeId = graph.entryPoint
-            )
+        val runningMessage = if (initialMessage.state == ExecutionState.READY) {
+            when (
+                val transitioned = transitionAndGuard(
+                    graph = graph,
+                    message = initialMessage,
+                    target = ExecutionState.RUNNING,
+                    reason = "Graph execution started",
+                    nodeId = graph.entryPoint
+                )
+            ) {
+                is SpiceResult.Failure -> return transitioned
+                is SpiceResult.Success -> transitioned.value
+            }
         } else {
-            message
+            initialMessage
         }
 
         // Set graph context
-        val contextualMessage = runningMessage.withGraphContext(
-            graphId = graph.id,
-            nodeId = null,
-            runId = runningMessage.runId ?: generateRunId()
-        )
+        val contextualMessage = run {
+            val updated = runningMessage.withGraphContext(
+                graphId = graph.id,
+                nodeId = null,
+                runId = runningMessage.runId ?: generateRunId()
+            )
+            when (val guard = guardMessage(updated, graph, "execute:context")) {
+                is SpiceResult.Failure -> return guard
+                is SpiceResult.Success -> guard.value
+            }
+        }
+
+        val idempotencyManager = if (enableIdempotency) {
+            graph.idempotencyStore?.let { IdempotencyManager(it, cachePolicy) }
+        } else {
+            null
+        }
 
         // Publish graph started event
         if (enableEvents && graph.eventBus != null) {
@@ -155,7 +190,8 @@ class DefaultGraphRunner(
         return executeNodes(
             graph = graph,
             message = contextualMessage,
-            startNodeId = graph.entryPoint
+            startNodeId = graph.entryPoint,
+            idempotencyManager = idempotencyManager
         )
     }
 
@@ -163,37 +199,57 @@ class DefaultGraphRunner(
      * Resume execution from WAITING state
      */
     override suspend fun resume(graph: Graph, message: SpiceMessage): SpiceResult<SpiceMessage> {
+        val validatedMessage = when (val guard = guardMessage(message, graph, "resume:init")) {
+            is SpiceResult.Failure -> return guard
+            is SpiceResult.Success -> guard.value
+        }
+        recordIntentVector(validatedMessage)
+
         // Validate message is in WAITING state
-        if (message.state != ExecutionState.WAITING) {
+        if (validatedMessage.state != ExecutionState.WAITING) {
             return SpiceResult.failure(
                 SpiceError.executionError(
-                    "Cannot resume graph with message state: ${message.state}. Expected WAITING.",
+                    "Cannot resume graph with message state: ${validatedMessage.state}. Expected WAITING.",
                     graphId = graph.id
                 )
             )
         }
 
         // Transition back to RUNNING
-        val runningMessage = message.transitionTo(
-            newState = ExecutionState.RUNNING,
-            reason = "Resuming after human input",
-            nodeId = message.nodeId
-        )
+        val runningMessage = when (
+            val transitioned = transitionAndGuard(
+                graph = graph,
+                message = validatedMessage,
+                target = ExecutionState.RUNNING,
+                reason = "Resuming after human input",
+                nodeId = validatedMessage.nodeId
+            )
+        ) {
+            is SpiceResult.Failure -> return transitioned
+            is SpiceResult.Success -> transitioned.value
+        }
 
         // Find next node after the WAITING node
         val nextNodeId = findNextNode(
-            currentNodeId = message.nodeId ?: return SpiceResult.failure(
+            currentNodeId = validatedMessage.nodeId ?: return SpiceResult.failure(
                 SpiceError.executionError("Cannot resume: message has no nodeId", graphId = graph.id)
             ),
             message = runningMessage,
             graph = graph
         )
 
+        val idempotencyManager = if (enableIdempotency) {
+            graph.idempotencyStore?.let { IdempotencyManager(it, cachePolicy) }
+        } else {
+            null
+        }
+
         // Continue execution
         return executeNodes(
             graph = graph,
             message = runningMessage,
-            startNodeId = nextNodeId
+            startNodeId = nextNodeId,
+            idempotencyManager = idempotencyManager
         )
     }
 
@@ -203,7 +259,8 @@ class DefaultGraphRunner(
     private suspend fun executeNodes(
         graph: Graph,
         message: SpiceMessage,
-        startNodeId: String?
+        startNodeId: String?,
+        idempotencyManager: IdempotencyManager?
     ): SpiceResult<SpiceMessage> {
         var currentMessage = message
         var currentNodeId: String? = startNodeId
@@ -222,11 +279,17 @@ class DefaultGraphRunner(
                 runId = currentMessage.runId
             )
 
+            val intentSignature = resolveIntentSignature(currentMessage)
+
             // Check idempotency (skip if already executed)
-            if (enableIdempotency && graph.idempotencyStore != null) {
-                val cachedResult = checkIdempotency(graph.idempotencyStore, currentMessage, nodeId)
+            if (enableIdempotency && idempotencyManager != null) {
+                val cachedResult = idempotencyManager.lookupStep(nodeId, intentSignature)
                 if (cachedResult != null) {
-                    currentMessage = cachedResult
+                    val afterCached = executeAfterNodeMiddleware(graph.middleware, cachedResult)
+                    currentMessage = when (afterCached) {
+                        is SpiceResult.Success -> afterCached.value
+                        is SpiceResult.Failure -> return afterCached
+                    }
                     currentNodeId = findNextNode(nodeId, currentMessage, graph)
                     continue
                 }
@@ -257,37 +320,45 @@ class DefaultGraphRunner(
                         is SpiceResult.Failure -> return afterResult
                     }
 
+                    val validatedFinal = when (
+                        val guard = guardMessage(finalMessage, graph, "execute:nodes.after", nodeId)
+                    ) {
+                        is SpiceResult.Failure -> return guard
+                        is SpiceResult.Success -> guard.value
+                    }
+
                     // Save idempotency result
-                    if (enableIdempotency && graph.idempotencyStore != null) {
-                        saveIdempotency(graph.idempotencyStore, currentMessage, nodeId, finalMessage)
+                    if (enableIdempotency && idempotencyManager != null) {
+                        val signatureForStorage = resolveIntentSignature(validatedFinal)
+                        idempotencyManager.storeStep(nodeId, signatureForStorage, validatedFinal)
                     }
 
                     // Publish node completed event
                     if (enableEvents && graph.eventBus != null) {
-                        publishNodeCompleted(graph, finalMessage, nodeId)
+                        publishNodeCompleted(graph, validatedFinal, nodeId)
                     }
 
                     // Check if we need to pause for HITL
-                    if (finalMessage.state == ExecutionState.WAITING) {
+                    if (validatedFinal.state == ExecutionState.WAITING) {
                         // Publish HITL requested event
                         if (enableEvents && graph.eventBus != null) {
-                            publishHitlRequested(graph, finalMessage, nodeId)
+                            publishHitlRequested(graph, validatedFinal, nodeId)
                         }
-                        return SpiceResult.success(finalMessage)
+                        return SpiceResult.success(validatedFinal)
                     }
 
                     // Check if we reached terminal state
-                    if (finalMessage.state.isTerminal()) {
+                    if (validatedFinal.state.isTerminal()) {
                         // Publish graph completed event
                         if (enableEvents && graph.eventBus != null) {
-                            publishGraphCompleted(graph, finalMessage)
+                            publishGraphCompleted(graph, validatedFinal)
                         }
-                        return SpiceResult.success(finalMessage)
+                        return SpiceResult.success(validatedFinal)
                     }
 
                     // Continue to next node
-                    currentMessage = finalMessage
-                    currentNodeId = findNextNode(nodeId, finalMessage, graph)
+                    currentMessage = validatedFinal
+                    currentNodeId = findNextNode(nodeId, validatedFinal, graph)
                 }
                 is SpiceResult.Failure -> {
                     // Execute error middleware
@@ -295,16 +366,27 @@ class DefaultGraphRunner(
 
                     return when (errorAction) {
                         is ErrorAction.Propagate -> {
-                            // Transition to FAILED state
-                            val failedMessage = currentMessage.transitionTo(
-                                newState = ExecutionState.FAILED,
-                                reason = result.error.message,
-                                nodeId = nodeId
+                            val failureMessage = when (
+                                val transitioned = transitionAndGuard(
+                                    graph = graph,
+                                    message = currentMessage,
+                                    target = ExecutionState.FAILED,
+                                    reason = result.error.message,
+                                    nodeId = nodeId
+                                )
+                            ) {
+                                is SpiceResult.Failure -> return transitioned
+                                is SpiceResult.Success -> transitioned.value
+                            }
+
+                            val report = buildErrorReport(result.error)
+                            val enriched = failureMessage.withToolCall(
+                                ErrorReportAdapter.toToolCall(report)
                             )
 
                             // Publish graph failed event
                             if (enableEvents && graph.eventBus != null) {
-                                publishGraphFailed(graph, failedMessage)
+                                publishGraphFailed(graph, enriched)
                             }
 
                             SpiceResult.failure(result.error)
@@ -331,11 +413,18 @@ class DefaultGraphRunner(
 
         // No more nodes - graph completed
         val completedMessage = if (!currentMessage.state.isTerminal()) {
-            currentMessage.transitionTo(
-                newState = ExecutionState.COMPLETED,
-                reason = "Graph execution completed (no more nodes)",
-                nodeId = null
-            )
+            when (
+                val transitioned = transitionAndGuard(
+                    graph = graph,
+                    message = currentMessage,
+                    target = ExecutionState.COMPLETED,
+                    reason = "Graph execution completed (no more nodes)",
+                    nodeId = currentMessage.nodeId
+                )
+            ) {
+                is SpiceResult.Failure -> return transitioned
+                is SpiceResult.Success -> transitioned.value
+            }
         } else {
             currentMessage
         }
@@ -454,37 +543,115 @@ class DefaultGraphRunner(
         return SpiceResult.success(Unit)
     }
 
-    /**
-     * Check idempotency cache
-     */
-    private suspend fun checkIdempotency(
-        store: IdempotencyStore,
+    private fun guardMessage(
         message: SpiceMessage,
-        nodeId: String
-    ): SpiceMessage? {
-        val key = IdempotencyKey.fromNode(
-            nodeId = nodeId,
-            data = message.data + mapOf("correlationId" to message.correlationId)
+        graph: Graph,
+        stage: String,
+        nodeId: String? = null
+    ): SpiceResult<SpiceMessage> = try {
+        stateMachine.ensureHistoryValid(message)
+        val validation = validationPipeline.validateMessage(message)
+        if (validation.isValid) {
+            SpiceResult.success(message)
+        } else {
+            validationFailure(graph.id, stage, nodeId, validation.errors)
+        }
+    } catch (ex: IllegalStateException) {
+        SpiceResult.failure(
+            SpiceError.validationError(
+                "State validation failed at $stage: ${ex.message}"
+            ).withContext("graphId" to graph.id, "nodeId" to (nodeId ?: ""))
         )
-
-        return store.get(key)
     }
 
-    /**
-     * Save idempotency result
-     */
-    private suspend fun saveIdempotency(
-        store: IdempotencyStore,
-        inputMessage: SpiceMessage,
-        nodeId: String,
-        outputMessage: SpiceMessage
-    ) {
-        val key = IdempotencyKey.fromNode(
-            nodeId = nodeId,
-            data = inputMessage.data + mapOf("correlationId" to inputMessage.correlationId)
+    private fun validationFailure(
+        graphId: String,
+        stage: String,
+        nodeId: String?,
+        errors: List<ValidationError>
+    ): SpiceResult<SpiceMessage> {
+        val detail = errors.joinToString("; ") { "${it.field}: ${it.message}" }
+        val error = SpiceError.validationError(
+            "Message validation failed during $stage: $detail"
+        ).withContext(
+            "graphId" to graphId,
+            "nodeId" to (nodeId ?: ""),
+            "stage" to stage
+        )
+        return SpiceResult.failure(error)
+    }
+
+    private fun transitionAndGuard(
+        graph: Graph,
+        message: SpiceMessage,
+        target: ExecutionState,
+        reason: String?,
+        nodeId: String?
+    ): SpiceResult<SpiceMessage> = try {
+        val transitioned = message.transitionTo(
+            newState = target,
+            reason = reason,
+            nodeId = nodeId
+        )
+        guardMessage(transitioned, graph, "state-transition:$target", nodeId)
+    } catch (ex: IllegalStateException) {
+        SpiceResult.failure(
+            SpiceError.validationError(
+                "Invalid state transition: ${ex.message}"
+            ).withContext("graphId" to graph.id, "nodeId" to (nodeId ?: ""))
+        )
+    }
+
+    private fun resolveIntentSignature(message: SpiceMessage): String {
+        val explicit = message.metadata["intentSignature"] as? String
+            ?: message.metadata["intent"] as? String
+        if (explicit != null && explicit.isNotBlank()) return explicit
+        val content = message.content
+        return if (content.isBlank()) {
+            message.id
+        } else {
+            content.take(100).hashCode().toString()
+        }
+    }
+
+    private suspend fun recordIntentVector(message: SpiceMessage) {
+        val cache = vectorCache ?: return
+        val rawVector = message.metadata["intentVector"] ?: return
+        val vector = when (rawVector) {
+            is FloatArray -> rawVector
+            is DoubleArray -> FloatArray(rawVector.size) { rawVector[it].toFloat() }
+            is List<*> -> rawVector.mapNotNull { (it as? Number)?.toFloat() }.toFloatArray()
+            else -> return
+        }
+        if (vector.isEmpty()) return
+        val key = (message.metadata["intentKey"] as? String).orEmpty().ifBlank { message.correlationId }
+
+        cache.put(
+            key = key,
+            vector = vector,
+            metadata = mapOf(
+                "correlationId" to message.correlationId,
+                "from" to message.from,
+                "graphId" to (message.graphId ?: "")
+            ),
+            ttl = cachePolicy.ttlFor(CacheKind.INTENT)
+        )
+    }
+
+    private fun buildErrorReport(error: SpiceError): ErrorReport =
+        ErrorReport(
+            code = error.code,
+            reason = error.message,
+            recoverable = isRecoverable(error),
+            context = error.context
         )
 
-        store.save(key, outputMessage, ttl = 3600.seconds) // 1 hour TTL
+    private fun isRecoverable(error: SpiceError): Boolean = when (error) {
+        is SpiceError.ToolError,
+        is SpiceError.NetworkError,
+        is SpiceError.TimeoutError,
+        is SpiceError.RateLimitError -> true
+        else -> false
     }
 
     /**

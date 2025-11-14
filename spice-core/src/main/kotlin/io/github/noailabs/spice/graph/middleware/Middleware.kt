@@ -1,9 +1,17 @@
 package io.github.noailabs.spice.graph.middleware
 
+import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.ToolRegistry
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.error.ErrorReport
+import io.github.noailabs.spice.error.ErrorReportAdapter
 import io.github.noailabs.spice.graph.runner.ErrorAction
+import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.validation.DeadLetterHandler
+import io.github.noailabs.spice.validation.DeadLetterRecord
+import io.github.noailabs.spice.validation.ValidationError
 
 /**
  * 🔌 Middleware for Spice Framework 1.0.0
@@ -184,5 +192,74 @@ abstract class BaseMiddleware : Middleware {
 
     final override suspend fun onError(error: SpiceError, message: SpiceMessage): ErrorAction {
         return onErrorOccurred(error, message)
+    }
+}
+
+/**
+ * Middleware that enforces state transitions through ExecutionStateMachine.
+ */
+class StateTransitionMiddleware(
+    private val stateMachine: ExecutionStateMachine = ExecutionStateMachine()
+) : Middleware {
+    override suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> = SpiceResult.catching {
+        stateMachine.ensureHistoryValid(message)
+        if (message.state == ExecutionState.READY) {
+            stateMachine.transition(
+                message = message,
+                target = ExecutionState.RUNNING,
+                reason = "Node execution started",
+                nodeId = message.nodeId
+            )
+        } else {
+            message
+        }
+    }
+
+    override suspend fun afterNode(message: SpiceMessage): SpiceResult<SpiceMessage> = SpiceResult.catching {
+        stateMachine.ensureHistoryValid(message)
+        message
+    }
+}
+
+/**
+ * Middleware that enforces ToolRegistry policies and emits ErrorReport tool calls on violations.
+ */
+class ToolPolicyMiddleware(
+    private val registry: ToolRegistry,
+    private val requiredTags: Set<String> = emptySet(),
+    private val deadLetterHandler: DeadLetterHandler? = null
+) : Middleware {
+    override suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        val toolName = message.metadata["requestedTool"] as? String ?: return SpiceResult.success(message)
+        val namespace = message.metadata["toolNamespace"] as? String ?: "global"
+        val wrapper = registry.getWrapper(toolName, namespace)
+            ?: return SpiceResult.failure(SpiceError.toolError("Tool not registered: $toolName", toolName))
+
+        if (requiredTags.isNotEmpty() && !wrapper.tags.containsAll(requiredTags)) {
+            val report = ErrorReport(
+                code = "POLICY_VIOLATION",
+                reason = "Tool $toolName missing required tags $requiredTags",
+                recoverable = false,
+                context = wrapper.metadata
+            )
+            val violationMessage = message.withToolCall(ErrorReportAdapter.toToolCall(report))
+            deadLetterHandler?.handle(
+                DeadLetterRecord(
+                    payloadType = "ToolPolicyViolation",
+                    payload = violationMessage,
+                    errors = listOf(ValidationError("tool", report.reason))
+                )
+            )
+            return SpiceResult.failure(SpiceError.toolError(report.reason, toolName))
+        }
+
+        return SpiceResult.success(
+            message.withMetadata(
+                mapOf(
+                    "toolSource" to wrapper.source,
+                    "toolTags" to wrapper.tags
+                )
+            )
+        )
     }
 }
