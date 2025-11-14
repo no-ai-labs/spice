@@ -338,6 +338,13 @@ data class SpiceMessage(
     fun hasToolCalls(): Boolean = toolCalls.isNotEmpty()
 
     /**
+     * Check if message has a specific tool call by function name
+     */
+    fun hasToolCall(functionName: String): Boolean {
+        return toolCalls.any { it.function.name == functionName }
+    }
+
+    /**
      * Get tool call by function name
      */
     fun findToolCall(functionName: String): OAIToolCall? {

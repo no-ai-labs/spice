@@ -267,13 +267,24 @@ sealed class SpiceError {
             ConfigurationError(message, field, cause)
 
         /**
+         * Create execution error
+         */
+        fun executionError(
+            message: String,
+            graphId: String? = null,
+            nodeId: String? = null,
+            cause: Throwable? = null
+        ) = ExecutionError(message, graphId, nodeId, cause)
+
+        /**
          * Create validation error
          */
         fun validationError(
             message: String,
             field: String? = null,
             expectedType: String? = null,
-            actualValue: Any? = null
+            actualValue: Any? = null,
+            graphId: String? = null
         ) = ValidationError(message, field, expectedType, actualValue)
 
         /**

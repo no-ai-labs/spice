@@ -1,88 +1,188 @@
 package io.github.noailabs.spice.graph.middleware
 
-import io.github.noailabs.spice.ExecutionContext
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
-import io.github.noailabs.spice.graph.NodeResult
-import io.github.noailabs.spice.graph.runner.RunReport
+import io.github.noailabs.spice.graph.runner.ErrorAction
 
 /**
- * Middleware interface for intercepting and augmenting graph execution.
- * Inspired by Microsoft Agent Framework middleware system.
+ * 🔌 Middleware for Spice Framework 1.0.0
+ *
+ * Intercepts and augments graph execution with cross-cutting concerns.
+ *
+ * **BREAKING CHANGE from 0.x:**
+ * - Works with SpiceMessage (not NodeContext/NodeResult)
+ * - Simplified lifecycle: beforeNode, afterNode, onError
+ * - ErrorAction returns SpiceMessage fallback instead of Any?
+ *
+ * **Middleware Pattern:**
+ * ```
+ * class LoggingMiddleware : Middleware {
+ *     override suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+ *         println("Executing node: ${message.nodeId}")
+ *         return SpiceResult.success(message)
+ *     }
+ *
+ *     override suspend fun afterNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+ *         println("Node completed: ${message.nodeId}")
+ *         return SpiceResult.success(message)
+ *     }
+ * }
+ * ```
+ *
+ * @since 1.0.0
  */
 interface Middleware {
     /**
-     * Called once at the start of graph execution.
+     * Called before each node execution
+     *
+     * Can transform message before it reaches the node.
+     * Return Failure to skip node execution and propagate error.
+     *
+     * @param message Input message for the node
+     * @return Transformed message or error
      */
-    suspend fun onStart(ctx: RunContext, next: suspend () -> Unit) {
-        next()
+    suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        return SpiceResult.success(message)
     }
 
     /**
-     * Called before/after each node execution.
-     * Chain pattern allows middleware to wrap node execution.
-     * Works with SpiceResult for consistent error handling.
+     * Called after each node execution
+     *
+     * Can transform message after node completes.
+     * Return Failure to treat node as failed.
+     *
+     * @param message Output message from the node
+     * @return Transformed message or error
      */
-    suspend fun onNode(req: NodeRequest, next: suspend (NodeRequest) -> SpiceResult<NodeResult>): SpiceResult<NodeResult> {
-        return next(req)
+    suspend fun afterNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        return SpiceResult.success(message)
     }
 
     /**
-     * Called when an error occurs during execution.
-     * Returns an ErrorAction to control error handling.
+     * Called when an error occurs during node execution
+     *
+     * Returns ErrorAction to control error handling.
+     *
+     * @param error The error that occurred
+     * @param message The message being processed when error occurred
+     * @return Action to take (Propagate, Skip, Retry, Fallback)
      */
-    suspend fun onError(err: Throwable, ctx: RunContext): ErrorAction {
-        return ErrorAction.PROPAGATE
-    }
-
-    /**
-     * Called once at the end of graph execution (success or failure).
-     */
-    suspend fun onFinish(report: RunReport) {
-        // Default: no-op
+    suspend fun onError(error: SpiceError, message: SpiceMessage): ErrorAction {
+        return ErrorAction.Propagate
     }
 }
 
 /**
- * Context for the overall graph execution.
- * Unified with ExecutionContext for consistency.
+ * 🔗 Middleware Chain
+ *
+ * Composes multiple middleware into a single chain.
+ *
+ * **Usage:**
+ * ```kotlin
+ * val chain = MiddlewareChain(
+ *     LoggingMiddleware(),
+ *     ValidationMiddleware(),
+ *     MetricsMiddleware()
+ * )
+ * ```
+ *
+ * @since 1.0.0
  */
-data class RunContext(
-    val graphId: String,
-    val runId: String,
-    val context: ExecutionContext
-)
+class MiddlewareChain(
+    private val middlewares: List<Middleware>
+) : Middleware {
+    constructor(vararg middlewares: Middleware) : this(middlewares.toList())
+
+    override suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        var currentMessage = message
+        for (middleware in middlewares) {
+            val result = middleware.beforeNode(currentMessage)
+            when (result) {
+                is SpiceResult.Success -> currentMessage = result.value
+                is SpiceResult.Failure -> return result
+            }
+        }
+        return SpiceResult.success(currentMessage)
+    }
+
+    override suspend fun afterNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        var currentMessage = message
+        for (middleware in middlewares) {
+            val result = middleware.afterNode(currentMessage)
+            when (result) {
+                is SpiceResult.Success -> currentMessage = result.value
+                is SpiceResult.Failure -> return result
+            }
+        }
+        return SpiceResult.success(currentMessage)
+    }
+
+    override suspend fun onError(error: SpiceError, message: SpiceMessage): ErrorAction {
+        for (middleware in middlewares) {
+            val action = middleware.onError(error, message)
+            if (action !is ErrorAction.Propagate) {
+                return action
+            }
+        }
+        return ErrorAction.Propagate
+    }
+}
 
 /**
- * Request to execute a node.
+ * 📊 Abstract base middleware with lifecycle hooks
+ *
+ * Provides simplified hooks for common middleware patterns.
+ *
+ * **Usage:**
+ * ```kotlin
+ * class MyMiddleware : BaseMiddleware() {
+ *     override suspend fun onBeforeExecution(message: SpiceMessage): SpiceMessage {
+ *         return message.withMetadata(mapOf("middleware" to "applied"))
+ *     }
+ * }
+ * ```
+ *
+ * @since 1.0.0
  */
-data class NodeRequest(
-    val nodeId: String,
-    val input: Any?,
-    val context: RunContext
-)
-
-/**
- * Action to take when an error occurs.
- */
-sealed class ErrorAction {
+abstract class BaseMiddleware : Middleware {
     /**
-     * Propagate the error up the stack (default behavior).
+     * Hook: Called before node execution
+     * Override to transform message before node
      */
-    data object PROPAGATE : ErrorAction()
+    protected open suspend fun onBeforeExecution(message: SpiceMessage): SpiceMessage {
+        return message
+    }
 
     /**
-     * Retry the current node execution.
+     * Hook: Called after node execution
+     * Override to transform message after node
      */
-    data object RETRY : ErrorAction()
+    protected open suspend fun onAfterExecution(message: SpiceMessage): SpiceMessage {
+        return message
+    }
 
     /**
-     * Skip the current node and continue to the next.
+     * Hook: Called on error
+     * Override to customize error handling
      */
-    data object SKIP : ErrorAction()
+    protected open suspend fun onErrorOccurred(error: SpiceError, message: SpiceMessage): ErrorAction {
+        return ErrorAction.Propagate
+    }
 
-    /**
-     * Handle the error and continue with provided result.
-     * @param result The replacement result to use instead of the failed node's result
-     */
-    data class CONTINUE(val result: Any?) : ErrorAction()
+    final override suspend fun beforeNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        return SpiceResult.catching {
+            onBeforeExecution(message)
+        }
+    }
+
+    final override suspend fun afterNode(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        return SpiceResult.catching {
+            onAfterExecution(message)
+        }
+    }
+
+    final override suspend fun onError(error: SpiceError, message: SpiceMessage): ErrorAction {
+        return onErrorOccurred(error, message)
+    }
 }
