@@ -1,208 +1,207 @@
 package io.github.noailabs.spice.graph
 
-import io.github.noailabs.spice.ExecutionContext
+import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceResult
 
 /**
- * Core abstraction for a node in the execution graph.
- * Every node represents a unit of work that can be executed.
+ * 🔷 Core Node abstraction for Spice Framework 1.0.0
  *
- * Returns SpiceResult for consistent error handling across Spice framework.
+ * **BREAKING CHANGE from 0.x:**
+ * - `run(ctx: NodeContext): SpiceResult<NodeResult>` → `run(message: SpiceMessage): SpiceResult<SpiceMessage>`
+ * - Unified message format (no more Context/Result split)
+ * - Direct message-to-message transformation
+ * - Built-in state machine support
+ *
+ * **Architecture:**
+ * ```
+ * Input SpiceMessage → Node.run() → Output SpiceMessage
+ *     (state: RUNNING)                    (state: RUNNING/WAITING/COMPLETED)
+ * ```
+ *
+ * **Node Types:**
+ * - **AgentNode**: Wraps Agent, processes with LLM
+ * - **ToolNode**: Executes external tool calls
+ * - **HumanNode**: Pauses for human input (state → WAITING)
+ * - **OutputNode**: Final output node (state → COMPLETED)
+ * - **DecisionNode**: Conditional branching
+ * - **MergeNode**: Merge multiple branches
+ *
+ * **Migration Example:**
+ * ```kotlin
+ * // OLD (0.x)
+ * class MyNode : Node {
+ *     override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
+ *         val input = ctx.state["input"]
+ *         return SpiceResult.success(
+ *             NodeResult.fromContext(ctx, data = "result")
+ *         )
+ *     }
+ * }
+ *
+ * // NEW (1.0)
+ * class MyNode : Node {
+ *     override val id = "my-node"
+ *
+ *     override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
+ *         val input = message.content
+ *         return SpiceResult.success(
+ *             message.copy(content = "result")
+ *         )
+ *     }
+ * }
+ * ```
+ *
+ * @since 1.0.0
  */
 interface Node {
+    /**
+     * Unique identifier for this node
+     */
     val id: String
-    suspend fun run(ctx: NodeContext): SpiceResult<NodeResult>
+
+    /**
+     * Execute node logic
+     *
+     * **Input Message:**
+     * - Typically in RUNNING state
+     * - Contains execution context in metadata
+     * - May have tool calls from previous node
+     *
+     * **Output Message:**
+     * - Must preserve correlationId (for message tracking)
+     * - May change state (RUNNING → WAITING for HITL)
+     * - May add tool calls
+     * - May update metadata
+     *
+     * **State Transitions:**
+     * - RUNNING → RUNNING (continue execution)
+     * - RUNNING → WAITING (need human input)
+     * - RUNNING → COMPLETED (final output)
+     * - RUNNING → FAILED (error occurred)
+     *
+     * @param message Input message with execution state
+     * @return SpiceResult with transformed message or error
+     */
+    suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage>
 }
 
 /**
- * Execution context passed to each node.
- * Contains the current state and execution context for the graph.
+ * 🎯 Base Node Implementation
  *
- * State is immutable - use withState to modify.
- * Implementation uses immutable collections internally but exposes standard Map interface.
+ * Provides common functionality for custom nodes:
+ * - Automatic error handling
+ * - Execution metrics
+ * - State validation
+ *
+ * **Usage:**
+ * ```kotlin
+ * class TransformNode(override val id: String = "transform") : BaseNode() {
+ *     override suspend fun execute(message: SpiceMessage): SpiceMessage {
+ *         return message.copy(
+ *             content = message.content.uppercase(),
+ *             metadata = message.metadata + mapOf("transformed" to true)
+ *         )
+ *     }
+ * }
+ * ```
+ *
+ * @since 1.0.0
  */
-data class NodeContext(
-    val graphId: String,
-    val state: Map<String, Any?>,  // ✅ Generic Map interface - no dependency leakage
-    val context: ExecutionContext
-) {
-    companion object {
-        fun create(
-            graphId: String,
-            state: Map<String, Any?>,
-            context: ExecutionContext
-        ): NodeContext = NodeContext(
-            graphId = graphId,
-            state = state.toMap(),  // Defensive copy
-            context = context
-        )
-    }
-
-    fun withState(key: String, value: Any?): NodeContext =
-        copy(state = state + (key to value))
-
-    fun withState(updates: Map<String, Any?>): NodeContext =
-        copy(state = state + updates)
-
-    fun withContext(newContext: ExecutionContext): NodeContext =
-        copy(context = newContext)
+abstract class BaseNode : Node {
+    /**
+     * Execution metrics
+     */
+    private var executionCount = 0L
+    private var failureCount = 0L
+    private var totalLatencyMs = 0L
 
     /**
-     * Helper: Access the previous Agent's Comm object.
-     * AgentNode stores the full Comm in state["_previousComm"] after execution.
-     *
-     * This is useful when a custom Node needs to access the previous Agent's
-     * communication data, especially in HITL (Human-in-the-Loop) scenarios.
-     *
-     * Example:
-     * ```kotlin
-     * class ResponseNode : Node {
-     *     override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-     *         val message = ctx.previousContent
-     *             ?: ctx.state["workflow_message"]?.toString()
-     *             ?: "Default message"
-     *         // ...
-     *     }
-     * }
-     * ```
+     * Final run method with error handling and metrics
      */
-    val previousComm: io.github.noailabs.spice.Comm?
-        get() = state["_previousComm"] as? io.github.noailabs.spice.Comm
+    final override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        val startTime = System.currentTimeMillis()
 
-    /**
-     * Helper: Access the previous Agent's content (message).
-     * Shortcut for `previousComm?.content`.
-     *
-     * This provides a convenient way to get the message from the previous Agent
-     * without manually casting and accessing the Comm object.
-     *
-     * Example:
-     * ```kotlin
-     * val agentMessage = ctx.previousContent  // Simple access!
-     * ```
-     */
-    val previousContent: String?
-        get() = previousComm?.content
-}
-
-/**
- * Preserve and extend metadata from this context.
- */
-fun NodeContext.preserveMetadata(additional: Map<String, Any> = emptyMap()): Map<String, Any> =
-    this.context.toMap() + additional
-
-/**
- * Result of a node execution.
- */
-@ConsistentCopyVisibility
-data class NodeResult private constructor(
-    val data: Any?,
-    val metadata: Map<String, Any>,
-    val nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
-) {
-    init {
-        // Soft size policy (warning by default). Hard limit is opt-in via policy.
-        val approxSize = metadata.toString().length
-        val hard = HARD_LIMIT
-        if (hard != null && approxSize > hard) {
-            when (onOverflow) {
-                OverflowPolicy.FAIL -> throw IllegalArgumentException("Metadata size $approxSize exceeds hard limit $hard")
-                OverflowPolicy.WARN -> println("[Spice] Metadata size $approxSize exceeds hard limit $hard (policy=WARN)")
-                OverflowPolicy.IGNORE -> {}
+        return try {
+            // Validate input state
+            if (message.state.isTerminal()) {
+                return SpiceResult.failure(
+                    io.github.noailabs.spice.error.SpiceError.executionError(
+                        "Cannot execute node on terminal state: ${message.state}",
+                        nodeId = id
+                    )
+                )
             }
-        } else if (approxSize > METADATA_WARN_THRESHOLD && onOverflow == OverflowPolicy.WARN) {
-            println("[Spice] Metadata size $approxSize exceeds warn threshold $METADATA_WARN_THRESHOLD")
-        }
-    }
 
-    companion object {
-        // Default: warning at 5KB; no hard limit unless configured
-        const val METADATA_WARN_THRESHOLD: Int = 5_000
-        var HARD_LIMIT: Int? = null
+            // Execute node logic
+            val result = execute(message)
 
-        enum class OverflowPolicy { WARN, FAIL, IGNORE }
-        var onOverflow: OverflowPolicy = OverflowPolicy.WARN
+            // Record success
+            executionCount++
+            val latency = System.currentTimeMillis() - startTime
+            totalLatencyMs += latency
 
-        /**
-         * Factory to explicitly provide metadata.
-         */
-        fun create(
-            data: Any?,
-            metadata: Map<String, Any>,
-            nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
-        ): NodeResult = NodeResult(data, metadata, nextEdges)
+            // Update graph context in output message
+            val output = result.withGraphContext(
+                graphId = message.graphId,
+                nodeId = id,
+                runId = message.runId
+            )
 
-        /**
-         * Factory to preserve metadata from context with optional additions.
-         */
-        fun fromContext(
-            ctx: NodeContext,
-            data: Any?,
-            additional: Map<String, Any?> = emptyMap(),
-            nextEdges: List<io.github.noailabs.spice.graph.Edge>? = null
-        ): NodeResult {
-            @Suppress("UNCHECKED_CAST")
-            val mergedMetadata = (ctx.context.toMap() + additional).filterValues { it != null } as Map<String, Any>
-            return NodeResult(data, mergedMetadata, nextEdges)
-        }
+            SpiceResult.success(output)
+        } catch (e: Exception) {
+            // Record failure
+            failureCount++
 
-        /**
-         * Factory specifically for creating NodeResult from HumanResponse during checkpoint resume.
-         * Automatically propagates HumanResponse.metadata to ensure it's available in ExecutionContext
-         * for subsequent nodes (especially AgentNode).
-         *
-         * This is the recommended way to convert HumanResponse to NodeResult in resume flows.
-         *
-         * @param ctx NodeContext that should already have HumanResponse.metadata merged into its context
-         * @param response The HumanResponse to convert
-         * @return NodeResult with HumanResponse data and metadata properly propagated
-         */
-        fun fromHumanResponse(
-            ctx: NodeContext,
-            response: io.github.noailabs.spice.graph.nodes.HumanResponse
-        ): NodeResult {
-            // Convert HumanResponse.metadata (Map<String, String>) to Map<String, Any>
-            val humanMetadata = response.metadata.mapValues { it.value as Any }
-
-            return fromContext(
-                ctx = ctx,
-                data = response,
-                additional = humanMetadata
+            SpiceResult.failure(
+                io.github.noailabs.spice.error.SpiceError.executionError(
+                    "Node execution failed: ${e.message}",
+                    nodeId = id,
+                    cause = e
+                )
             )
         }
     }
-}
 
-/**
- * Builder for NodeResult that preserves context metadata by default.
- */
-sealed interface NodeResultBuilder {
-    fun build(): NodeResult
+    /**
+     * Execute node logic (to be implemented by subclasses)
+     *
+     * This method should focus on business logic only.
+     * Error handling and metrics are handled by run() wrapper.
+     *
+     * @param message Input message
+     * @return Transformed output message
+     */
+    protected abstract suspend fun execute(message: SpiceMessage): SpiceMessage
 
-    class WithContext(private val ctx: NodeContext) : NodeResultBuilder {
-        private var data: Any? = null
-        private val additionalMetadata: MutableMap<String, Any> = mutableMapOf()
-
-        fun withData(value: Any?): WithContext = apply { this.data = value }
-
-        fun addMetadata(key: String, value: Any): WithContext = apply {
-            additionalMetadata[key] = value
-        }
-
-        fun addMetadata(map: Map<String, Any>): WithContext = apply {
-            additionalMetadata.putAll(map)
-        }
-
-        override fun build(): NodeResult = NodeResult.fromContext(
-            ctx = ctx,
-            data = data,
-            additional = additionalMetadata
+    /**
+     * Get execution metrics
+     */
+    fun getMetrics(): NodeMetrics {
+        return NodeMetrics(
+            executionCount = executionCount,
+            failureCount = failureCount,
+            averageLatencyMs = if (executionCount > 0) totalLatencyMs.toDouble() / executionCount else 0.0
         )
     }
 }
 
 /**
- * DSL helper bound to NodeContext for building NodeResult safely.
+ * 📊 Node Execution Metrics
+ *
+ * @property executionCount Total number of executions
+ * @property failureCount Total number of failures
+ * @property averageLatencyMs Average execution time in milliseconds
  */
-fun NodeContext.buildNodeResult(block: NodeResultBuilder.WithContext.() -> Unit): NodeResult =
-    NodeResultBuilder.WithContext(this).apply(block).build()
+data class NodeMetrics(
+    val executionCount: Long,
+    val failureCount: Long,
+    val averageLatencyMs: Double
+) {
+    fun getSuccessRate(): Double {
+        return if (executionCount > 0) {
+            ((executionCount - failureCount).toDouble() / executionCount) * 100
+        } else {
+            0.0
+        }
+    }
+}
