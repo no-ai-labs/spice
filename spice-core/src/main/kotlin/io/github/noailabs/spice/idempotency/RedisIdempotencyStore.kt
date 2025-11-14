@@ -45,9 +45,10 @@ class RedisIdempotencyStore(
                 jedisPool.resource.use { jedis ->
                     jedis.setex(
                         namespaced(key),
-                        ttl.inWholeSeconds.toInt().coerceAtLeast(1),
+                        ttl.inWholeSeconds.coerceAtLeast(1),
                         json.encodeToString(SpiceMessage.serializer(), message)
                     )
+                    Unit
                 }
             }
         }
@@ -56,6 +57,7 @@ class RedisIdempotencyStore(
         SpiceResult.catching {
             jedisPool.resource.use { jedis ->
                 jedis.del(namespaced(key))
+                Unit
             }
         }
     }

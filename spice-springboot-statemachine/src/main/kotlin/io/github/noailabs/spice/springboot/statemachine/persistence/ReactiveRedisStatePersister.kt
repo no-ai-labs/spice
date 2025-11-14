@@ -14,18 +14,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate
 import org.springframework.statemachine.StateMachine
 import org.springframework.statemachine.StateMachineContext
-import org.springframework.statemachine.persist.ReactiveStateMachinePersister
+import org.springframework.statemachine.StateMachinePersist
 import org.springframework.statemachine.support.DefaultExtendedState
 import org.springframework.statemachine.support.DefaultStateMachineContext
-import reactor.core.publisher.Mono
 
 /**
- * Persists state machine context as JSON into Redis.
+ * Persists state machine context as JSON into Redis using StateMachinePersist API (4.0).
+ * Uses ReactiveStringRedisTemplate internally with blocking operations.
  */
 class ReactiveRedisStatePersister(
     private val redisTemplate: ReactiveStringRedisTemplate,
     private val json: Json = Json
-) : ReactiveStateMachinePersister<ExecutionState, SpiceEvent, String> {
+) : StateMachinePersist<ExecutionState, SpiceEvent, String> {
 
     @Serializable
     private data class PersistedContext(
@@ -33,43 +33,38 @@ class ReactiveRedisStatePersister(
         val extendedState: Map<String, String> = emptyMap()
     )
 
-    override fun persist(
-        stateMachine: StateMachine<ExecutionState, SpiceEvent>,
+    override fun write(
+        context: StateMachineContext<ExecutionState, SpiceEvent>,
         contextObj: String
-    ): Mono<Void> {
+    ) {
         val payload = PersistedContext(
-            state = stateMachine.state.id,
-            extendedState = stateMachine.extendedState.variables
-                .mapNotNull { (key, value) ->
+            state = context.state,
+            extendedState = context.extendedState?.variables
+                ?.mapNotNull { (key, value) ->
                     key?.toString()?.let { k -> k to serializeExtendedValue(value) }
-                }.toMap()
+                }?.toMap() ?: emptyMap()
         )
         val jsonPayload = json.encodeToString(payload)
-        return redisTemplate.opsForValue().set(key(contextObj), jsonPayload).then()
+        redisTemplate.opsForValue().set(key(contextObj), jsonPayload).block()
     }
 
-    override fun restore(
-        stateMachine: StateMachine<ExecutionState, SpiceEvent>?,
-        contextObj: String
-    ): Mono<StateMachineContext<ExecutionState, SpiceEvent>> {
-        return redisTemplate.opsForValue().get(key(contextObj)).flatMap { jsonPayload ->
-            runCatching {
-                json.decodeFromString(PersistedContext.serializer(), jsonPayload)
-            }.getOrNull()?.let { persisted ->
-                val extendedState = DefaultExtendedState().apply {
-                    persisted.extendedState.forEach { (k, v) -> variables[k] = v }
-                }
-                Mono.just(
-                    DefaultStateMachineContext(
-                        null,
-                        persisted.state,
-                        null,
-                        extendedState,
-                        null,
-                        "spice-state-machine"
-                    )
-                )
-            } ?: Mono.empty()
+    override fun read(contextObj: String): StateMachineContext<ExecutionState, SpiceEvent>? {
+        val jsonPayload = redisTemplate.opsForValue().get(key(contextObj)).block() ?: return null
+
+        return runCatching {
+            json.decodeFromString(PersistedContext.serializer(), jsonPayload)
+        }.getOrNull()?.let { persisted ->
+            val extendedState = DefaultExtendedState().apply {
+                persisted.extendedState.forEach { (k, v) -> variables[k] = v }
+            }
+            DefaultStateMachineContext<ExecutionState, SpiceEvent>(
+                persisted.state,  // state
+                null,  // event
+                emptyMap(),  // event headers
+                extendedState,  // extended state
+                emptyMap(),  // state history
+                "spice-state-machine"  // id
+            )
         }
     }
 

@@ -13,6 +13,25 @@ import redis.clients.jedis.params.ScanParams
 import kotlin.math.sqrt
 import kotlin.time.Duration
 
+/**
+ * Calculate cosine similarity between two vectors
+ */
+private fun cosineSimilarity(a: FloatArray, b: FloatArray): Double {
+    if (a.size != b.size || a.isEmpty()) return 0.0
+    var dot = 0.0
+    var magA = 0.0
+    var magB = 0.0
+
+    for (i in a.indices) {
+        dot += a[i] * b[i]
+        magA += a[i] * a[i]
+        magB += b[i] * b[i]
+    }
+
+    val denominator = sqrt(magA) * sqrt(magB)
+    return if (denominator == 0.0) 0.0 else dot / denominator
+}
+
 data class VectorMatch(
     val key: String,
     val score: Double,
@@ -65,22 +84,6 @@ class InMemoryVectorCache : VectorCache {
 
     override suspend fun invalidate(key: String) {
         mutex.withLock { entries.remove(key) }
-    }
-
-    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Double {
-        if (a.size != b.size || a.isEmpty()) return 0.0
-        var dot = 0.0
-        var magA = 0.0
-        var magB = 0.0
-
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            magA += a[i] * a[i]
-            magB += b[i] * b[i]
-        }
-
-        val denominator = sqrt(magA) * sqrt(magB)
-        return if (denominator == 0.0) 0.0 else dot / denominator
     }
 }
 

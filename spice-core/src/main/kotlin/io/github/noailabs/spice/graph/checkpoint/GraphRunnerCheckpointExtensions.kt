@@ -130,7 +130,7 @@ suspend fun GraphRunner.resumeFromCheckpoint(
     // Load checkpoint
     val checkpoint = when (val result = store.load(checkpointId)) {
         is SpiceResult.Success -> result.value
-        is SpiceResult.Failure -> return result
+        is SpiceResult.Failure -> return SpiceResult.failure(result.error)
     }
 
     // Validate checkpoint
@@ -148,11 +148,11 @@ suspend fun GraphRunner.resumeFromCheckpoint(
     // Add human response if provided
     val resumeMessage = if (humanResponse != null) {
         message.withData(
-            mapOf(
-                "human_response" to humanResponse,
-                "selected_option" to humanResponse.selectedOption,
-                "free_text" to humanResponse.freeText
-            )
+            buildMap<String, Any> {
+                put("human_response", humanResponse)
+                humanResponse.selectedOption?.let { put("selected_option", it) }
+                humanResponse.freeText?.let { put("free_text", it) }
+            }
         ).transitionTo(
             ExecutionState.RUNNING,
             "Resuming after human input"

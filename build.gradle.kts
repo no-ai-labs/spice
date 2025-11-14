@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "io.github.noailabs"
-    version = "0.9.5"
+    version = "1.0.0-alpha-1"
 
     repositories {
         mavenCentral()
@@ -26,7 +26,7 @@ subprojects {
     }
 
     plugins.withId("maven-publish") {
-        extensions.configure<org.gradle.api.publish.PublishingExtension>("publishing") {
+        extensions.configure<PublishingExtension>("publishing") {
             repositories {
                 maven {
                     name = "private"

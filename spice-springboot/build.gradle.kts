@@ -1,7 +1,7 @@
 plugins {
     kotlin("plugin.spring")
     id("maven-publish")
-    id("org.springframework.boot") version "3.5.3"
+    id("org.springframework.boot") version "3.5.7"
 }
 
 dependencies {
@@ -9,16 +9,16 @@ dependencies {
     api(project(":spice-core"))
     
     // Spring Boot AutoConfiguration
-    implementation("org.springframework.boot:spring-boot-starter:3.5.3")
-    implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.3")
+    implementation("org.springframework.boot:spring-boot-starter:3.5.7")
+    implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.7")
     implementation("org.springframework:spring-webflux:6.2.1")
     implementation("jakarta.validation:jakarta.validation-api:3.0.2")
     
     // Configuration Processor (IDE 지원)
-    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.5.3")
+    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.5.7")
     
     // 테스트 (Spring Boot Test 포함)
-    testImplementation("org.springframework.boot:spring-boot-starter-test:3.5.3")
+    testImplementation("org.springframework.boot:spring-boot-starter-test:3.5.7")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
 
@@ -43,7 +43,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot"
-            version = "0.9.5"
+            version = "1.0.0-alpha-1"
             
             pom {
                 name.set("Spice Spring Boot Starter")
@@ -59,9 +59,9 @@ publishing {
                 
                 developers {
                     developer {
-                        id.set("spice-team")
+                        id.set("no-ai-labs")
                         name.set("Spice Framework Team")
-                        email.set("veryverybigdog@gmail.com")
+                        email.set("human@noailabs.ai")
                     }
                 }
                 

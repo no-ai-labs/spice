@@ -31,9 +31,9 @@ open class Registry<T : Identifiable>(
 
     fun has(id: String): Boolean = lock.read { items.containsKey(id) }
 
-    fun unregister(id: String): Boolean = lock.write { items.remove(id) != null }
+    open fun unregister(id: String): Boolean = lock.write { items.remove(id) != null }
 
-    fun clear() = lock.write { items.clear() }
+    open fun clear() = lock.write { items.clear() }
 
     fun size(): Int = lock.read { items.size }
 

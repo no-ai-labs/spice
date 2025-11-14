@@ -3,6 +3,7 @@ package io.github.noailabs.spice.springboot.statemachine.core
 import io.github.noailabs.spice.ExecutionState
 import org.springframework.messaging.support.MessageBuilder
 import org.springframework.statemachine.StateMachine
+import org.springframework.statemachine.StateMachineEventResult
 import reactor.core.publisher.Mono
 
 /**
@@ -21,10 +22,11 @@ class SpiceStateMachine(
 
     fun currentState(): ExecutionState = delegate.state.id
 
-    fun sendEvent(event: SpiceEvent): Boolean =
-        delegate.sendEvent(Mono.just(MessageBuilder.withPayload(event).build())).doOnSuccess {
-            delegate.extendedState.variables["lastEvent"] = event
-        }.block() == true
+    fun sendEvent(event: SpiceEvent): Boolean {
+        val result = delegate.sendEvent(Mono.just(MessageBuilder.withPayload(event).build())).blockFirst()
+        delegate.extendedState.variables["lastEvent"] = event
+        return result?.resultType == StateMachineEventResult.ResultType.ACCEPTED
+    }
 
     fun asSpringStateMachine(): StateMachine<ExecutionState, SpiceEvent> = delegate
 }

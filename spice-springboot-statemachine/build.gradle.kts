@@ -1,7 +1,7 @@
 plugins {
     kotlin("plugin.spring")
     kotlin("plugin.serialization")
-    id("org.springframework.boot") version "3.5.3"
+    id("org.springframework.boot") version "3.5.7"
     id("maven-publish")
 }
 
@@ -9,25 +9,27 @@ dependencies {
     api(project(":spice-core"))
     api(project(":spice-springboot"))
 
-    implementation("org.springframework.boot:spring-boot-starter")
-    implementation("org.springframework.boot:spring-boot-autoconfigure")
-    implementation("org.springframework.statemachine:spring-statemachine-core:3.3.0")
-    implementation("org.springframework.statemachine:spring-statemachine-data-redis:3.3.0")
+    implementation("org.springframework.boot:spring-boot-starter:3.5.7")
+    implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.7")
+    implementation("org.springframework.statemachine:spring-statemachine-core:4.0.0")
+    implementation("org.springframework.statemachine:spring-statemachine-data-redis:4.0.0")
 
-    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
-    implementation("io.lettuce:lettuce-core")
+    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive:3.5.7")
+    implementation("io.lettuce:lettuce-core:6.5.2.RELEASE")
 
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("org.springframework.boot:spring-boot-starter-actuator:3.5.7")
+    implementation("io.micrometer:micrometer-registry-prometheus:1.14.3")
 
-    implementation("org.springframework.kafka:spring-kafka")
+    implementation("org.springframework.kafka:spring-kafka:3.3.3")
+    implementation("org.springframework.boot:spring-boot-starter-web:3.5.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.4.1")
 
-    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.5.3")
+    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.5.7")
 
-    testImplementation("org.springframework.boot:spring-boot-starter-test:3.5.3")
+    testImplementation("org.springframework.boot:spring-boot-starter-test:3.5.7")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
 
@@ -49,7 +51,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot-statemachine"
-            version = "0.9.5"
+            version = "1.0.0-alpha-1"
 
             pom {
                 name.set("Spice Spring Boot State Machine Extension")
@@ -65,9 +67,9 @@ publishing {
 
                 developers {
                     developer {
-                        id.set("spice-team")
+                        id.set("no-ai-labs")
                         name.set("Spice Framework Team")
-                        email.set("veryverybigdog@gmail.com")
+                        email.set("human@noailabs.ai")
                     }
                 }
 

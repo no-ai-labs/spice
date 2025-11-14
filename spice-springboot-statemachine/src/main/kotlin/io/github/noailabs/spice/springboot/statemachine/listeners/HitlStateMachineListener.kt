@@ -6,8 +6,10 @@ import io.github.noailabs.spice.springboot.statemachine.core.SpiceEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.springframework.statemachine.StateMachine
 import org.springframework.statemachine.listener.StateMachineListenerAdapter
 import org.springframework.statemachine.state.State
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Persists checkpoints automatically whenever the machine enters WAITING.
@@ -17,9 +19,19 @@ class HitlStateMachineListener(
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : StateMachineListenerAdapter<ExecutionState, SpiceEvent>() {
 
+    private val currentStateMachine = AtomicReference<StateMachine<ExecutionState, SpiceEvent>?>(null)
+
+    override fun stateMachineStarted(stateMachine: StateMachine<ExecutionState, SpiceEvent>) {
+        currentStateMachine.set(stateMachine)
+    }
+
+    override fun stateMachineStopped(stateMachine: StateMachine<ExecutionState, SpiceEvent>) {
+        currentStateMachine.set(null)
+    }
+
     override fun stateChanged(from: State<ExecutionState, SpiceEvent>?, to: State<ExecutionState, SpiceEvent>?) {
         if (to?.id == ExecutionState.WAITING) {
-            val stateMachine = to.stateMachine ?: return
+            val stateMachine = currentStateMachine.get() ?: return
             val alreadySaved = stateMachine.extendedState.variables["checkpointSaved"] as? Boolean ?: false
             if (alreadySaved) {
                 stateMachine.extendedState.variables.remove("checkpointSaved")

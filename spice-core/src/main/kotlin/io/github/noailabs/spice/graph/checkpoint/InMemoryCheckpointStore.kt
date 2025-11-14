@@ -42,7 +42,7 @@ class InMemoryCheckpointStore : CheckpointStore {
     override suspend fun load(checkpointId: String): SpiceResult<Checkpoint> = mutex.withLock {
         val json = checkpoints[checkpointId]
             ?: return SpiceResult.failure(
-                SpiceError.notFoundError("Checkpoint not found: $checkpointId")
+                SpiceError.CheckpointError("Checkpoint not found: $checkpointId")
             )
 
         SpiceResult.catching {

@@ -37,7 +37,10 @@ class NodeExecutionLogger(
     override fun stateChanged(from: State<ExecutionState, SpiceEvent>?, to: State<ExecutionState, SpiceEvent>?) {
         val toState = to?.id ?: return
         val machine = currentStateMachine.get() ?: return
-        val metadata = machine.extendedState.variables.toMap()
+        val rawMetadata = machine.extendedState.variables.toMap()
+        val metadata = rawMetadata.mapNotNull { (k, v) ->
+            k?.toString()?.let { key -> key to v }
+        }.toMap()
         publisher.publishEvent(
             NodeExecutionEvent(
                 graphId = metadata["graphId"]?.toString() ?: "unknown",

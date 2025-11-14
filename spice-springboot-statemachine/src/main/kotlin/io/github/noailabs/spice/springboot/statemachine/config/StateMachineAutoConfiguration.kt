@@ -30,12 +30,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
+import org.springframework.statemachine.StateMachine
 import org.springframework.statemachine.config.StateMachineBuilder
 import org.springframework.statemachine.config.StateMachineFactory
 import org.springframework.statemachine.listener.StateMachineListener
-import org.springframework.statemachine.persist.ReactiveStateMachinePersister
+import org.springframework.statemachine.StateMachinePersist
 import io.micrometer.core.instrument.MeterRegistry
 import java.util.EnumSet
+import java.util.UUID
 
 @AutoConfiguration
 @EnableConfigurationProperties(StateMachineProperties::class)
@@ -53,44 +55,57 @@ class StateMachineAutoConfiguration {
 
     @Bean
     fun stateMachineFactory(): StateMachineFactory<ExecutionState, SpiceEvent> {
-        val builder = StateMachineBuilder.builder<ExecutionState, SpiceEvent>()
-        builder.configureStates()
-            .withStates()
-            .initial(ExecutionState.READY)
-            .states(EnumSet.allOf(ExecutionState::class.java))
+        // Custom factory wrapper that creates new state machines from builder
+        return object : StateMachineFactory<ExecutionState, SpiceEvent> {
+            override fun getStateMachine(): StateMachine<ExecutionState, SpiceEvent> {
+                val builder = StateMachineBuilder.builder<ExecutionState, SpiceEvent>()
+                builder.configureStates()
+                    .withStates()
+                    .initial(ExecutionState.READY)
+                    .states(EnumSet.allOf(ExecutionState::class.java))
 
-        builder.configureTransitions()
-            .withExternal()
-            .source(ExecutionState.READY)
-            .target(ExecutionState.RUNNING)
-            .event(SpiceEvent.START)
-            .and()
-            .withExternal()
-            .source(ExecutionState.RUNNING)
-            .target(ExecutionState.WAITING)
-            .event(SpiceEvent.PAUSE_FOR_HITL)
-            .and()
-            .withExternal()
-            .source(ExecutionState.RUNNING)
-            .target(ExecutionState.COMPLETED)
-            .event(SpiceEvent.COMPLETE)
-            .and()
-            .withExternal()
-            .source(ExecutionState.RUNNING)
-            .target(ExecutionState.FAILED)
-            .event(SpiceEvent.FAIL)
-            .and()
-            .withExternal()
-            .source(ExecutionState.WAITING)
-            .target(ExecutionState.RUNNING)
-            .event(SpiceEvent.RESUME)
-            .and()
-            .withExternal()
-            .source(ExecutionState.WAITING)
-            .target(ExecutionState.FAILED)
-            .event(SpiceEvent.TIMEOUT)
+                builder.configureTransitions()
+                    .withExternal()
+                    .source(ExecutionState.READY)
+                    .target(ExecutionState.RUNNING)
+                    .event(SpiceEvent.START)
+                    .and()
+                    .withExternal()
+                    .source(ExecutionState.RUNNING)
+                    .target(ExecutionState.WAITING)
+                    .event(SpiceEvent.PAUSE_FOR_HITL)
+                    .and()
+                    .withExternal()
+                    .source(ExecutionState.RUNNING)
+                    .target(ExecutionState.COMPLETED)
+                    .event(SpiceEvent.COMPLETE)
+                    .and()
+                    .withExternal()
+                    .source(ExecutionState.RUNNING)
+                    .target(ExecutionState.FAILED)
+                    .event(SpiceEvent.FAIL)
+                    .and()
+                    .withExternal()
+                    .source(ExecutionState.WAITING)
+                    .target(ExecutionState.RUNNING)
+                    .event(SpiceEvent.RESUME)
+                    .and()
+                    .withExternal()
+                    .source(ExecutionState.WAITING)
+                    .target(ExecutionState.FAILED)
+                    .event(SpiceEvent.TIMEOUT)
 
-        return builder.buildFactory()
+                return builder.build()
+            }
+
+            override fun getStateMachine(machineId: String?): StateMachine<ExecutionState, SpiceEvent> {
+                return getStateMachine()  // Same as default for now
+            }
+
+            override fun getStateMachine(uuid: UUID?): StateMachine<ExecutionState, SpiceEvent> {
+                return getStateMachine()  // Same as default for now
+            }
+        }
     }
 
     @Bean
@@ -104,7 +119,7 @@ class StateMachineAutoConfiguration {
 
     @Bean
     fun checkpointBridge(
-        @Autowired(required = false) persister: ReactiveStateMachinePersister<ExecutionState, SpiceEvent, String>?
+        @Autowired(required = false) persister: StateMachinePersist<ExecutionState, SpiceEvent, String>?
     ): StateMachineCheckpointBridge = StateMachineCheckpointBridge(persister)
 
     @Bean

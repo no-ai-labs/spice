@@ -11,7 +11,7 @@ import org.springframework.data.redis.connection.RedisStandaloneConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate
-import org.springframework.statemachine.persist.ReactiveStateMachinePersister
+import org.springframework.statemachine.StateMachinePersist
 import java.time.Duration
 
 @Configuration
@@ -42,7 +42,7 @@ class RedisStatePersisterConfig(
     @Bean
     fun spiceStateMachinePersister(
         redisTemplate: ReactiveStringRedisTemplate
-    ): ReactiveStateMachinePersister<ExecutionState, SpiceEvent, String> {
+    ): StateMachinePersist<ExecutionState, SpiceEvent, String> {
         return ReactiveRedisStatePersister(redisTemplate)
     }
 }

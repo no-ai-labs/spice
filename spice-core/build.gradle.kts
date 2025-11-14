@@ -44,8 +44,8 @@ dependencies {
     implementation("io.opentelemetry.semconv:opentelemetry-semconv:1.23.1-alpha")
     implementation("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:2.1.0")
 
-    // Redis clients for MQ/Cache/Idempotency backends
-    implementation("redis.clients:jedis:5.1.2")
+    // Redis clients for MQ/Cache/Idempotency backends (exposed as API for Spring Boot integration)
+    api("redis.clients:jedis:5.1.2")
     
     // 🚀 Kafka Support (Optional)
     compileOnly("org.apache.kafka:kafka-clients:3.7.1")
@@ -104,7 +104,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-core"
-            version = "0.9.5"
+            version = "1.0.0-alpha-1"
 
             pom {
                 name.set("Spice Core")
@@ -118,7 +118,7 @@ publishing {
                 }
                 developers {
                     developer {
-                        id.set("spice-team")
+                        id.set("no-ai-labs")
                         name.set("Spice Framework Team")
                         email.set("human@noailabs.ai")
                     }

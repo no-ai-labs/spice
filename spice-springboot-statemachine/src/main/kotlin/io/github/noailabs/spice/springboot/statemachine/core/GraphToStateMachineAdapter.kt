@@ -42,7 +42,7 @@ class GraphToStateMachineAdapter(
         stateMachine.sendEvent(SpiceEvent.START)
 
         var attempt = 0
-        var lastResult: SpiceResult<SpiceMessage>
+        var lastResult: SpiceResult<SpiceMessage>? = null
         var currentMessage = message
         var running = true
         while (running) {
@@ -128,7 +128,9 @@ class GraphToStateMachineAdapter(
         }
 
         stateMachine.stop()
-        return lastResult
+        return lastResult ?: SpiceResult.failure(
+            SpiceError.executionError("Graph execution did not produce any result", graph.id)
+        )
     }
 
     private fun nextBackoff(attempt: Int, error: SpiceError?): Long? {
