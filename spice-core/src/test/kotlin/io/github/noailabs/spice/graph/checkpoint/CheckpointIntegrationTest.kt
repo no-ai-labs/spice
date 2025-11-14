@@ -1,13 +1,15 @@
 package io.github.noailabs.spice.graph.checkpoint
 
 import io.github.noailabs.spice.Agent
-import io.github.noailabs.spice.Comm
+import io.github.noailabs.spice.ExecutionState
+import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.dsl.graph
+import io.github.noailabs.spice.graph.nodes.HumanOption
+import io.github.noailabs.spice.graph.nodes.HumanResponse
 import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
-import io.github.noailabs.spice.graph.runner.RunStatus
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -17,165 +19,217 @@ import kotlin.test.assertTrue
 class CheckpointIntegrationTest {
 
     @Test
-    fun `test checkpoint saves every N nodes`() = runTest {
-        // Given: Graph with 3 agents
-        val agent1 = SimpleAgent("agent1", "Step 1")
-        val agent2 = SimpleAgent("agent2", "Step 2")
-        val agent3 = SimpleAgent("agent3", "Step 3")
+    fun `test checkpoint saves on HITL`() = runTest {
+        // Given: Graph with HumanNode
+        val agent1 = SimpleAgent("agent1", "First step")
+        val agent2 = SimpleAgent("agent2", "After human input")
 
-        val graph = graph("checkpoint-test") {
-            agent("node1", agent1)
-            agent("node2", agent2)
-            agent("node3", agent3)
-            output("result") { ctx -> ctx.state["node3"] }
+        val graph = graph("hitl-test") {
+            agent("start", agent1)
+            human("select", "Please choose an option", options = listOf(
+                HumanOption("opt1", "Option 1"),
+                HumanOption("opt2", "Option 2")
+            ))
+            agent("end", agent2)
+
+            edge("start", "select")
+            edge("select", "end")
         }
 
         val store = InMemoryCheckpointStore()
-        val config = CheckpointConfig(saveEveryNNodes = 1)
+        val config = CheckpointConfig.DEFAULT
 
-        // When: Run with checkpointing
+        // When: Execute with checkpoint support
         val runner = DefaultGraphRunner()
-        val report = runner.runWithCheckpoint(graph, mapOf("input" to "Start"), store, config).getOrThrow()
+        val inputMessage = SpiceMessage.create("Start workflow", "user")
 
-        // Then: Verify execution succeeded
-        assertEquals(RunStatus.SUCCESS, report.status)
+        val result = runner.executeWithCheckpoint(graph, inputMessage, store, config)
 
-        // Checkpoints are cleaned up on success
-        val checkpoints = store.listByGraph("checkpoint-test").getOrThrow()
-        assertTrue(checkpoints.isEmpty(), "Checkpoints should be cleaned up on success")
-    }
-
-    @Test
-    fun `test checkpoint saves on error`() = runTest {
-        // Given: Graph with failing agent
-        val agent1 = SimpleAgent("agent1", "Step 1")
-        val failingAgent = FailingAgent("failing-agent")
-
-        val graph = graph("error-checkpoint-test") {
-            agent("node1", agent1)
-            agent("failing", failingAgent)
-            output("result") { ctx -> ctx.state["failing"] }
-        }
-
-        val store = InMemoryCheckpointStore()
-        val config = CheckpointConfig(saveOnError = true)
-
-        // When: Run with checkpointing (expect failure)
-        val runner = DefaultGraphRunner()
-        val result = runner.runWithCheckpoint(graph, mapOf("input" to "Start"), store, config)
-
-        // Then: Verify execution failed
-        assertTrue(result.isFailure)
+        // Then: Execution should pause at WAITING state
+        assertTrue(result.isSuccess)
+        val finalMessage = (result as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, finalMessage.state)
 
         // Checkpoint should be saved
-        val checkpoints = store.listByGraph("error-checkpoint-test").getOrThrow()
-        assertTrue(checkpoints.isNotEmpty(), "Checkpoint should be saved on error")
+        val checkpoints = store.listByGraph("hitl-test").getOrThrow()
+        assertEquals(1, checkpoints.size)
+
+        val checkpoint = checkpoints.first()
+        assertEquals("hitl-test", checkpoint.graphId)
+        assertEquals("select", checkpoint.currentNodeId)
+        assertNotNull(checkpoint.pendingInteraction)
     }
 
     @Test
-    fun `test resume from checkpoint`() = runTest {
-        // Given: Graph with 3 agents where middle one fails
+    fun `test resume from checkpoint with human response`() = runTest {
+        // Given: Graph with HITL
         val agent1 = SimpleAgent("agent1", "Step 1")
-        val conditionalAgent = ConditionalAgent("conditional-agent")
-        val agent3 = SimpleAgent("agent3", "Step 3")
+        val agent2 = SimpleAgent("agent2", "Step 2")
 
         val graph = graph("resume-test") {
-            agent("node1", agent1)
-            agent("node2", conditionalAgent)
-            agent("node3", agent3)
-            output("result") { ctx -> ctx.state["node3"] }
+            agent("start", agent1)
+            human("select", "Select option")
+            agent("end", agent2)
+
+            edge("start", "select")
+            edge("select", "end")
         }
 
         val store = InMemoryCheckpointStore()
-        val config = CheckpointConfig(saveEveryNNodes = 1, saveOnError = true)
-
-        // When: First run fails
         val runner = DefaultGraphRunner()
-        conditionalAgent.shouldFail = true
-        val failResult = runner.runWithCheckpoint(graph, mapOf("input" to "Start"), store, config)
-        assertTrue(failResult.isFailure)
 
-        // Get the checkpoint
+        // When: Execute and pause at HITL
+        val inputMessage = SpiceMessage.create("Start", "user")
+        val pauseResult = runner.executeWithCheckpoint(graph, inputMessage, store, CheckpointConfig.DEFAULT)
+        assertTrue(pauseResult.isSuccess)
+
+        // Get checkpoint ID
         val checkpoints = store.listByGraph("resume-test").getOrThrow()
-        assertNotNull(checkpoints.firstOrNull())
+        assertEquals(1, checkpoints.size)
         val checkpointId = checkpoints.first().id
 
-        // Fix the agent and resume
-        conditionalAgent.shouldFail = false
-        val resumeResult = runner.resume(graph, checkpointId, store, config).getOrThrow()
-
-        // Then: Verify execution succeeded
-        assertEquals(RunStatus.SUCCESS, resumeResult.status)
-    }
-
-    @Test
-    fun `test InMemoryCheckpointStore save and load`() = runTest {
-        // Given: CheckpointStore
-        val store = InMemoryCheckpointStore()
-
-        val checkpoint = Checkpoint(
-            id = "test-checkpoint-1",
-            runId = "run-123",
-            graphId = "graph-abc",
-            currentNodeId = "node1",
-            state = mapOf("key1" to "value1", "key2" to 42)
+        // Resume with human response
+        val humanResponse = HumanResponse(
+            nodeId = "select",
+            selectedOption = "opt1"
         )
 
-        // When: Save checkpoint
-        val savedId = store.save(checkpoint).getOrThrow()
+        val resumeResult = runner.resumeFromCheckpoint(graph, checkpointId, humanResponse, store, CheckpointConfig.DEFAULT)
 
-        // Then: Can load it back
-        assertEquals("test-checkpoint-1", savedId)
+        // Then: Execution should complete
+        assertTrue(resumeResult.isSuccess)
+        val finalMessage = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalMessage.state)
 
-        val loaded = store.load(savedId).getOrThrow()
-        assertEquals(checkpoint.id, loaded.id)
-        assertEquals(checkpoint.runId, loaded.runId)
-        assertEquals(checkpoint.graphId, loaded.graphId)
-        assertEquals(checkpoint.currentNodeId, loaded.currentNodeId)
-        assertEquals("value1", loaded.state["key1"])
-        assertEquals(42L, loaded.state["key2"])  // JSON numbers become Long after serialization
+        // Checkpoints should be cleaned up (auto-cleanup enabled)
+        val remainingCheckpoints = store.listByGraph("resume-test").getOrThrow()
+        assertTrue(remainingCheckpoints.isEmpty())
     }
 
     @Test
-    fun `test InMemoryCheckpointStore list by run`() = runTest {
-        // Given: Multiple checkpoints for same run
+    fun `test checkpoint serialization preserves nested structures`() = runTest {
+        // Given: Checkpoint with nested data
+        val nestedData = mapOf(
+            "simple" to "string",
+            "number" to 42,
+            "nested_map" to mapOf(
+                "inner_key" to "inner_value",
+                "inner_number" to 123
+            ),
+            "list" to listOf(
+                mapOf("id" to "1", "name" to "Item 1"),
+                mapOf("id" to "2", "name" to "Item 2")
+            )
+        )
+
+        val checkpoint = Checkpoint(
+            id = "test-cp",
+            runId = "run-1",
+            graphId = "graph-1",
+            currentNodeId = "node-1",
+            state = nestedData
+        )
+
         val store = InMemoryCheckpointStore()
 
-        val runId = "run-123"
-        store.save(Checkpoint("cp1", runId, "graph1", "node1", emptyMap())).getOrThrow()
-        store.save(Checkpoint("cp2", runId, "graph1", "node2", emptyMap())).getOrThrow()
-        store.save(Checkpoint("cp3", "run-456", "graph1", "node1", emptyMap())).getOrThrow()
+        // When: Save and load
+        store.save(checkpoint).getOrThrow()
+        val loaded = store.load("test-cp").getOrThrow()
 
-        // When: List by run
-        val checkpoints = store.listByRun(runId).getOrThrow()
+        // Then: Nested structures preserved
+        assertEquals("string", loaded.state["simple"])
 
-        // Then: Only checkpoints for that run
-        assertEquals(2, checkpoints.size)
-        assertTrue(checkpoints.all { it.runId == runId })
+        @Suppress("UNCHECKED_CAST")
+        val nestedMap = loaded.state["nested_map"] as Map<String, Any>
+        assertEquals("inner_value", nestedMap["inner_key"])
+
+        @Suppress("UNCHECKED_CAST")
+        val list = loaded.state["list"] as List<Map<String, Any>>
+        assertEquals(2, list.size)
+        assertEquals("Item 1", list[0]["name"])
     }
 
     @Test
-    fun `test InMemoryCheckpointStore delete by run`() = runTest {
-        // Given: Checkpoints for multiple runs
+    fun `test InMemoryCheckpointStore delete expired`() = runTest {
+        // Given: Store with expired and valid checkpoints
         val store = InMemoryCheckpointStore()
 
-        val runId = "run-123"
-        store.save(Checkpoint("cp1", runId, "graph1", "node1", emptyMap())).getOrThrow()
-        store.save(Checkpoint("cp2", runId, "graph1", "node2", emptyMap())).getOrThrow()
-        store.save(Checkpoint("cp3", "run-456", "graph1", "node1", emptyMap())).getOrThrow()
+        val expired = Checkpoint(
+            id = "expired",
+            runId = "run-1",
+            graphId = "graph-1",
+            currentNodeId = "node-1",
+            expiresAt = kotlinx.datetime.Instant.fromEpochMilliseconds(0) // Past
+        )
 
-        // When: Delete by run
-        store.deleteByRun(runId).getOrThrow()
+        val valid = Checkpoint(
+            id = "valid",
+            runId = "run-2",
+            graphId = "graph-1",
+            currentNodeId = "node-1",
+            expiresAt = kotlinx.datetime.Instant.fromEpochMilliseconds(Long.MAX_VALUE) // Future
+        )
 
-        // Then: Only that run's checkpoints deleted
-        val remaining = store.listByGraph("graph1").getOrThrow()
-        assertEquals(1, remaining.size)
-        assertEquals("run-456", remaining.first().runId)
+        store.save(expired).getOrThrow()
+        store.save(valid).getOrThrow()
+
+        // When: Delete expired
+        val deletedCount = store.deleteExpired().getOrThrow()
+
+        // Then: Only expired checkpoint deleted
+        assertEquals(1, deletedCount)
+        assertEquals(1, store.size())
+        assertTrue(store.exists("valid"))
+        assertTrue(!store.exists("expired"))
+    }
+
+    @Test
+    fun `test checkpoint config presets`() {
+        // Verify config presets are valid
+        val default = CheckpointConfig.DEFAULT
+        assertTrue(default.saveOnHitl)
+        assertEquals(null, default.saveEveryNNodes)
+        assertTrue(default.autoCleanup)
+
+        val aggressive = CheckpointConfig.AGGRESSIVE
+        assertEquals(1, aggressive.saveEveryNNodes)
+        assertTrue(aggressive.saveOnError)
+
+        val minimal = CheckpointConfig.MINIMAL
+        assertTrue(minimal.saveOnHitl)
+        assertTrue(minimal.autoCleanup)
+
+        val disabled = CheckpointConfig.DISABLED
+        assertTrue(!disabled.saveOnHitl)
+        assertTrue(!disabled.autoCleanup)
+    }
+
+    @Test
+    fun `test checkpoint expiration check`() {
+        val expired = Checkpoint(
+            id = "test",
+            runId = "run-1",
+            graphId = "graph-1",
+            currentNodeId = "node-1",
+            expiresAt = kotlinx.datetime.Instant.fromEpochMilliseconds(0)
+        )
+
+        assertTrue(expired.isExpired())
+
+        val valid = Checkpoint(
+            id = "test2",
+            runId = "run-1",
+            graphId = "graph-1",
+            currentNodeId = "node-1",
+            expiresAt = kotlinx.datetime.Instant.fromEpochMilliseconds(Long.MAX_VALUE)
+        )
+
+        assertTrue(!valid.isExpired())
     }
 }
 
 /**
- * Simple test agent that returns a fixed message.
+ * Simple test agent using 1.0 API
  */
 class SimpleAgent(
     override val id: String,
@@ -185,51 +239,13 @@ class SimpleAgent(
     override val description = "Test agent"
     override val capabilities = emptyList<String>()
 
-    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
-        return SpiceResult.success(comm.reply("$message: ${comm.content}", id))
+    override suspend fun processMessage(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        return SpiceResult.success(
+            message.reply("$message: ${message.content}", id)
+        )
     }
 
-    override fun canHandle(comm: Comm) = true
-    override fun getTools() = emptyList<Tool>()
-    override fun isReady() = true
-}
-
-/**
- * Agent that always fails.
- */
-class FailingAgent(override val id: String) : Agent {
-    override val name = "FailingAgent"
-    override val description = "Test agent that fails"
-    override val capabilities = emptyList<String>()
-
-    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
-        return SpiceResult.failure(SpiceError.AgentError("Intentional failure", null))
-    }
-
-    override fun canHandle(comm: Comm) = true
-    override fun getTools() = emptyList<Tool>()
-    override fun isReady() = true
-}
-
-/**
- * Agent that can be toggled between success and failure.
- */
-class ConditionalAgent(override val id: String) : Agent {
-    override val name = "ConditionalAgent"
-    override val description = "Test agent with conditional failure"
-    override val capabilities = emptyList<String>()
-
-    var shouldFail = false
-
-    override suspend fun processComm(comm: Comm): SpiceResult<Comm> {
-        return if (shouldFail) {
-            SpiceResult.failure(SpiceError.AgentError("Conditional failure", null))
-        } else {
-            SpiceResult.success(comm.reply("Success: ${comm.content}", id))
-        }
-    }
-
-    override fun canHandle(comm: Comm) = true
+    override fun canHandle(message: SpiceMessage) = true
     override fun getTools() = emptyList<Tool>()
     override fun isReady() = true
 }

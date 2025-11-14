@@ -31,4 +31,28 @@ data class ToolResult(
     val result: @Contextual Any?,
     val success: Boolean = true,
     val metadata: Map<String, @Contextual Any> = emptyMap()
-)
+) {
+    companion object {
+        /**
+         * Create a successful tool result
+         *
+         * @param result Result value
+         * @param metadata Optional metadata
+         * @return ToolResult with success = true
+         */
+        fun success(result: Any?, metadata: Map<String, Any> = emptyMap()): ToolResult {
+            return ToolResult(result = result, success = true, metadata = metadata)
+        }
+
+        /**
+         * Create a failed tool result
+         *
+         * @param error Error message or value
+         * @param metadata Optional metadata
+         * @return ToolResult with success = false
+         */
+        fun error(error: Any?, metadata: Map<String, Any> = emptyMap()): ToolResult {
+            return ToolResult(result = error, success = false, metadata = metadata)
+        }
+    }
+}

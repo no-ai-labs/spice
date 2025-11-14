@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.graph
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.events.EventBus
+import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 
@@ -47,6 +48,7 @@ import io.github.noailabs.spice.idempotency.IdempotencyStore
  * @property allowCycles Whether to allow cycles in the graph (default: false for DAG)
  * @property eventBus Optional event bus for pub/sub
  * @property idempotencyStore Optional store for idempotent execution
+ * @property checkpointStore Optional store for checkpoint persistence (HITL workflows)
  * @since 1.0.0
  */
 data class Graph(
@@ -57,7 +59,8 @@ data class Graph(
     val middleware: List<Middleware> = emptyList(),
     val allowCycles: Boolean = false,
     val eventBus: EventBus? = null,
-    val idempotencyStore: IdempotencyStore? = null
+    val idempotencyStore: IdempotencyStore? = null,
+    val checkpointStore: CheckpointStore? = null
 )
 
 /**
