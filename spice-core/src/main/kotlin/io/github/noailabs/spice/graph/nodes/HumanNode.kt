@@ -1,17 +1,64 @@
 package io.github.noailabs.spice.graph.nodes
 
-import io.github.noailabs.spice.AnyValueMapSerializer
+import io.github.noailabs.spice.ExecutionState
+import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
-import io.github.noailabs.spice.graph.NodeContext
-import io.github.noailabs.spice.graph.NodeResult
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
-import java.time.Duration
-import java.time.Instant
+import kotlin.time.Duration
 
 /**
- * Node that pauses graph execution and waits for human input.
- * This is the core of the HITL (Human-in-the-Loop) pattern.
+ * 👤 Human Node for Spice Framework 1.0.0
+ *
+ * Pauses graph execution and waits for human input (HITL pattern).
+ *
+ * **BREAKING CHANGE from 0.x:**
+ * - Uses SpiceMessage state machine (RUNNING → WAITING)
+ * - HumanInteraction embedded in message.data
+ * - No separate checkpoint state field
+ *
+ * **Architecture:**
+ * ```
+ * Input Message (RUNNING)
+ *   ↓
+ * HumanNode.run()
+ *   ↓
+ * Output Message (WAITING)
+ *   - HumanInteraction in data
+ *   - State = WAITING
+ *   ↓
+ * GraphRunner saves checkpoint
+ *   ↓
+ * [Wait for human response...]
+ *   ↓
+ * Resume with HumanResponse
+ *   ↓
+ * Message (RUNNING) with response data
+ * ```
+ *
+ * **Usage:**
+ * ```kotlin
+ * graph("booking") {
+ *     agent("search", searchAgent)
+ *     human("select", "Please select a reservation", options = listOf(
+ *         HumanOption("res1", "Reservation 1"),
+ *         HumanOption("res2", "Reservation 2")
+ *     ))
+ *     agent("confirm", confirmAgent)
+ *
+ *     edge("search", "select")
+ *     edge("select", "confirm")
+ * }
+ * ```
+ *
+ * @property prompt Message to display to human
+ * @property options Multiple choice options (if any)
+ * @property timeout Optional timeout duration
+ * @property validator Optional validation function for responses
+ * @property allowFreeText Allow free-form text input (default: true if no options)
+ * @since 1.0.0
  */
 class HumanNode(
     override val id: String,
@@ -22,80 +69,146 @@ class HumanNode(
     val allowFreeText: Boolean = options.isEmpty()
 ) : Node {
 
-    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-        // HumanNode doesn't execute immediately
-        // It signals that graph should pause and wait for human input
+    /**
+     * Execute human node - transitions to WAITING state
+     *
+     * **Flow:**
+     * 1. Create HumanInteraction with prompt/options
+     * 2. Transition message to WAITING state
+     * 3. Embed interaction in message.data
+     * 4. Return message for checkpoint save
+     *
+     * **State Transition:**
+     * - RUNNING → WAITING (paused for human input)
+     *
+     * @param message Input message (must be RUNNING)
+     * @return SpiceResult with message in WAITING state
+     */
+    override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        // Create human interaction
         val interaction = HumanInteraction(
             nodeId = id,
             prompt = prompt,
             options = options,
-            pausedAt = Instant.now().toString(),
-            expiresAt = timeout?.let { Instant.now().plus(it).toString() },
+            pausedAt = Clock.System.now(),
+            expiresAt = timeout?.let { Clock.System.now() + it },
             allowFreeText = allowFreeText
         )
-        val additional = mapOf(
-            "type" to "human-interaction",
-            "requires_human_input" to true
+
+        // Transition to WAITING state
+        val waitingMessage = message.transitionTo(
+            newState = ExecutionState.WAITING,
+            reason = "Waiting for human input: $prompt",
+            nodeId = id
         )
-        return SpiceResult.success(
-            NodeResult.fromContext(ctx, data = interaction, additional = additional)
+
+        // Embed interaction in message data
+        val output = waitingMessage.withData(
+            mapOf(
+                "human_interaction" to interaction,
+                "requires_human_input" to true,
+                "type" to "human-interaction"
+            )
         )
+
+        return SpiceResult.success(output)
     }
 }
 
 /**
- * Human input option (for multiple choice)
+ * 📝 Human Input Option
+ *
+ * Represents a choice in multiple-choice human interaction.
+ *
+ * @property id Unique identifier for this option
+ * @property label Display label for user
+ * @property description Optional description
+ * @property metadata Additional metadata
  */
 @Serializable
 data class HumanOption(
     val id: String,
     val label: String,
-    val description: String? = null
+    val description: String? = null,
+    val metadata: Map<String, String> = emptyMap()
 )
 
 /**
- * Response from human after completing interaction
- */
-@Serializable
-data class HumanResponse(
-    val nodeId: String,
-    val selectedOption: String? = null,
-    val text: String? = null,
-    @Serializable(with = AnyValueMapSerializer::class)
-    val metadata: Map<String, Any?> = emptyMap(),
-    val timestamp: String = Instant.now().toString()
-) {
-    companion object {
-        fun choice(nodeId: String, optionId: String): HumanResponse {
-            return HumanResponse(nodeId = nodeId, selectedOption = optionId)
-        }
-
-        fun text(nodeId: String, text: String): HumanResponse {
-            return HumanResponse(nodeId = nodeId, text = text)
-        }
-    }
-}
-
-/**
- * Represents a pending human interaction
+ * 🎫 Human Interaction
+ *
+ * Represents a pending human interaction.
+ * Embedded in SpiceMessage.data when graph pauses.
+ *
+ * @property nodeId Node ID that requested interaction
+ * @property prompt Message to display
+ * @property options Available options (if multiple choice)
+ * @property pausedAt When interaction was created
+ * @property expiresAt When interaction expires (optional)
+ * @property allowFreeText Whether free-form text is allowed
  */
 @Serializable
 data class HumanInteraction(
     val nodeId: String,
     val prompt: String,
-    val options: List<HumanOption>,
-    val pausedAt: String = Instant.now().toString(),
-    val expiresAt: String? = null,
-    val allowFreeText: Boolean = false
-)
+    val options: List<HumanOption> = emptyList(),
+    val pausedAt: Instant,
+    val expiresAt: Instant? = null,
+    val allowFreeText: Boolean = true
+) {
+    /**
+     * Check if interaction has expired
+     */
+    fun isExpired(): Boolean {
+        return expiresAt?.let { Clock.System.now() >= it } ?: false
+    }
+
+    /**
+     * Get remaining time before expiration
+     */
+    fun remainingTime(): Duration? {
+        return expiresAt?.let {
+            val now = Clock.System.now()
+            if (now < it) {
+                it - now
+            } else {
+                Duration.ZERO
+            }
+        }
+    }
+}
 
 /**
- * Graph execution state
+ * 💬 Human Response
+ *
+ * User's response to a human interaction.
+ * Used to resume graph execution.
+ *
+ * @property nodeId Node ID that requested interaction
+ * @property selectedOption Selected option ID (if multiple choice)
+ * @property freeText Free-form text input (if allowed)
+ * @property metadata Additional data from user
+ * @property respondedAt When response was received
  */
-enum class GraphExecutionState {
-    RUNNING,
-    WAITING_FOR_HUMAN,
-    COMPLETED,
-    FAILED,
-    CANCELLED
+@Serializable
+data class HumanResponse(
+    val nodeId: String,
+    val selectedOption: String? = null,
+    val freeText: String? = null,
+    val metadata: Map<String, String> = emptyMap(),
+    val respondedAt: Instant = Clock.System.now()
+) {
+    /**
+     * Get effective response value
+     * Returns selectedOption or freeText (whichever is provided)
+     */
+    fun getValue(): String? {
+        return selectedOption ?: freeText
+    }
+
+    /**
+     * Validate response has a value
+     */
+    fun hasValue(): Boolean {
+        return selectedOption != null || freeText != null
+    }
 }
