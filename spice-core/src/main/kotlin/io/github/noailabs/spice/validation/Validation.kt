@@ -113,8 +113,10 @@ class SpiceMessageValidator(
         if (value.correlationId.isNullOrBlank()) {
             errors += ValidationError("correlationId", "Correlation id cannot be blank")
         }
-        if (value.content.isNullOrBlank()) {
-            errors += ValidationError("content", "Message content cannot be blank")
+
+        // Spice 2.0: Allow empty content if toolCalls are present (event-first architecture)
+        if (value.content.isNullOrBlank() && value.toolCalls.isEmpty()) {
+            errors += ValidationError("content", "Either content or toolCalls must be present")
         }
 
         value.toolCalls.forEachIndexed { index, call ->

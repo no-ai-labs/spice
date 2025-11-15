@@ -103,18 +103,32 @@ suspend fun GraphRunner.executeWithCheckpoint(
 }
 
 /**
- * Resume graph execution from checkpoint
+ * Resume graph execution from checkpoint (Spice 2.0: Tool Call based)
  *
  * **Flow:**
  * 1. Load checkpoint from store
  * 2. Validate checkpoint not expired
  * 3. Reconstruct message from checkpoint
- * 4. Call GraphRunner.resume() with message
- * 5. Cleanup checkpoint on success
+ * 4. Merge USER_RESPONSE tool call if provided
+ * 5. Call GraphRunner.resume() with message
+ * 6. Cleanup checkpoint on success
+ *
+ * **Spice 2.0 Usage:**
+ * ```kotlin
+ * val userResponseMsg = SpiceMessage.create("Yes", "user123")
+ *     .withToolCall(OAIToolCall.userResponse(
+ *         text = "Yes",
+ *         structuredData = mapOf("selected_option" to "option1")
+ *     ))
+ *
+ * runner.resumeFromCheckpoint(
+ *     graph, checkpointId, userResponseMsg, store
+ * )
+ * ```
  *
  * @param graph Graph to resume
  * @param checkpointId Checkpoint identifier
- * @param humanResponse Optional human response (for HITL resume)
+ * @param userResponse SpiceMessage with USER_RESPONSE tool call (optional)
  * @param store Checkpoint store
  * @param config Checkpoint configuration
  * @return SpiceResult with final message
@@ -122,7 +136,7 @@ suspend fun GraphRunner.executeWithCheckpoint(
 suspend fun GraphRunner.resumeFromCheckpoint(
     graph: Graph,
     checkpointId: String,
-    humanResponse: HumanResponse? = null,
+    userResponse: SpiceMessage? = null,
     store: CheckpointStore,
     config: CheckpointConfig = CheckpointConfig.DEFAULT
 ): SpiceResult<SpiceMessage> {
@@ -145,23 +159,41 @@ suspend fun GraphRunner.resumeFromCheckpoint(
         SpiceError.executionError("Checkpoint has no message: $checkpointId")
     )
 
-    // Add human response if provided
-    val resumeMessage = if (humanResponse != null) {
-        message.withData(
+    // Spice 2.0: Handle USER_RESPONSE tool call
+    val (resumeMessage, responseToolCall) = if (userResponse != null) {
+        val toolCall = userResponse.findToolCall("user_response")
+
+        val responseData = if (toolCall != null) {
             buildMap<String, Any> {
-                put("human_response", humanResponse)
-                humanResponse.selectedOption?.let { put("selected_option", it) }
-                humanResponse.freeText?.let { put("free_text", it) }
+                toolCall.function.getArgumentString("text")?.let {
+                    put("response_text", it)
+                }
+                toolCall.function.getArgumentMap("structured_data")?.let { data ->
+                    put("structured_response", data)
+                    data["selected_option"]?.let { put("selected_option", it) }
+                }
+                put("user_response_tool_call", toolCall)
             }
-        ).transitionTo(
-            ExecutionState.RUNNING,
-            "Resuming after human input"
-        )
+        } else {
+            mapOf("response_text" to userResponse.content)
+        }
+
+        val msg = message
+            .withData(responseData)
+            .withToolCalls(userResponse.toolCalls)
+            .transitionTo(ExecutionState.RUNNING, "Resuming after user response")
+
+        Pair(msg, toolCall)
     } else {
-        message.transitionTo(
-            ExecutionState.RUNNING,
-            "Resuming from checkpoint"
-        )
+        // No response - just resume
+        val msg = message.transitionTo(ExecutionState.RUNNING, "Resuming from checkpoint")
+        Pair(msg, null)
+    }
+
+    // Spice 2.0: Update checkpoint with responseToolCall for replay/debugging
+    if (responseToolCall != null) {
+        val updatedCheckpoint = checkpoint.copy(responseToolCall = responseToolCall)
+        store.save(updatedCheckpoint)  // Persist the response for audit/replay
     }
 
     // Resume execution

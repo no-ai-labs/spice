@@ -90,4 +90,41 @@ interface CheckpointStore {
      * @return true if exists
      */
     suspend fun exists(checkpointId: String): Boolean
+
+    // =========================================
+    // Spice 2.0: Tool Call ID Based Queries
+    // =========================================
+
+    /**
+     * Find checkpoint by pending tool call ID
+     * Enables causation tracking: "Which checkpoint is waiting for this tool call to complete?"
+     *
+     * Use case: When user responds, find which checkpoint was waiting for that response
+     *
+     * @param toolCallId Tool call identifier from pendingToolCall
+     * @return SpiceResult with Checkpoint or error if not found
+     */
+    suspend fun loadByPendingToolCallId(toolCallId: String): SpiceResult<Checkpoint>
+
+    /**
+     * Find checkpoint by response tool call ID
+     * Enables audit trail: "Which checkpoint received this user response?"
+     *
+     * Use case: Track which checkpoints have been resolved by user input
+     *
+     * @param toolCallId Tool call identifier from responseToolCall
+     * @return SpiceResult with Checkpoint or error if not found
+     */
+    suspend fun loadByResponseToolCallId(toolCallId: String): SpiceResult<Checkpoint>
+
+    /**
+     * Find all checkpoints involving a specific tool call ID
+     * Searches both pendingToolCall and responseToolCall
+     *
+     * Use case: Full causation chain - see both the request and the response
+     *
+     * @param toolCallId Tool call identifier
+     * @return SpiceResult with list of checkpoints (may be empty)
+     */
+    suspend fun listByToolCallId(toolCallId: String): SpiceResult<List<Checkpoint>>
 }

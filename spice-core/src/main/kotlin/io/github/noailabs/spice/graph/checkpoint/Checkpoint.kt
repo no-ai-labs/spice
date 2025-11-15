@@ -1,8 +1,7 @@
 package io.github.noailabs.spice.graph.checkpoint
 
 import io.github.noailabs.spice.SpiceMessage
-import io.github.noailabs.spice.graph.nodes.HumanInteraction
-import io.github.noailabs.spice.graph.nodes.HumanResponse
+import io.github.noailabs.spice.toolspec.OAIToolCall
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Contextual
@@ -50,9 +49,9 @@ data class Checkpoint(
     // Execution status
     val executionState: GraphExecutionState = GraphExecutionState.WAITING_FOR_HUMAN,
 
-    // Human interaction data (if paused for HITL)
-    val pendingInteraction: HumanInteraction? = null,
-    val humanResponse: HumanResponse? = null,
+    // Spice 2.0: Tool call based HITL (event-first architecture)
+    val pendingToolCall: OAIToolCall? = null,      // REQUEST_USER_INPUT/SELECTION from HumanNode
+    val responseToolCall: OAIToolCall? = null,     // USER_RESPONSE from user
 
     // Timestamps
     val timestamp: Instant = Clock.System.now(),
@@ -78,6 +77,16 @@ data class Checkpoint(
                 "Can only create checkpoint from WAITING message, got: ${message.state}"
             }
 
+            // Spice 2.0: Extract tool call from message (REQUEST_USER_INPUT or REQUEST_USER_SELECTION)
+            // Use lastOrNull to get the most recent tool call (handles loops/retries where multiple tool calls accumulate)
+            val pendingToolCall = message.toolCalls.lastOrNull {
+                it.function.name in listOf(
+                    "request_user_input",
+                    "request_user_selection",
+                    "request_user_confirmation"
+                )
+            }
+
             return Checkpoint(
                 id = generateId(),
                 runId = runId,
@@ -86,7 +95,7 @@ data class Checkpoint(
                 message = message,
                 state = message.data,
                 metadata = message.metadata,
-                pendingInteraction = message.getData<HumanInteraction>("human_interaction"),
+                pendingToolCall = pendingToolCall,
                 timestamp = Clock.System.now()
             )
         }

@@ -4,6 +4,7 @@ import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
+import io.github.noailabs.spice.toolspec.OAIToolCall
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
@@ -85,7 +86,7 @@ class HumanNode(
      * @return SpiceResult with message in WAITING state
      */
     override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
-        // Create human interaction
+        // Create human interaction (still needed for backward compatibility and expiration tracking)
         val interaction = HumanInteraction(
             nodeId = id,
             prompt = prompt,
@@ -95,6 +96,41 @@ class HumanNode(
             allowFreeText = allowFreeText
         )
 
+        // Spice 2.0: Create appropriate tool call based on interaction type
+        val toolCall = if (options.isNotEmpty()) {
+            // Multiple choice selection
+            OAIToolCall.selection(
+                items = options.map { option ->
+                    mapOf(
+                        "id" to option.id,
+                        "label" to option.label,
+                        "description" to (option.description ?: ""),
+                        "metadata" to option.metadata
+                    )
+                },
+                promptMessage = prompt,
+                selectionType = "single", // Future: support "multiple" based on node config
+                metadata = mapOf(
+                    "node_id" to id,
+                    "paused_at" to interaction.pausedAt.toString(),
+                    "expires_at" to (interaction.expiresAt?.toString() ?: ""),
+                    "allow_free_text" to allowFreeText.toString()
+                )
+            )
+        } else {
+            // Free-form input
+            OAIToolCall.hitl(
+                type = "input",
+                question = prompt,
+                context = mapOf(
+                    "node_id" to id,
+                    "paused_at" to interaction.pausedAt.toString(),
+                    "expires_at" to (interaction.expiresAt?.toString() ?: ""),
+                    "allow_free_text" to allowFreeText.toString()
+                )
+            )
+        }
+
         // Transition to WAITING state
         val waitingMessage = message.transitionTo(
             newState = ExecutionState.WAITING,
@@ -102,14 +138,23 @@ class HumanNode(
             nodeId = id
         )
 
-        // Embed interaction in message data
-        val output = waitingMessage.withData(
-            mapOf(
-                "human_interaction" to interaction,
-                "requires_human_input" to true,
-                "type" to "human-interaction"
+        // Spice 2.0: Add tool call to message (event-first architecture)
+        // Also keep interaction in data for backward compatibility during transition
+        val output = waitingMessage
+            .withToolCall(toolCall)
+            .withData(
+                mapOf(
+                    "human_interaction" to interaction,  // Backward compat
+                    "requires_human_input" to true,       // Backward compat
+                    "type" to "human-interaction"         // Backward compat
+                )
             )
-        )
+            .withMetadata(
+                mapOf(
+                    "paused_node_id" to id,
+                    "paused_at" to interaction.pausedAt.toString()
+                )
+            )
 
         return SpiceResult.success(output)
     }

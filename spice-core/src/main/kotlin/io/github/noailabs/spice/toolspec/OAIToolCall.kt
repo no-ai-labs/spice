@@ -73,9 +73,16 @@ data class OAIToolCall(
          * Standard tool names used in Spice workflows
          */
         object ToolNames {
+            // Inbound events (user → system)
+            const val USER_INPUT = "user_input"
+            const val USER_RESPONSE = "user_response"
+
+            // Outbound requests (system → user)
             const val REQUEST_USER_SELECTION = "request_user_selection"
             const val REQUEST_USER_CONFIRMATION = "request_user_confirmation"
             const val REQUEST_USER_INPUT = "request_user_input"
+
+            // System events
             const val WORKFLOW_COMPLETED = "workflow_completed"
             const val TOOL_MESSAGE = "tool_message"
             const val SYSTEM_ERROR = "system_error"
@@ -247,6 +254,69 @@ data class OAIToolCall(
                         "error_type" to errorType,
                         "is_recoverable" to isRecoverable
                     )
+                )
+            )
+        }
+
+        /**
+         * Create User Input ToolCall
+         *
+         * Represents user-initiated input events (chat messages, form submissions, etc.)
+         *
+         * @param text User's text input
+         * @param metadata Additional metadata (userId, sessionId, etc.)
+         * @param inputType Type of input (chat, form, voice, attachment, webhook)
+         */
+        fun userInput(
+            text: String,
+            metadata: Map<String, Any> = emptyMap(),
+            inputType: String = "chat"
+        ): OAIToolCall {
+            return OAIToolCall(
+                function = ToolCallFunction(
+                    name = ToolNames.USER_INPUT,
+                    arguments = buildMap {
+                        put("text", text)
+                        put("input_type", inputType)
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Create User Response ToolCall
+         *
+         * Represents user response to HITL requests (selections, confirmations, etc.)
+         *
+         * @param text User's text response (optional)
+         * @param structuredData Structured response data (selections, form data, etc.)
+         * @param metadata Additional metadata
+         * @param responseType Type of response (selection, confirmation, text, form)
+         */
+        fun userResponse(
+            text: String? = null,
+            structuredData: Map<String, Any>? = null,
+            metadata: Map<String, Any> = emptyMap(),
+            responseType: String = "text"
+        ): OAIToolCall {
+            return OAIToolCall(
+                function = ToolCallFunction(
+                    name = ToolNames.USER_RESPONSE,
+                    arguments = buildMap {
+                        if (text != null) {
+                            put("text", text)
+                        }
+                        if (structuredData != null) {
+                            put("structured_data", structuredData)
+                        }
+                        put("response_type", responseType)
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
                 )
             )
         }

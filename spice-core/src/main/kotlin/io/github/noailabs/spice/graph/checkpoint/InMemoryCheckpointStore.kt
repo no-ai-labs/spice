@@ -102,6 +102,50 @@ class InMemoryCheckpointStore : CheckpointStore {
         checkpoints.containsKey(checkpointId)
     }
 
+    // =========================================
+    // Spice 2.0: Tool Call ID Based Queries
+    // =========================================
+
+    override suspend fun loadByPendingToolCallId(toolCallId: String): SpiceResult<Checkpoint> = mutex.withLock {
+        SpiceResult.catching {
+            val checkpoint = checkpoints.values
+                .map { CheckpointSerializer.deserialize(it) }
+                .firstOrNull { it.pendingToolCall?.id == toolCallId }
+
+            checkpoint ?: throw IllegalStateException("No checkpoint found with pending tool call ID: $toolCallId")
+        }.mapError { error ->
+            SpiceError.CheckpointError(
+                message = error.message ?: "Failed to load checkpoint by pending tool call ID",
+                context = mapOf("toolCallId" to toolCallId)
+            )
+        }
+    }
+
+    override suspend fun loadByResponseToolCallId(toolCallId: String): SpiceResult<Checkpoint> = mutex.withLock {
+        SpiceResult.catching {
+            val checkpoint = checkpoints.values
+                .map { CheckpointSerializer.deserialize(it) }
+                .firstOrNull { it.responseToolCall?.id == toolCallId }
+
+            checkpoint ?: throw IllegalStateException("No checkpoint found with response tool call ID: $toolCallId")
+        }.mapError { error ->
+            SpiceError.CheckpointError(
+                message = error.message ?: "Failed to load checkpoint by response tool call ID",
+                context = mapOf("toolCallId" to toolCallId)
+            )
+        }
+    }
+
+    override suspend fun listByToolCallId(toolCallId: String): SpiceResult<List<Checkpoint>> = mutex.withLock {
+        SpiceResult.catching {
+            checkpoints.values
+                .map { CheckpointSerializer.deserialize(it) }
+                .filter {
+                    it.pendingToolCall?.id == toolCallId || it.responseToolCall?.id == toolCallId
+                }
+        }
+    }
+
     /**
      * Clear all checkpoints (testing only)
      */

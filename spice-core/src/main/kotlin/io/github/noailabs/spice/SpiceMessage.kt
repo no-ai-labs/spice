@@ -201,6 +201,42 @@ data class SpiceMessage(
                 state = ExecutionState.READY
             )
         }
+
+        /**
+         * Create a message from user input
+         *
+         * Normalizes all user input (chat, form, voice, webhook) as USER_INPUT tool call event.
+         * This is the recommended way to handle user-initiated messages in Spice 2.0.
+         *
+         * @param text User's text input
+         * @param userId User identifier
+         * @param metadata Additional metadata (sessionId, tenantId, etc.)
+         * @param inputType Type of input (chat, form, voice, attachment, webhook)
+         * @param correlationId Optional correlation ID (generated if not provided)
+         * @return SpiceMessage with USER_INPUT tool call in READY state
+         */
+        fun fromUserInput(
+            text: String,
+            userId: String,
+            metadata: Map<String, Any> = emptyMap(),
+            inputType: String = "chat",
+            correlationId: String = generateMessageId()
+        ): SpiceMessage {
+            val toolCall = OAIToolCall.userInput(
+                text = text,
+                metadata = metadata,
+                inputType = inputType
+            )
+
+            return SpiceMessage(
+                content = text, // Keep content for backward compatibility
+                from = userId,
+                correlationId = correlationId,
+                toolCalls = listOf(toolCall),
+                metadata = metadata,
+                state = ExecutionState.READY
+            )
+        }
     }
 
     /**
