@@ -6,9 +6,16 @@ plugins {
 }
 
 repositories {
+    mavenLocal()  // Check local Maven repository first
     mavenCentral()
     maven {
         url = uri("https://repo.spring.io/milestone")
+    }
+    maven {
+        url = uri("https://repo.spring.io/release")
+    }
+    maven {
+        url = uri("https://repo.spring.io/snapshot")
     }
 }
 
@@ -19,8 +26,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter:3.5.7")
     implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.7")
 
-    // Spring AI dependencies
-    implementation("org.springframework.ai:spring-ai-core:1.1.0")
+    // Spring AI dependencies (1.1.0 uses new module structure)
+    implementation("org.springframework.ai:spring-ai-model:1.1.0")
+    implementation("org.springframework.ai:spring-ai-client-chat:1.1.0")
+    implementation("org.springframework.ai:spring-ai-commons:1.1.0")
     implementation("org.springframework.ai:spring-ai-openai:1.1.0")
     implementation("org.springframework.ai:spring-ai-anthropic:1.1.0")
     implementation("org.springframework.ai:spring-ai-ollama:1.1.0")

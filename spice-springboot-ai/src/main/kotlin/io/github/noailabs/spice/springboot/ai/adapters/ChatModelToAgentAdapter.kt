@@ -11,7 +11,7 @@ import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.ai.chat.model.ChatModel
 import org.springframework.ai.chat.model.StreamingChatModel
 import org.springframework.ai.chat.prompt.ChatOptions
-import org.springframework.ai.model.function.FunctionCallback
+import org.springframework.ai.tool.function.FunctionToolCallback
 import reactor.core.publisher.Mono
 
 /**
@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono
  *
  * **Features:**
  * - Synchronous and streaming support
- * - Tool (FunctionCallback) integration
+ * - Tool (FunctionToolCallback) integration
  * - Metadata preservation
  * - Correlation tracking
  * - Error handling with SpiceResult
@@ -59,7 +59,7 @@ class ChatModelToAgentAdapter(
     override val description: String,
     private val systemPrompt: String? = null,
     private val defaultOptions: ChatOptions? = null,
-    private val functionCallbacks: List<FunctionCallback> = emptyList(),
+    private val functionCallbacks: List<FunctionToolCallback<*, *>> = emptyList(),
     override val capabilities: List<String> = listOf("chat", "completion")
 ) : Agent {
 
@@ -177,7 +177,7 @@ class StreamingChatModelToAgentAdapter(
     override val description: String,
     private val systemPrompt: String? = null,
     private val defaultOptions: ChatOptions? = null,
-    private val functionCallbacks: List<FunctionCallback> = emptyList(),
+    private val functionCallbacks: List<FunctionToolCallback<*, *>> = emptyList(),
     override val capabilities: List<String> = listOf("chat", "completion", "streaming")
 ) : Agent {
 
@@ -202,7 +202,7 @@ class StreamingChatModelToAgentAdapter(
             val chunks = mutableListOf<String>()
             chatModel.stream(prompt)
                 .doOnNext { chatResponse ->
-                    chatResponse.result?.output?.content?.let { content ->
+                    chatResponse.results.firstOrNull()?.output?.text?.let { content ->
                         chunks.add(content)
                     }
                 }

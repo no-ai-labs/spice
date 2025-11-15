@@ -9,7 +9,7 @@ import org.springframework.ai.chat.messages.UserMessage
 import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.prompt.ChatOptions
 import org.springframework.ai.chat.prompt.Prompt
-import org.springframework.ai.model.function.FunctionCallback
+import org.springframework.ai.tool.function.FunctionToolCallback
 
 /**
  * 🔄 Message Adapter: Bidirectional conversion between SpiceMessage and Spring AI Message
@@ -17,7 +17,7 @@ import org.springframework.ai.model.function.FunctionCallback
  * Handles conversion of:
  * - SpiceMessage → Spring AI Prompt/Message
  * - Spring AI ChatResponse → SpiceMessage
- * - OAIToolCall → Spring AI FunctionCallback
+ * - OAIToolCall → Spring AI FunctionToolCallback
  *
  * **Key Mappings:**
  * - SpiceMessage.content → UserMessage.content
@@ -42,7 +42,7 @@ object MessageAdapter {
         message: SpiceMessage,
         systemPrompt: String? = null,
         options: ChatOptions? = null,
-        functionCallbacks: List<FunctionCallback> = emptyList()
+        functionCallbacks: List<FunctionToolCallback<*, *>> = emptyList()
     ): Prompt {
         val messages = mutableListOf<Message>()
 
@@ -73,11 +73,11 @@ object MessageAdapter {
         originalMessage: SpiceMessage,
         agentId: String
     ): SpiceMessage {
-        val generation = response.result ?: throw IllegalStateException("ChatResponse has no result")
+        val generation = response.results.firstOrNull() ?: throw IllegalStateException("ChatResponse has no result")
         val output = generation.output ?: throw IllegalStateException("Generation has no output")
 
         // Extract content
-        val content = output.content ?: ""
+        val content = output.text ?: ""
 
         // Extract metadata from response (simplified - Spring AI metadata may vary)
         val responseMetadata: Map<String, Any> = emptyMap()
@@ -110,7 +110,7 @@ object MessageAdapter {
         agentId: String
     ): SpiceMessage {
         return SpiceMessage.create(
-            content = assistantMessage.content ?: "",
+            content = assistantMessage.text ?: "",
             from = agentId,
             correlationId = correlationId
         )

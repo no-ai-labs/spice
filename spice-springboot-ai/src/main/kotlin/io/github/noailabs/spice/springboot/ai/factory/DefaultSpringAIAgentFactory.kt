@@ -7,7 +7,8 @@ import io.github.noailabs.spice.springboot.ai.adapters.ChatModelToAgentAdapter
 import io.github.noailabs.spice.springboot.ai.config.SpringAIProperties
 import org.springframework.ai.chat.model.ChatModel
 import org.springframework.ai.chat.prompt.ChatOptions
-import org.springframework.ai.model.function.FunctionCallback
+import org.springframework.ai.tool.function.FunctionToolCallback
+import org.springframework.ai.model.SimpleApiKey
 import org.springframework.ai.openai.OpenAiChatModel
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.ai.openai.api.OpenAiApi
@@ -16,7 +17,9 @@ import org.springframework.ai.anthropic.AnthropicChatOptions
 import org.springframework.ai.anthropic.api.AnthropicApi
 import org.springframework.ai.ollama.OllamaChatModel
 import org.springframework.ai.ollama.api.OllamaApi
-import org.springframework.ai.ollama.api.OllamaOptions
+import org.springframework.ai.ollama.api.OllamaChatOptions
+import org.springframework.web.client.RestClient
+import org.springframework.web.reactive.function.client.WebClient
 
 /**
  * 🏭 Default Spring AI Agent Factory Implementation
@@ -45,7 +48,7 @@ import org.springframework.ai.ollama.api.OllamaOptions
  */
 class DefaultSpringAIAgentFactory(
     private val properties: SpringAIProperties,
-    private val functionCallbacks: List<FunctionCallback> = emptyList()
+    private val functionCallbacks: List<FunctionToolCallback<*, *>> = emptyList()
 ) : SpringAIAgentFactory {
 
     // ===== OpenAI =====
@@ -54,35 +57,41 @@ class DefaultSpringAIAgentFactory(
         val apiKey = config.apiKey ?: properties.openai.apiKey
             ?: throw IllegalArgumentException("OpenAI API key not provided")
 
-        val api = OpenAiApi(
-            config.baseUrl ?: properties.openai.baseUrl ?: "https://api.openai.com",
-            apiKey
-        )
+        val api = OpenAiApi.builder()
+            .baseUrl(config.baseUrl ?: properties.openai.baseUrl ?: "https://api.openai.com")
+            .apiKey(SimpleApiKey(apiKey))
+            .restClientBuilder(RestClient.builder())
+            .webClientBuilder(WebClient.builder())
+            .build()
 
         val options = OpenAiChatOptions.builder()
-            .withModel(model)
-            .withTemperature(
+            .model(model)
+            .temperature(
                 config.temperature
                     ?: properties.openai.temperature
                     ?: properties.chat.defaultTemperature
             )
             .apply {
-                config.maxTokens?.let { withMaxTokens(it) }
-                    ?: properties.openai.maxTokens?.let { withMaxTokens(it) }
-                    ?: properties.chat.defaultMaxTokens?.let { withMaxTokens(it) }
+                val maxTokens = config.maxTokens
+                    ?: properties.openai.maxTokens
+                    ?: properties.chat.defaultMaxTokens
+                if (maxTokens != null) maxTokens(maxTokens)
 
-                config.topP?.let { withTopP(it) }
-                    ?: properties.openai.topP?.let { withTopP(it) }
+                val topP = config.topP ?: properties.openai.topP
+                if (topP != null) topP(topP)
 
-                config.frequencyPenalty?.let { withFrequencyPenalty(it) }
-                    ?: properties.openai.frequencyPenalty?.let { withFrequencyPenalty(it) }
+                val freqPenalty = config.frequencyPenalty ?: properties.openai.frequencyPenalty
+                if (freqPenalty != null) frequencyPenalty(freqPenalty)
 
-                config.presencePenalty?.let { withPresencePenalty(it) }
-                    ?: properties.openai.presencePenalty?.let { withPresencePenalty(it) }
+                val presPenalty = config.presencePenalty ?: properties.openai.presencePenalty
+                if (presPenalty != null) presencePenalty(presPenalty)
             }
             .build()
 
-        val chatModel = OpenAiChatModel(api, options)
+        val chatModel = OpenAiChatModel.builder()
+            .openAiApi(api)
+            .defaultOptions(options)
+            .build()
 
         return ChatModelToAgentAdapter(
             chatModel = chatModel,
@@ -102,29 +111,37 @@ class DefaultSpringAIAgentFactory(
         val apiKey = config.apiKey ?: properties.anthropic.apiKey
             ?: throw IllegalArgumentException("Anthropic API key not provided")
 
-        val api = AnthropicApi(apiKey)
+        val api = AnthropicApi.builder()
+            .apiKey(SimpleApiKey(apiKey))
+            .restClientBuilder(RestClient.builder())
+            .webClientBuilder(WebClient.builder())
+            .build()
 
         val options = AnthropicChatOptions.builder()
-            .withModel(model)
-            .withTemperature(
+            .model(model)
+            .temperature(
                 config.temperature
                     ?: properties.anthropic.temperature
                     ?: properties.chat.defaultTemperature
             )
             .apply {
-                config.maxTokens?.let { withMaxTokens(it) }
-                    ?: properties.anthropic.maxTokens?.let { withMaxTokens(it) }
-                    ?: properties.chat.defaultMaxTokens?.let { withMaxTokens(it) }
+                val maxTokens = config.maxTokens
+                    ?: properties.anthropic.maxTokens
+                    ?: properties.chat.defaultMaxTokens
+                if (maxTokens != null) maxTokens(maxTokens)
 
-                config.topP?.let { withTopP(it) }
-                    ?: properties.anthropic.topP?.let { withTopP(it) }
+                val topP = config.topP ?: properties.anthropic.topP
+                if (topP != null) topP(topP)
 
-                config.topK?.let { withTopK(it) }
-                    ?: properties.anthropic.topK?.let { withTopK(it) }
+                val topK = config.topK ?: properties.anthropic.topK
+                if (topK != null) topK(topK)
             }
             .build()
 
-        val chatModel = AnthropicChatModel(api, options)
+        val chatModel = AnthropicChatModel.builder()
+            .anthropicApi(api)
+            .defaultOptions(options)
+            .build()
 
         return ChatModelToAgentAdapter(
             chatModel = chatModel,
@@ -143,39 +160,37 @@ class DefaultSpringAIAgentFactory(
     override fun ollama(model: String, config: OllamaConfig): Agent {
         val baseUrl = config.baseUrl ?: properties.ollama.baseUrl
 
-        val api = OllamaApi(baseUrl)
+        val api = OllamaApi.builder()
+            .baseUrl(baseUrl)
+            .restClientBuilder(RestClient.builder())
+            .webClientBuilder(WebClient.builder())
+            .build()
 
-        val options = OllamaOptions.builder()
-            .withModel(model)
-            .withTemperature(
+        val options = OllamaChatOptions.builder()
+            .model(model)
+            .temperature(
                 config.temperature
                     ?: properties.ollama.temperature
                     ?: properties.chat.defaultTemperature
             )
             .apply {
-                config.maxTokens?.let { withNumPredict(it) }
-                    ?: properties.ollama.maxTokens?.let { withNumPredict(it) }
-                    ?: properties.chat.defaultMaxTokens?.let { withNumPredict(it) }
+                val maxTokens = config.maxTokens
+                    ?: properties.ollama.maxTokens
+                    ?: properties.chat.defaultMaxTokens
+                if (maxTokens != null) numPredict(maxTokens)
 
-                config.topP?.let { withTopP(it) }
-                    ?: properties.ollama.topP?.let { withTopP(it) }
+                val topP = config.topP ?: properties.ollama.topP
+                if (topP != null) topP(topP)
 
-                config.topK?.let { withTopK(it) }
-                    ?: properties.ollama.topK?.let { withTopK(it) }
-
-                // Note: numGpu and numThread might not be available in all Spring AI versions
-                // Remove or comment out if not supported
+                val topK = config.topK ?: properties.ollama.topK
+                if (topK != null) topK(topK)
             }
             .build()
 
-        val chatModel = OllamaChatModel(
-            api,
-            options,
-            null, // functionCallbackContext
-            emptyList(), // toolFunctionCallbacks
-            null, // observationRegistry
-            null // modelManagementOptions
-        )
+        val chatModel = OllamaChatModel.builder()
+            .ollamaApi(api)
+            .defaultOptions(options)
+            .build()
 
         return ChatModelToAgentAdapter(
             chatModel = chatModel,

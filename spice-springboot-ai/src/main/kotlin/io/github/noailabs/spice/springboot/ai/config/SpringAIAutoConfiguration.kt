@@ -5,7 +5,7 @@ import io.github.noailabs.spice.springboot.ai.factory.DefaultSpringAIAgentFactor
 import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
 import io.github.noailabs.spice.springboot.ai.registry.AgentRegistry
 import io.github.noailabs.spice.springboot.ai.registry.DefaultAgentRegistry
-import org.springframework.ai.model.function.FunctionCallback
+import org.springframework.ai.tool.function.FunctionToolCallback
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -95,7 +95,7 @@ class SpringAIAutoConfiguration {
     @ConditionalOnMissingBean(SpringAIAgentFactory::class)
     fun springAIAgentFactory(
         properties: SpringAIProperties,
-        functionCallbacks: List<FunctionCallback> = emptyList()
+        functionCallbacks: List<FunctionToolCallback<*, *>> = emptyList()
     ): SpringAIAgentFactory {
         return DefaultSpringAIAgentFactory(
             properties = properties,
