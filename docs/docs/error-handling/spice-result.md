@@ -614,13 +614,23 @@ suspend fun processUserData(userId: String): SpiceResult<ProcessedData> {
 ### Agent Processing
 
 ```kotlin
-suspend fun processWithAgent(input: String): SpiceResult<String> {
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
+import io.github.noailabs.spice.springboot.ai.factory.AnthropicConfig
+
+suspend fun processWithAgent(
+    input: String,
+    factory: SpringAIAgentFactory
+): SpiceResult<String> {
     return SpiceResult.catchingSuspend {
-        val agent = claudeAgent(apiKey = getApiKey())
-        val comm = Comm(content = input, from = "user")
-        agent.processComm(comm)
+        val agent = factory.anthropic(
+            model = "claude-3-5-sonnet-20241022",
+            config = AnthropicConfig()
+        )
+        val message = SpiceMessage.create(input, "user")
+        agent.processMessage(message)
     }
-        .map { comm -> comm.content }
+        .map { message -> message.content }
         .mapError { error ->
             when (error) {
                 is SpiceError.NetworkError ->

@@ -223,6 +223,28 @@ merge("all", "parallel", MergeStrategies.asMap)
 Ask multiple LLMs and vote for consensus:
 
 ```kotlin
+import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
+import io.github.noailabs.spice.springboot.ai.factory.OpenAIConfig
+import io.github.noailabs.spice.springboot.ai.factory.AnthropicConfig
+
+// Create agents with Spring AI factory
+val factory: SpringAIAgentFactory = ... // Inject
+
+val gpt4Agent = factory.openai(
+    model = "gpt-4",
+    config = OpenAIConfig(agentId = "gpt4")
+)
+
+val claudeAgent = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(agentId = "claude")
+)
+
+val geminiAgent = factory.openai(  // Or use appropriate factory method
+    model = "gpt-4-turbo",  // Placeholder - use actual Gemini integration when available
+    config = OpenAIConfig(agentId = "gemini")
+)
+
 val llmVotingGraph = graph("llm-voting") {
     parallel(
         id = "llm-ensemble",

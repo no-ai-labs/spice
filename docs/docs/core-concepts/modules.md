@@ -32,8 +32,9 @@ Spice Framework 1.0.0 is organized into five primary modules. Each targets a dif
 
 ## spice-agents
 
-- Adds helper DSL (`buildAgent`), provider-specific factories (`gptAgent`, `claudeAgent`), and mock agents for tests.
-- Ships its own Ktor-based HTTP stack to avoid tying agent usage to Spring Boot.
+- Provides lightweight agent implementations and mock agents for testing.
+- Ships its own HTTP stack to avoid tying agent usage to Spring Boot.
+- **Note**: For LLM integrations (OpenAI, Anthropic, etc.), use `spice-springboot-ai` module with Spring AI 1.1.0 integration instead.
 
 ### Enhancement ideas
 
