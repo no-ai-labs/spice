@@ -57,7 +57,6 @@ import kotlin.time.Duration
  * @property prompt Message to display to human
  * @property options Multiple choice options (if any)
  * @property timeout Optional timeout duration
- * @property validator Optional validation function for responses
  * @property allowFreeText Allow free-form text input (default: true if no options)
  * @since 1.0.0
  */
@@ -66,7 +65,6 @@ class HumanNode(
     val prompt: String,
     val options: List<HumanOption> = emptyList(),
     val timeout: Duration? = null,
-    val validator: ((HumanResponse) -> Boolean)? = null,
     val allowFreeText: Boolean = options.isEmpty()
 ) : Node {
 
@@ -74,9 +72,9 @@ class HumanNode(
      * Execute human node - transitions to WAITING state
      *
      * **Flow:**
-     * 1. Create HumanInteraction with prompt/options
+     * 1. Create tool call (REQUEST_USER_SELECTION or REQUEST_USER_INPUT)
      * 2. Transition message to WAITING state
-     * 3. Embed interaction in message.data
+     * 3. Embed tool call in message.toolCalls
      * 4. Return message for checkpoint save
      *
      * **State Transition:**
@@ -86,17 +84,11 @@ class HumanNode(
      * @return SpiceResult with message in WAITING state
      */
     override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
-        // Create human interaction (still needed for backward compatibility and expiration tracking)
-        val interaction = HumanInteraction(
-            nodeId = id,
-            prompt = prompt,
-            options = options,
-            pausedAt = Clock.System.now(),
-            expiresAt = timeout?.let { Clock.System.now() + it },
-            allowFreeText = allowFreeText
-        )
+        // Spice 2.0: Event-first architecture with tool calls
+        val pausedAt = Clock.System.now()
+        val expiresAt = timeout?.let { pausedAt + it }
 
-        // Spice 2.0: Create appropriate tool call based on interaction type
+        // Create appropriate tool call based on interaction type
         val toolCall = if (options.isNotEmpty()) {
             // Multiple choice selection
             OAIToolCall.selection(
@@ -112,8 +104,8 @@ class HumanNode(
                 selectionType = "single", // Future: support "multiple" based on node config
                 metadata = mapOf(
                     "node_id" to id,
-                    "paused_at" to interaction.pausedAt.toString(),
-                    "expires_at" to (interaction.expiresAt?.toString() ?: ""),
+                    "paused_at" to pausedAt.toString(),
+                    "expires_at" to (expiresAt?.toString() ?: ""),
                     "allow_free_text" to allowFreeText.toString()
                 )
             )
@@ -124,8 +116,8 @@ class HumanNode(
                 question = prompt,
                 context = mapOf(
                     "node_id" to id,
-                    "paused_at" to interaction.pausedAt.toString(),
-                    "expires_at" to (interaction.expiresAt?.toString() ?: ""),
+                    "paused_at" to pausedAt.toString(),
+                    "expires_at" to (expiresAt?.toString() ?: ""),
                     "allow_free_text" to allowFreeText.toString()
                 )
             )
@@ -138,21 +130,13 @@ class HumanNode(
             nodeId = id
         )
 
-        // Spice 2.0: Add tool call to message (event-first architecture)
-        // Also keep interaction in data for backward compatibility during transition
+        // Spice 2.0: Event-first architecture - tool call is the primary representation
         val output = waitingMessage
             .withToolCall(toolCall)
-            .withData(
-                mapOf(
-                    "human_interaction" to interaction,  // Backward compat
-                    "requires_human_input" to true,       // Backward compat
-                    "type" to "human-interaction"         // Backward compat
-                )
-            )
             .withMetadata(
                 mapOf(
                     "paused_node_id" to id,
-                    "paused_at" to interaction.pausedAt.toString()
+                    "paused_at" to pausedAt.toString()
                 )
             )
 
@@ -178,82 +162,3 @@ data class HumanOption(
     val metadata: Map<String, String> = emptyMap()
 )
 
-/**
- * 🎫 Human Interaction
- *
- * Represents a pending human interaction.
- * Embedded in SpiceMessage.data when graph pauses.
- *
- * @property nodeId Node ID that requested interaction
- * @property prompt Message to display
- * @property options Available options (if multiple choice)
- * @property pausedAt When interaction was created
- * @property expiresAt When interaction expires (optional)
- * @property allowFreeText Whether free-form text is allowed
- */
-@Serializable
-data class HumanInteraction(
-    val nodeId: String,
-    val prompt: String,
-    val options: List<HumanOption> = emptyList(),
-    val pausedAt: Instant,
-    val expiresAt: Instant? = null,
-    val allowFreeText: Boolean = true
-) {
-    /**
-     * Check if interaction has expired
-     */
-    fun isExpired(): Boolean {
-        return expiresAt?.let { Clock.System.now() >= it } ?: false
-    }
-
-    /**
-     * Get remaining time before expiration
-     */
-    fun remainingTime(): Duration? {
-        return expiresAt?.let {
-            val now = Clock.System.now()
-            if (now < it) {
-                it - now
-            } else {
-                Duration.ZERO
-            }
-        }
-    }
-}
-
-/**
- * 💬 Human Response
- *
- * User's response to a human interaction.
- * Used to resume graph execution.
- *
- * @property nodeId Node ID that requested interaction
- * @property selectedOption Selected option ID (if multiple choice)
- * @property freeText Free-form text input (if allowed)
- * @property metadata Additional data from user
- * @property respondedAt When response was received
- */
-@Serializable
-data class HumanResponse(
-    val nodeId: String,
-    val selectedOption: String? = null,
-    val freeText: String? = null,
-    val metadata: Map<String, String> = emptyMap(),
-    val respondedAt: Instant = Clock.System.now()
-) {
-    /**
-     * Get effective response value
-     * Returns selectedOption or freeText (whichever is provided)
-     */
-    fun getValue(): String? {
-        return selectedOption ?: freeText
-    }
-
-    /**
-     * Validate response has a value
-     */
-    fun hasValue(): Boolean {
-        return selectedOption != null || freeText != null
-    }
-}

@@ -94,31 +94,6 @@ class HumanNodeTest {
     }
 
     @Test
-    fun `HumanNode maintains backward compatibility with data field`() = runTest {
-        val node = HumanNode(
-            id = "compat_node",
-            prompt = "Choose",
-            options = listOf(HumanOption("a", "A"))
-        )
-
-        val inputMessage = SpiceMessage.create("Input", "user")
-            .transitionTo(ExecutionState.RUNNING, "Start")
-
-        val result = node.run(inputMessage)
-        val outputMessage = result.getOrThrow()
-
-        // Verify backward compat data fields still exist
-        assertTrue(outputMessage.getData<Boolean>("requires_human_input") ?: false)
-        assertEquals("human-interaction", outputMessage.getData<String>("type"))
-
-        // Verify HumanInteraction still in data (backward compat)
-        val interaction = outputMessage.getData<HumanInteraction>("human_interaction")
-        assertNotNull(interaction)
-        assertEquals("compat_node", interaction!!.nodeId)
-        assertEquals("Choose", interaction.prompt)
-    }
-
-    @Test
     fun `HumanNode sets metadata with pause information`() = runTest {
         val node = HumanNode(
             id = "meta_node",
@@ -153,14 +128,13 @@ class HumanNodeTest {
         val result = node.run(inputMessage)
         val outputMessage = result.getOrThrow()
 
-        // Verify HumanInteraction has expiration
-        val interaction = outputMessage.getData<HumanInteraction>("human_interaction")
-        assertNotNull(interaction!!.expiresAt)
-
         // Verify tool call metadata includes expiration
         val toolCall = outputMessage.toolCalls.first()
         val metadata = toolCall.function.getArgumentMap("metadata")
         assertNotNull(metadata!!["expires_at"])
+        // Expires at should be parseable as an Instant
+        val expiresAtStr = metadata["expires_at"] as String
+        assertTrue(expiresAtStr.isNotEmpty())
     }
 
     @Test
@@ -210,14 +184,10 @@ class HumanNodeTest {
         val result = node.run(inputMessage)
         val outputMessage = result.getOrThrow()
 
-        // Verify allowFreeText in metadata
+        // Verify allowFreeText in tool call metadata
         val toolCall = outputMessage.toolCalls.first()
         val metadata = toolCall.function.getArgumentMap("metadata")
         assertEquals("false", metadata!!["allow_free_text"])
-
-        // Verify HumanInteraction
-        val interaction = outputMessage.getData<HumanInteraction>("human_interaction")
-        assertFalse(interaction!!.allowFreeText)
     }
 
     @Test

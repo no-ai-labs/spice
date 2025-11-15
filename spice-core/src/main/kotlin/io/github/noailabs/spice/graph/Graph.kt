@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.graph
 import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.event.ToolCallEventBus
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
@@ -22,11 +23,19 @@ import io.github.noailabs.spice.idempotency.IdempotencyStore
  * - Async node execution support
  * - Better observability hooks
  *
+ * **New Features (2.0.0):**
+ * - Tool call event streaming via ToolCallEventBus
+ * - Type-safe event subscriptions for tool call lifecycle
+ * - Multi-agent orchestration support
+ *
  * **Usage:**
  * ```kotlin
  * val graph = graph("workflow") {
  *     // Optional: Add event bus
  *     eventBus(RedisStreamEventBus(redis))
+ *
+ *     // Optional: Add tool call event bus (Spice 2.0)
+ *     toolCallEventBus(InMemoryToolCallEventBus())
  *
  *     // Optional: Add idempotency
  *     idempotencyStore(RedisIdempotencyStore(redis))
@@ -46,7 +55,8 @@ import io.github.noailabs.spice.idempotency.IdempotencyStore
  * @property entryPoint ID of the starting node
  * @property middleware List of middleware for cross-cutting concerns
  * @property allowCycles Whether to allow cycles in the graph (default: false for DAG)
- * @property eventBus Optional event bus for pub/sub
+ * @property eventBus Optional event bus for pub/sub (topic-based)
+ * @property toolCallEventBus Optional tool call event bus for type-safe tool call lifecycle events (Spice 2.0)
  * @property idempotencyStore Optional store for idempotent execution
  * @property checkpointStore Optional store for checkpoint persistence (HITL workflows)
  * @since 1.0.0
@@ -59,6 +69,7 @@ data class Graph(
     val middleware: List<Middleware> = emptyList(),
     val allowCycles: Boolean = false,
     val eventBus: EventBus? = null,
+    val toolCallEventBus: ToolCallEventBus? = null,
     val idempotencyStore: IdempotencyStore? = null,
     val checkpointStore: CheckpointStore? = null
 )

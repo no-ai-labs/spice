@@ -4,8 +4,8 @@ import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.graph.Graph
-import io.github.noailabs.spice.graph.nodes.HumanResponse
 import io.github.noailabs.spice.graph.runner.GraphRunner
 import kotlinx.datetime.Clock
 
@@ -194,6 +194,30 @@ suspend fun GraphRunner.resumeFromCheckpoint(
     if (responseToolCall != null) {
         val updatedCheckpoint = checkpoint.copy(responseToolCall = responseToolCall)
         store.save(updatedCheckpoint)  // Persist the response for audit/replay
+
+        // Publish ToolCallEvent.Completed for the pending tool call
+        if (graph.toolCallEventBus != null && checkpoint.pendingToolCall != null) {
+            val startTime = checkpoint.timestamp.toEpochMilliseconds()
+            val endTime = Clock.System.now().toEpochMilliseconds()
+            val durationMs = endTime - startTime
+
+            val completedEvent = ToolCallEvent.Completed(
+                toolCall = checkpoint.pendingToolCall,
+                message = resumeMessage,
+                result = responseToolCall,
+                completedBy = resumeMessage.from,
+                originalEventId = checkpoint.pendingToolCall.id,
+                durationMs = durationMs,
+                metadata = mapOf(
+                    "checkpointId" to checkpointId,
+                    "graphId" to graph.id,
+                    "nodeId" to (checkpoint.currentNodeId),
+                    "runId" to (resumeMessage.runId ?: "")
+                )
+            )
+
+            graph.toolCallEventBus.publish(completedEvent)
+        }
     }
 
     // Resume execution

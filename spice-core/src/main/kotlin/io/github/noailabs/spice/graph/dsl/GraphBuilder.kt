@@ -4,10 +4,12 @@ import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
+import io.github.noailabs.spice.event.ToolCallEventBus
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.Node
+import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
 import io.github.noailabs.spice.graph.nodes.HumanNode
@@ -58,7 +60,9 @@ class GraphBuilder(val id: String) {
     private val middleware = mutableListOf<Middleware>()
     private var allowCycles = false
     private var eventBus: EventBus? = null
+    private var toolCallEventBus: ToolCallEventBus? = null
     private var idempotencyStore: IdempotencyStore? = null
+    private var checkpointStore: CheckpointStore? = null
 
     /**
      * Add an agent node
@@ -208,10 +212,24 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Configure tool call event bus for type-safe tool call lifecycle events (Spice 2.0)
+     */
+    fun toolCallEventBus(toolCallEventBus: ToolCallEventBus) {
+        this.toolCallEventBus = toolCallEventBus
+    }
+
+    /**
      * Configure idempotency store for duplicate detection
      */
     fun idempotencyStore(store: IdempotencyStore) {
         this.idempotencyStore = store
+    }
+
+    /**
+     * Configure checkpoint store for HITL workflows
+     */
+    fun checkpointStore(store: CheckpointStore) {
+        this.checkpointStore = store
     }
 
     /**
@@ -230,7 +248,9 @@ class GraphBuilder(val id: String) {
             middleware = middleware,
             allowCycles = allowCycles,
             eventBus = eventBus,
-            idempotencyStore = idempotencyStore
+            toolCallEventBus = toolCallEventBus,
+            idempotencyStore = idempotencyStore,
+            checkpointStore = checkpointStore
         )
     }
 }

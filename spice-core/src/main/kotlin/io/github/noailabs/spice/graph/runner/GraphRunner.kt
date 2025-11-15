@@ -10,6 +10,7 @@ import io.github.noailabs.spice.error.ErrorReport
 import io.github.noailabs.spice.error.ErrorReportAdapter
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
@@ -331,6 +332,11 @@ class DefaultGraphRunner(
                     if (enableIdempotency && idempotencyManager != null) {
                         val signatureForStorage = resolveIntentSignature(validatedFinal)
                         idempotencyManager.storeStep(nodeId, signatureForStorage, validatedFinal)
+                    }
+
+                    // Publish tool call events (Spice 2.0)
+                    if (validatedFinal.hasToolCalls() && graph.toolCallEventBus != null) {
+                        publishToolCallEvents(graph, validatedFinal, nodeId)
                     }
 
                     // Publish node completed event
@@ -777,6 +783,39 @@ class DefaultGraphRunner(
                 mapOf("event" to "hitl_requested", "nodeId" to nodeId, "timestamp" to Clock.System.now().toString())
             )
         )
+    }
+
+    /**
+     * Publish tool call emitted events (Spice 2.0)
+     *
+     * Publishes ToolCallEvent.Emitted for each tool call in the message.
+     * Used for event-driven multi-agent orchestration.
+     */
+    private suspend fun publishToolCallEvents(
+        graph: Graph,
+        message: SpiceMessage,
+        nodeId: String
+    ) {
+        val toolCallEventBus = graph.toolCallEventBus ?: return
+
+        // Publish event for each tool call
+        for (toolCall in message.toolCalls) {
+            val event = ToolCallEvent.Emitted(
+                toolCall = toolCall,
+                message = message,
+                emittedBy = nodeId,
+                graphId = graph.id,
+                runId = message.runId,
+                metadata = mapOf(
+                    "nodeId" to nodeId,
+                    "graphId" to graph.id,
+                    "state" to message.state.toString()
+                )
+            )
+
+            // Publish to tool call event bus
+            toolCallEventBus.publish(event)
+        }
     }
 
     /**
