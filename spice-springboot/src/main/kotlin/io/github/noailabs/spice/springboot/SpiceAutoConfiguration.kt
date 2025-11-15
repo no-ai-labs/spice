@@ -1,20 +1,30 @@
 package io.github.noailabs.spice.springboot
 
-import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
-import io.github.noailabs.spice.graph.runner.GraphRunner
+import io.github.noailabs.spice.arbiter.Arbiter
+import io.github.noailabs.spice.arbiter.InMemoryMessageQueue
+import io.github.noailabs.spice.arbiter.MessageQueue
+import io.github.noailabs.spice.arbiter.RedisMessageQueue
 import io.github.noailabs.spice.cache.CachePolicy
 import io.github.noailabs.spice.cache.InMemoryVectorCache
-import io.github.noailabs.spice.cache.VectorCache
 import io.github.noailabs.spice.cache.RedisVectorCache
+import io.github.noailabs.spice.cache.VectorCache
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.events.InMemoryEventBus
+import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
+import io.github.noailabs.spice.graph.runner.GraphRunner
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 import io.github.noailabs.spice.idempotency.InMemoryIdempotencyStore
 import io.github.noailabs.spice.idempotency.RedisIdempotencyStore
 import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.validation.DeadLetterHandler
 import io.github.noailabs.spice.validation.SchemaValidationPipeline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.AutoConfiguration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -133,5 +143,99 @@ class SpiceAutoConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "spice.events", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
-    fun eventBus(): EventBus = InMemoryEventBus()
+    fun eventBus(properties: SpiceFrameworkProperties): EventBus {
+        return when (properties.events.backend) {
+            SpiceFrameworkProperties.EventProperties.EventBackend.IN_MEMORY -> InMemoryEventBus()
+            SpiceFrameworkProperties.EventProperties.EventBackend.REDIS_STREAMS ->
+                throw IllegalStateException(
+                    "Redis Streams EventBus backend is not yet available in spice-core 1.0.0. " +
+                        "Upgrade once the implementation lands to activate this setting."
+                )
+            SpiceFrameworkProperties.EventProperties.EventBackend.KAFKA ->
+                throw IllegalStateException(
+                    "Kafka EventBus backend is not yet available in spice-core 1.0.0. " +
+                        "Upgrade once the implementation lands to activate this setting."
+                )
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.hitl.queue", name = ["enabled"], havingValue = "true")
+    @ConditionalOnMissingBean
+    fun hitlMessageQueue(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): MessageQueue {
+        val queue = properties.hitl.queue
+        return when (queue.backend) {
+            SpiceFrameworkProperties.HitlProperties.QueueBackend.IN_MEMORY -> InMemoryMessageQueue()
+            SpiceFrameworkProperties.HitlProperties.QueueBackend.REDIS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "HITL queue backend set to REDIS but spice.redis.enabled=false"
+                    )
+                RedisMessageQueue(
+                    jedisPool = redisPool,
+                    namespace = queue.namespace
+                )
+            }
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.hitl.arbiter", name = ["enabled"], havingValue = "true")
+    @ConditionalOnBean(GraphRunner::class)
+    @ConditionalOnMissingBean
+    fun hitlArbiter(
+        graphRunner: GraphRunner,
+        schemaValidationPipeline: SchemaValidationPipeline,
+        executionStateMachine: ExecutionStateMachine,
+        deadLetterHandlerProvider: ObjectProvider<DeadLetterHandler>,
+        messageQueueProvider: ObjectProvider<MessageQueue>
+    ): Arbiter {
+        val queue = messageQueueProvider.getIfAvailable()
+            ?: throw IllegalStateException(
+                "HITL Arbiter requires a MessageQueue bean. " +
+                    "Enable spice.hitl.queue.enabled or provide your own MessageQueue implementation."
+            )
+
+        return Arbiter(
+            queue = queue,
+            graphRunner = graphRunner,
+            validationPipeline = schemaValidationPipeline,
+            stateMachine = executionStateMachine,
+            deadLetterHandler = deadLetterHandlerProvider.getIfAvailable()
+        )
+    }
+
+    /**
+     * Auto-start the Arbiter when enabled.
+     *
+     * Requires a GraphProvider bean to be configured:
+     * ```kotlin
+     * @Bean
+     * fun graphProvider(): GraphProvider = GraphProvider { message ->
+     *     // Return the appropriate graph based on message
+     *     myGraphRegistry.get(message.data["graphId"] as String)
+     * }
+     * ```
+     */
+    @Bean
+    @ConditionalOnProperty(
+        prefix = "spice.hitl.arbiter",
+        name = ["enabled", "auto-start"],
+        havingValue = "true",
+        matchIfMissing = false
+    )
+    @ConditionalOnBean(Arbiter::class, GraphProvider::class)
+    fun arbiterRunner(
+        arbiter: Arbiter,
+        graphProvider: GraphProvider,
+        properties: SpiceFrameworkProperties
+    ): ApplicationRunner = ApplicationRunner {
+        CoroutineScope(Dispatchers.Default).launch {
+            val topic = properties.hitl.arbiter.topic
+            arbiter.start(topic, graphProvider::provide)
+        }
+    }
 }

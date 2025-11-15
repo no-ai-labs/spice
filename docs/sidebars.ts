@@ -21,6 +21,7 @@ const sidebars: SidebarsConfig = {
       label: '🗺️ Roadmap & Migration',
       items: [
         'roadmap/overview',
+        'roadmap/release-1-0-0',
         'roadmap/af-architecture',
         'roadmap/migration-guide',
         'roadmap/migration-0.5-to-0.6',

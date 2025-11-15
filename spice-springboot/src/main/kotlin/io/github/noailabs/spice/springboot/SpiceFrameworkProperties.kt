@@ -14,7 +14,8 @@ data class SpiceFrameworkProperties(
     val events: EventProperties = EventProperties(),
     val idempotency: IdempotencyProperties = IdempotencyProperties(),
     val vectorCache: VectorCacheProperties = VectorCacheProperties(),
-    val redis: RedisProperties = RedisProperties()
+    val redis: RedisProperties = RedisProperties(),
+    val hitl: HitlProperties = HitlProperties()
 ) {
     data class GraphRunnerProperties(
         val enableIdempotency: Boolean = true,
@@ -28,8 +29,23 @@ data class SpiceFrameworkProperties(
     )
 
     data class EventProperties(
-        val enabled: Boolean = true
-    )
+        val enabled: Boolean = true,
+        val backend: EventBackend = EventBackend.IN_MEMORY,
+        val redisStreams: RedisStreamsProperties = RedisStreamsProperties(),
+        val kafka: KafkaProperties = KafkaProperties()
+    ) {
+        enum class EventBackend { IN_MEMORY, REDIS_STREAMS, KAFKA }
+
+        data class RedisStreamsProperties(
+            val streamKey: String = "spice.events",
+            val consumerGroup: String = "spice-events"
+        )
+
+        data class KafkaProperties(
+            val topic: String = "spice.events",
+            val clientId: String = "spice-eventbus"
+        )
+    }
 
     data class IdempotencyProperties(
         val enabled: Boolean = false,
@@ -57,4 +73,28 @@ data class SpiceFrameworkProperties(
         val ssl: Boolean = false,
         val database: Int = 0
     )
+
+    data class HitlProperties(
+        val queue: QueueProperties = QueueProperties(),
+        val arbiter: ArbiterProperties = ArbiterProperties()
+    ) {
+        data class QueueProperties(
+            val enabled: Boolean = false,
+            val backend: QueueBackend = QueueBackend.IN_MEMORY,
+            val namespace: String = "spice:mq",
+            val topic: String = "spice.hitl.queue"
+        )
+
+        enum class QueueBackend {
+            IN_MEMORY,
+            REDIS
+        }
+
+        data class ArbiterProperties(
+            val enabled: Boolean = false,
+            val autoStart: Boolean = true,
+            val topic: String = "spice.hitl.queue",
+            val defaultGraphId: String? = null
+        )
+    }
 }
