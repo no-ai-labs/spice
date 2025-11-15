@@ -12,6 +12,7 @@ data class SpiceFrameworkProperties(
     val graphRunner: GraphRunnerProperties = GraphRunnerProperties(),
     val cache: CacheProperties = CacheProperties(),
     val events: EventProperties = EventProperties(),
+    val toolCallEventBus: ToolCallEventBusProperties = ToolCallEventBusProperties(),
     val idempotency: IdempotencyProperties = IdempotencyProperties(),
     val vectorCache: VectorCacheProperties = VectorCacheProperties(),
     val redis: RedisProperties = RedisProperties(),
@@ -52,6 +53,43 @@ data class SpiceFrameworkProperties(
             val securityProtocol: String? = null,
             val saslMechanism: String? = null,
             val saslJaasConfig: String? = null
+        )
+    }
+
+    data class ToolCallEventBusProperties(
+        val enabled: Boolean = false,
+        val backend: ToolCallEventBackend = ToolCallEventBackend.IN_MEMORY,
+        val redisStreams: RedisStreamsProperties = RedisStreamsProperties(),
+        val kafka: KafkaProperties = KafkaProperties(),
+        val history: HistoryProperties = HistoryProperties()
+    ) {
+        enum class ToolCallEventBackend { IN_MEMORY, REDIS_STREAMS, KAFKA }
+
+        data class RedisStreamsProperties(
+            val streamKey: String = "spice:toolcall:events",
+            val consumerGroup: String? = null,
+            val consumerName: String = "consumer-default",
+            val startFrom: String = "$",
+            val pollInterval: Duration = Duration.ofSeconds(1)
+        )
+
+        data class KafkaProperties(
+            val topic: String = "spice.toolcall.events",
+            val bootstrapServers: String = "localhost:9092",
+            val clientId: String = "spice-toolcall-eventbus",
+            val consumerGroup: String = "spice-toolcall-eventbus",
+            val autoOffsetReset: String = "latest",
+            val pollTimeout: Duration = Duration.ofSeconds(1),
+            val acks: String = "all",
+            val securityProtocol: String? = null,
+            val saslMechanism: String? = null,
+            val saslJaasConfig: String? = null
+        )
+
+        data class HistoryProperties(
+            val enabled: Boolean = true,
+            val size: Int = 1000,
+            val enableMetrics: Boolean = true
         )
     }
 

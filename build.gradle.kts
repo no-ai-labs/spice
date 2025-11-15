@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "io.github.noailabs"
-    version = "1.0.0-alpha-2"
+    version = "1.0.0-alpha-3"
 
     repositories {
         mavenCentral()
@@ -29,11 +29,14 @@ subprojects {
         extensions.configure<PublishingExtension>("publishing") {
             repositories {
                 maven {
-                    name = "private"
-                    url = uri("http://localhost:8080/repository/maven-releases/")
+                    name = "Nexus"
+                    val releasesRepoUrl = uri("http://218.232.94.139:8081/repository/maven-releases/")
+                    val snapshotsRepoUrl = uri("http://218.232.94.139:8081/repository/maven-snapshots/")
+                    url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+                    isAllowInsecureProtocol = true
                     credentials {
-                        username = findProperty("repoUser") as String? ?: System.getenv("REPO_USER")
-                        password = findProperty("repoPass") as String? ?: System.getenv("REPO_PASS")
+                        username = findProperty("nexusUsername") as String? ?: System.getenv("NEXUS_USERNAME")
+                        password = findProperty("nexusPassword") as String? ?: System.getenv("NEXUS_PASSWORD")
                     }
                 }
             }

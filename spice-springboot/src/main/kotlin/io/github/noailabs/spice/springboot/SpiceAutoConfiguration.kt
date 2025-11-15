@@ -8,6 +8,11 @@ import io.github.noailabs.spice.cache.CachePolicy
 import io.github.noailabs.spice.cache.InMemoryVectorCache
 import io.github.noailabs.spice.cache.RedisVectorCache
 import io.github.noailabs.spice.cache.VectorCache
+import io.github.noailabs.spice.event.EventBusConfig
+import io.github.noailabs.spice.event.InMemoryToolCallEventBus
+import io.github.noailabs.spice.event.KafkaToolCallEventBus
+import io.github.noailabs.spice.event.RedisToolCallEventBus
+import io.github.noailabs.spice.event.ToolCallEventBus
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.events.InMemoryEventBus
 import io.github.noailabs.spice.events.KafkaEventBus
@@ -180,6 +185,59 @@ class SpiceAutoConfiguration {
                     bootstrapServers = kafkaConfig.bootstrapServers,
                     topic = kafkaConfig.topic,
                     clientId = kafkaConfig.clientId,
+                    pollTimeout = kafkaConfig.pollTimeout.toKotlinDuration(),
+                    acks = kafkaConfig.acks,
+                    securityProtocol = kafkaConfig.securityProtocol,
+                    saslMechanism = kafkaConfig.saslMechanism,
+                    saslJaasConfig = kafkaConfig.saslJaasConfig
+                )
+            }
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.tool-call-event-bus", name = ["enabled"], havingValue = "true")
+    @ConditionalOnMissingBean
+    fun toolCallEventBus(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): ToolCallEventBus {
+        val toolCallEventBus = properties.toolCallEventBus
+        val eventBusConfig = EventBusConfig(
+            enableHistory = toolCallEventBus.history.enabled,
+            historySize = toolCallEventBus.history.size,
+            enableMetrics = toolCallEventBus.history.enableMetrics
+        )
+
+        return when (toolCallEventBus.backend) {
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.IN_MEMORY -> {
+                InMemoryToolCallEventBus(config = eventBusConfig)
+            }
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.REDIS_STREAMS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "ToolCallEventBus backend set to REDIS_STREAMS but spice.redis.enabled=false"
+                    )
+                val redisConfig = toolCallEventBus.redisStreams
+                RedisToolCallEventBus(
+                    jedisPool = redisPool,
+                    streamKey = redisConfig.streamKey,
+                    consumerGroup = redisConfig.consumerGroup,
+                    consumerName = redisConfig.consumerName,
+                    startFrom = redisConfig.startFrom,
+                    config = eventBusConfig,
+                    pollInterval = redisConfig.pollInterval.toKotlinDuration()
+                )
+            }
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.KAFKA -> {
+                val kafkaConfig = toolCallEventBus.kafka
+                KafkaToolCallEventBus(
+                    bootstrapServers = kafkaConfig.bootstrapServers,
+                    topic = kafkaConfig.topic,
+                    clientId = kafkaConfig.clientId,
+                    consumerGroup = kafkaConfig.consumerGroup,
+                    autoOffsetReset = kafkaConfig.autoOffsetReset,
+                    config = eventBusConfig,
                     pollTimeout = kafkaConfig.pollTimeout.toKotlinDuration(),
                     acks = kafkaConfig.acks,
                     securityProtocol = kafkaConfig.securityProtocol,
