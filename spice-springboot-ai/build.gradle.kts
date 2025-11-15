@@ -70,7 +70,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot-ai"
-            version = "1.0.0-alpha-3"
+            version = "1.0.0-alpha-4"
 
             pom {
                 name.set("Spice Spring Boot AI Extension")

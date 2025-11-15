@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "io.github.noailabs"
-    version = "1.0.0-alpha-3"
+    version = "1.0.0-alpha-4"
 
     repositories {
         mavenCentral()
@@ -30,8 +30,8 @@ subprojects {
             repositories {
                 maven {
                     name = "Nexus"
-                    val releasesRepoUrl = uri("http://218.232.94.139:8081/repository/maven-releases/")
-                    val snapshotsRepoUrl = uri("http://218.232.94.139:8081/repository/maven-snapshots/")
+                    val releasesRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-releases/")
+                    val snapshotsRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-snapshots/")
                     url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
                     isAllowInsecureProtocol = true
                     credentials {
