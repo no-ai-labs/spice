@@ -155,7 +155,7 @@ class SpiceAutoConfiguration {
         }
     }
 
-    @Bean(destroyMethod = "close")
+    @Bean
     @ConditionalOnProperty(prefix = "spice.events", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
     fun eventBus(
@@ -192,6 +192,41 @@ class SpiceAutoConfiguration {
                     saslJaasConfig = kafkaConfig.saslJaasConfig
                 )
             }
+        }
+    }
+
+    /**
+     * Lifecycle bean for EventBus shutdown
+     * Handles suspend fun close() properly using runBlocking
+     */
+    @Bean
+    @ConditionalOnBean(EventBus::class)
+    fun eventBusLifecycle(eventBus: EventBus): SmartLifecycle {
+        return object : SmartLifecycle {
+            private val running = AtomicBoolean(true)
+
+            override fun start() {
+                // EventBus starts automatically on creation
+            }
+
+            override fun stop() {
+                if (running.compareAndSet(true, false)) {
+                    runBlocking {
+                        eventBus.close()
+                    }
+                }
+            }
+
+            override fun stop(callback: Runnable) {
+                stop()
+                callback.run()
+            }
+
+            override fun isRunning(): Boolean = running.get()
+
+            override fun isAutoStartup(): Boolean = false
+
+            override fun getPhase(): Int = Int.MAX_VALUE - 100 // Shutdown before other components
         }
     }
 
