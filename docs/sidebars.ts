@@ -22,10 +22,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'roadmap/overview',
         'roadmap/release-1-0-0',
-        'roadmap/af-architecture',
-        'roadmap/migration-guide',
-        'roadmap/migration-0.5-to-0.6',
-        'roadmap/hitl-design',
       ],
     },
     {
@@ -224,6 +220,7 @@ const sidebars: SidebarsConfig = {
         'api/registry',
         'api/dsl',
         'api/graph',
+        'api/merge-strategies',
       ],
     },
   ],

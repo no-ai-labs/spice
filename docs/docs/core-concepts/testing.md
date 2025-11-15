@@ -602,4 +602,4 @@ fun `test full agent workflow`() = runTest {
 
 - [Context Testing Guide](../testing/context-testing.md) - Advanced context testing patterns
 - [Best Practices](../error-handling/best-practices.md) - Error handling in tests
-- [Examples](../examples/) - Real-world testing examples
+- [Examples](../examples/context-production.md) - Real-world testing examples

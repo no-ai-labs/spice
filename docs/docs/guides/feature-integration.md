@@ -10,8 +10,6 @@ A comprehensive guide showing how to combine Spice Framework 0.4.1 features to b
    - [Cached API Gateway with Validation](#cached-api-gateway-with-validation)
    - [Evidence Pipeline with Citations](#evidence-pipeline-with-citations)
    - [Smart Query System](#smart-query-system)
-   - [Multi-Stage Data Processing](#multi-stage-data-processing)
-   - [Real-Time Analytics Dashboard](#real-time-analytics-dashboard)
 3. [Architecture Patterns](#architecture-patterns)
 4. [Best Practices](#best-practices)
 5. [Performance Optimization](#performance-optimization)

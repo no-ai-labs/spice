@@ -2,6 +2,8 @@ package io.github.noailabs.spice.agents
 
 import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.AgentRuntime
+import io.github.noailabs.spice.AgentTool
+import io.github.noailabs.spice.SimpleTool
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.error.SpiceError
@@ -9,6 +11,10 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.agents.http.OpenAIClient
 import io.github.noailabs.spice.agents.http.OpenAIRequest
 import io.github.noailabs.spice.agents.http.OpenAIMessage
+import io.github.noailabs.spice.ToolSchema
+import io.github.noailabs.spice.ToolWrapper
+import io.github.noailabs.spice.toOpenAIFunctionSpec
+import java.io.Closeable
 
 /**
  * 🤖 GPT Agent - Standalone OpenAI Agent Implementation
@@ -60,7 +66,7 @@ class GPTAgent(
     override val name: String = "GPT Agent ($model)",
     override val description: String = "OpenAI GPT agent using $model",
     override val capabilities: List<String> = listOf("chat", "completion", "tools", "streaming")
-) : Agent {
+) : Agent, Closeable {
 
     private val client = OpenAIClient(
         apiKey = apiKey,
@@ -177,12 +183,27 @@ class GPTAgent(
 
         return messages
     }
+
+    override fun close() {
+        client.close()
+    }
 }
 
 /**
  * Convert Spice Tool to OpenAI tool format
  */
 private fun Tool.toOpenAITool(): Map<String, Any> {
+    val schema: ToolSchema? = when (this) {
+        is SimpleTool -> this.schema
+        is ToolWrapper -> this.schema
+        else -> null
+    }
+
+    if (schema != null) {
+        return schema.toOpenAIFunctionSpec()
+    }
+
+    // Fall back to minimal function spec so the tool remains discoverable.
     return mapOf(
         "type" to "function",
         "function" to mapOf(

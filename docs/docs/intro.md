@@ -4,79 +4,87 @@ sidebar_position: 1
 
 # Welcome to Spice Framework 🌶️
 
-**Modern Multi-LLM Orchestration Framework for Kotlin**
+**Modern Multi-LLM Orchestration Framework for Kotlin (v1.0.0)**
 
-Spice Framework is a modern, type-safe, coroutine-first framework for building AI-powered applications in Kotlin. It provides a clean DSL for creating agents, managing tools, and orchestrating complex AI workflows with multiple LLM providers.
+Spice 1.0.0 unifies agents, tools, graphs, and HITL flows behind a single `SpiceMessage` execution model. Build production-grade AI systems with built-in retries, checkpoints, Redis/Kafka eventing, and Spring Boot starters – all while staying in idiomatic Kotlin.
 
-## Why Spice?
+## Why Spice 1.0.0?
 
-- **🚀 Simple yet Powerful** - Get started in minutes, scale to complex multi-agent systems
-- **🔧 Type-Safe** - Leverage Kotlin's type system for compile-time safety
-- **🌊 Async-First** - Built on coroutines for efficient concurrent operations
-- **🎨 Clean DSL** - Intuitive API that reads like natural language
-- **🔌 Extensible** - Easy to add custom agents, tools, and integrations
+- **🪄 Unified runtime** – `SpiceMessage` + `ExecutionState` flow through agents, nodes, and checkpoints (no separate Comm/NodeResult types).
+- **🧠 Graph-first orchestration** – `DefaultGraphRunner` validates, executes, retries, and emits events for every graph.
+- **🌐 Pluggable EventBus** – choose in-memory, Redis Streams, or Kafka transports without touching graph code.
+- **⏸️ HITL automation** – Spring state machine starter handles pause/resume, checkpoint persistence, and metrics automatically.
+- **🔌 Spring AI bridge** – reuse your Spring AI ChatModels through the `spice-springboot-ai` factory/DSL/registry stack.
+- **⚙️ Dev-first DX** – consistent DSLs, typed registries, and coroutine-friendly APIs keep everything testable.
 
-## Key Features
+## Core Building Blocks
 
-### Core Features
-- **Unified Communication** - Single `Comm` type for all agent interactions
-- **Generic Registry System** - Type-safe, thread-safe component management
-- **Progressive Disclosure** - Simple things simple, complex things possible
-- **Tool System** - Built-in tools and easy custom tool creation
-- **JSON Serialization** - Production-grade JSON conversion for all components
+- **`SpiceMessage`** – carries content, data, metadata, and `ExecutionState` for every hop.
+- **Agents & Tools** – build standalone Ktor agents (`spice-agents`) or wrap Spring AI chat models.
+- **Graph DSL** – describe workflows with nodes, middleware, and merge strategies.
+- **Event Bus** – publish node/graph lifecycle events to in-memory, Redis Streams, or Kafka.
+- **HITL Toolkit** – auto checkpointing, Redis state persistence, actuator endpoints, and Micrometer metrics.
 
-### Advanced Features
-- **🔄 Thread-Safe Context Propagation** ⭐ NEW in v0.4.0 - Automatic context flow through coroutines for multi-tenant systems
-- **Multi-LLM Support** - OpenAI, Anthropic, Google Vertex AI, and more
-- **Swarm Intelligence** - Coordinate multiple agents for complex tasks
-- **Vector Store Integration** - Built-in RAG support with multiple providers
-- **MCP Protocol** - External tool integration via Model Context Protocol
-- **Spring Boot Starter** - Seamless Spring Boot integration
-- **Event Sourcing** - Complete event sourcing module with Kafka integration
-- **Observability** - OpenTelemetry integration for distributed tracing and metrics
-- **Performance Optimizations** - Response caching and message batching for production
-- **Type-Safe Error Handling** - Railway-Oriented Programming with `SpiceResult<T>`
+## 1.0.0 Highlights
+
+- [Release Guide](roadmap/release-1-0-0)
+- [Module Overview](core-concepts/modules)
+- [Spring Boot Starter](spring-boot/overview)
+- [State Machine Extension](roadmap/release-1-0-0#spring-boot-state-machine-extension-spice-springboot-statemachine)
 
 ## Quick Example
 
 ```kotlin
-import io.github.noailabs.spice.dsl.*
+import io.github.noailabs.spice.ExecutionState
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.graph.graph
+import io.github.noailabs.spice.graph.nodes.agentNode
+import io.github.noailabs.spice.graph.nodes.toolNode
+import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
+import io.github.noailabs.spice.SimpleTool
 import kotlinx.coroutines.runBlocking
 
 fun main() = runBlocking {
-    // Create a simple agent
-    val assistant = buildAgent {
-        id = "assistant-1"
-        name = "AI Assistant"
-        description = "A helpful AI assistant"
+    val lookupTool = SimpleTool(
+        name = "lookup_weather",
+        description = "Return mock weather info",
+    ) { params ->
+        val city = params["city"] as? String ?: "Seoul"
+        ToolResult.success(mapOf("city" to city, "temp" to 25))
+    }
 
-        // Add an inline tool
-        tool("greet") {
-            description = "Greet someone"
-            parameter("name", "string", "Person's name")
-            execute { params ->
-                ToolResult.success("Hello, ${params["name"]}!")
-            }
-        }
-
-        // Define message handling
-        handle { comm ->
+    val greetingAgent = agentNode("greet-agent") {
+        handle { message ->
+            val weather = message.data["weather"] ?: "no data"
             SpiceResult.success(
-                comm.reply("How can I help you today?", id)
+                message.reply("Weather summary: $weather", id = "greet-agent")
+                    .transitionTo(ExecutionState.COMPLETED, "done")
             )
         }
     }
 
-    // Use the agent
-    val result = assistant.processComm(
-        Comm(content = "Hello!", from = "user")
-    )
-    result.fold(
-        onSuccess = { response -> println(response.content) },
-        onFailure = { error -> println("Error: ${error.message}") }
-    )
+    val workflow = graph(id = "weather-report") {
+        startWith(
+            toolNode("fetch-weather", lookupTool) { params ->
+                params["city"] = message.metadata["city"] ?: "Seoul"
+            }
+        ).then(greetingAgent) { previous ->
+            message.withData(mapOf("weather" to previous.data))
+        }
+    }
+
+    val runner = DefaultGraphRunner()
+    val input = SpiceMessage.create(
+        content = "Generate a weather summary",
+        from = "user"
+    ).withMetadata(mapOf("city" to "Busan"))
+
+    val result = runner.execute(workflow, input)
+    println(result.getOrThrow().content) // Weather summary: {city=Busan, temp=25}
 }
 ```
+
+The runner handles validation, state transitions, and produces a `SpiceResult<SpiceMessage>` you can persist or feed into HITL flows.
 
 ## Getting Started
 
@@ -89,13 +97,13 @@ Ready to dive in? Check out the [Installation Guide](./getting-started/installat
 │                Your Application                  │
 ├─────────────────────────────────────────────────┤
 │                  Spice DSL                      │
-│         buildAgent { } • buildFlow { }          │
+│     buildAgent { } • graph { } • merge { }      │
 ├─────────────────────────────────────────────────┤
 │                 Core Layer                      │
 │    Agent • Comm • Tool • Registry System        │
 ├─────────────────────────────────────────────────┤
 │              Integration Layer                  │
-│    LLMs • Vector Stores • MCP • Spring Boot    │
+│    LLMs • Vector Stores • Event Bus • Spring   │
 └─────────────────────────────────────────────────┘
 ```
 

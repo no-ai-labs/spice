@@ -23,17 +23,22 @@ import io.github.noailabs.spice.validation.DeadLetterHandler
 import io.github.noailabs.spice.validation.SchemaValidationPipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.springframework.beans.factory.ObjectProvider
-import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
+import java.util.concurrent.atomic.AtomicBoolean
 import redis.clients.jedis.DefaultJedisClientConfig
 import redis.clients.jedis.HostAndPort
 import redis.clients.jedis.JedisPool
@@ -260,31 +265,44 @@ class SpiceAutoConfiguration {
         arbiter: Arbiter,
         graphProvider: GraphProvider,
         properties: SpiceFrameworkProperties
-    ): org.springframework.context.SmartLifecycle {
-        return object : org.springframework.context.SmartLifecycle {
-            private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            private var running = false
+    ): SmartLifecycle {
+        val topic = properties.hitl.arbiter.topic
+        return object : SmartLifecycle {
+            private val running = AtomicBoolean(false)
+            private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            private var job: Job? = null
 
             override fun start() {
-                if (!running) {
-                    scope.launch {
-                        val topic = properties.hitl.arbiter.topic
+                if (running.compareAndSet(false, true)) {
+                    if (!scope.isActive) {
+                        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                    }
+                    job = scope.launch {
                         arbiter.start(topic, graphProvider::provide)
                     }
-                    running = true
                 }
+            }
+
+            override fun stop(callback: Runnable) {
+                stop()
+                callback.run()
             }
 
             override fun stop() {
-                if (running) {
+                if (running.compareAndSet(true, false)) {
+                    runBlocking {
+                        job?.cancelAndJoin()
+                        job = null
+                    }
                     scope.cancel()
-                    running = false
                 }
             }
 
-            override fun isRunning(): Boolean = running
+            override fun isRunning(): Boolean = running.get()
 
-            override fun getPhase(): Int = Int.MAX_VALUE  // Start last, stop first
+            override fun isAutoStartup(): Boolean = true
+
+            override fun getPhase(): Int = Int.MAX_VALUE
         }
     }
 }

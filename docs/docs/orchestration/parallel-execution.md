@@ -780,4 +780,4 @@ val graph = graph("parallel") {
 - [Graph System Overview](./graph-system.md)
 - [Graph Nodes](./graph-nodes.md)
 - [Graph Validation](./graph-validation.md)
-- [Merge Strategies API](/docs/api/merge-strategies)
+- [Merge Strategies API](../api/merge-strategies.md)

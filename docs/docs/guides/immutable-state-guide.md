@@ -714,6 +714,5 @@ fun `test node with custom state`() = runTest {
 
 - [ExecutionContext Patterns](/docs/guides/execution-context-patterns)
 - [Graph Nodes](/docs/orchestration/graph-nodes)
-- [Migration Guide](/MIGRATION_GUIDE_v0.6.0.md)
+- [Release Guide](../roadmap/release-1-0-0)
 - [NodeContext API](/docs/api/graph#nodecontext)
-

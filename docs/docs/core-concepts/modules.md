@@ -24,55 +24,55 @@ Spice Framework 1.0.0 is organized into five primary modules. Each targets a dif
 - Provides distributed EventBus backends (`RedisStreamsEventBus`, `KafkaEventBus`) plus an in-memory option.
 - Supplies the Arbiter + message queue primitives used by the Spring starter.
 
-### Review highlights
+### Enhancement ideas
 
-- `RedisStreamsEventBus.close()` / `KafkaEventBus.close()` currently cancel per-subscription coroutines but never close the supervisor scope; wrap the scope in a `Job` and call `scope.cancel()` to free Jedis connections (`spice-core/.../RedisStreamsEventBus.kt:134`, `KafkaEventBus.kt:102`).
-- Redis Streams uses `mapOf("topic" to topic, ...)` but does not enforce max stream length or handle pending messages; consider surfacing configuration knobs (trim strategy, dead-letter handling) so consumers can prevent unbounded growth.
-- Kafka backend eagerly blocks on `.get()` for every publish which makes producers synchronous; expose an async path or configurable `Future` handling for higher throughput.
+- Redis Streams backend still retains every entry forever; expose stream trimming and pending-claim helpers so operators can cap memory usage.
+- EventBus implementations emit high-level stats but not per-topic lag/consumer metrics—wire Micrometer counters to surface them in Spring Boot.
+- Consider pluggable serialization hooks so large `SpiceMessage` payloads can live in CBOR/Smile instead of JSON when hitting Redis/Kafka.
 
 ## spice-agents
 
 - Adds helper DSL (`buildAgent`), provider-specific factories (`gptAgent`, `claudeAgent`), and mock agents for tests.
 - Ships its own Ktor-based HTTP stack to avoid tying agent usage to Spring Boot.
 
-### Review highlights
+### Enhancement ideas
 
-- `GPTAgent`/`ClaudeAgent` constructors never validate API keys or base URLs; misconfiguration fails at first request with opaque HTTP errors. Add eager validation (e.g., `require(apiKey.isNotBlank())`) so bootstrap issues fail fast.
-- HTTP clients are created per-agent without a shared `HttpClient` lifecycle; add a singleton `HttpClientProvider` or close clients when agents are disposed to avoid leaking resources in apps that spin up many agents dynamically.
-- Tests only cover mock agents; add integration tests (optionally with WireMock) to ensure request payloads stay compatible with provider APIs.
+- Add eager validation hooks (`require(apiKey…​)`) so runtime errors surface at bootstrap.
+- Share/reuse HTTP clients across agents or expose `close()` on the agent so CLI apps can free sockets quickly.
+- Expand the test suite with WireMock/OpenAI-compatible goldens to guard request/response formats.
 
 ## spice-springboot
 
 - Aligns Spring Boot autoconfiguration with `spice-core` 1.0.0: registers `DefaultGraphRunner`, cache policy, optional Redis/Jedis, event bus backends, and HITL queue/arbiter beans.
 - Exposes new configuration switches for Redis Streams/Kafka EventBus and queue/arbiter toggles through `SpiceFrameworkProperties`.
 
-### Review highlights
+### Enhancement ideas
 
-- `SpiceAutoConfiguration.arbiterRunner` launches a coroutine with `CoroutineScope(Dispatchers.Default)` but never keeps the resulting `Job` nor cancels it on shutdown (`spice-springboot/.../SpiceAutoConfiguration.kt:247`). Wrap it in a bean that implements `SmartLifecycle`/`DisposableBean` or use Spring’s task executor so restarts don’t spawn duplicate arbiters.
-- Arbiter auto-start requires a `GraphProvider` bean, yet no default bean exists. Mention that requirement explicitly in the README/docs or guard startup with a helpful exception when missing.
-- Spring Boot starter still depends on `kotlinx-coroutines-core` explicitly even though `spice-core` already exports it; remove the duplicate dependency or mark it as `implementation` to avoid version drift.
+- Provide a sample `GraphProvider` implementation (or sensible default) so HITL apps can opt-in without extra wiring.
+- Document best practices for running multiple arbiters (topics, consumer groups, deployment topology).
+- Consider splitting EventBus auto-config into dedicated starters so teams only pull Kafka or Redis dependencies they actually use.
 
 ## spice-springboot-statemachine
 
 - Provides `GraphToStateMachineAdapter`, Redis checkpoint persister, HITL listeners, tool retry/backoff actions, and actuator endpoints for visualization/metrics/health.
 - Integrates with the Spring starter via shared beans (GraphRunner, Redis pool, ApplicationEventPublisher).
 
-### Review highlights
+### Enhancement ideas
 
-- `StateMachineAutoConfiguration.nodeExecutionLogger` registers a listener unconditionally; large deployments that don’t need events can’t turn it off. Add a `spice.statemachine.events.enabled` guard around listener registration (`spice-springboot-statemachine/.../StateMachineAutoConfiguration.kt:109`).
-- `ReactiveRedisStatePersister` blocks on reactive calls via `.block()`; document that it should only be used when the underlying connection factory is configured for blocking operations, or refactor to Reactor-friendly `StateMachinePersist`.
-- `GraphToStateMachineAdapter` stores entire `Graph` objects in extended state for Redis persistence, but the `ReactiveRedisStatePersister` serializes everything as strings. Large graphs may exceed Redis value limits or round-trip incorrectly; consider storing lightweight graph IDs plus versions instead.
+- `ReactiveRedisStatePersister` still blocks via `.block()`; document the expectation clearly or add a non-blocking alternative.
+- `GraphToStateMachineAdapter` stores entire `Graph` instances inside extended state; persisting graph IDs + versions instead would keep Redis payloads small.
+- Add built-in OpenTelemetry spans or Micrometer timers so every state transition can be traced without custom listeners.
 
 ## spice-springboot-ai
 
 - Bridges Spring AI’s provider ecosystem with Spice agents via factories (`SpringAIAgentFactory`), DSL builders, registries, and tool adapters.
 - Ships auto-configuration plus property binding for OpenAI, Anthropic, Ollama, Azure OpenAI, Vertex, and Bedrock.
 
-### Review highlights
+### Enhancement ideas
 
-- Provider properties currently live under `spice.spring-ai.*` but there’s no configuration metadata (no `spring-configuration-metadata.json`), so IDE auto-completion won’t work. Add the configuration processor (already declared) and ensure `@ConfigurationProperties` classes cover all provider options.
-- The factories create Spring AI `ChatClient` instances on demand but do not reuse them; repeated calls can reinitialize the entire client stack. Cache per-provider/per-model instances or document that factories should be scoped.
-- Tests for this module are missing; add contract tests that assert the factories build agents with the expected provider metadata and tool adapters behave symmetrically (Spice Tool → Spring AI Tool → Spice Tool).
+- Generate `spring-configuration-metadata.json` so IDEs can auto-complete `spice.spring-ai.*` properties.
+- Cache `ChatModel`/`ChatClient` instances per provider/model combo to avoid reinitializing expensive HTTP clients on every call.
+- Add contract tests to ensure tool adapters (function callbacks) faithfully map between Spring AI and Spice Tool semantics.
 
 ---
 

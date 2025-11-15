@@ -179,8 +179,13 @@ class RedisStreamsEventBus(
             val entries = jedisPool.resource.use { jedis ->
                 jedis.xread(params, mapOf(streamKey to lastId))
             } ?: continue
-            processEntries(entries, topicPattern, handler) { entryId ->
-                lastId = entryId
+
+            entries.forEach { result ->
+                val streamEntries = result.value ?: return@forEach
+                streamEntries.forEach { entry ->
+                    processEntry(entry, topicPattern, handler)
+                    lastId = entry.id
+                }
             }
         }
     }
@@ -200,48 +205,48 @@ class RedisStreamsEventBus(
             val entries = jedisPool.resource.use { jedis ->
                 jedis.xreadGroup(groupId, consumerName, params, mapOf(streamKey to StreamEntryID.UNRECEIVED_ENTRY))
             } ?: continue
-            processEntries(entries, topicPattern, handler) { entryId ->
-                jedisPool.resource.use { jedis ->
-                    jedis.xack(streamKey, groupId, entryId)
+
+            entries.forEach { result ->
+                val streamEntries = result.value ?: return@forEach
+                streamEntries.forEach { entry ->
+                    val processed = processEntry(entry, topicPattern, handler)
+                    if (processed) {
+                        jedisPool.resource.use { jedis ->
+                            jedis.xack(streamKey, groupId, entry.id)
+                        }
+                    }
                 }
             }
         }
     }
 
-    private suspend fun processEntries(
-        entries: List<Map.Entry<String, List<StreamEntry>>>,
+    private suspend fun processEntry(
+        entry: StreamEntry,
         topicPattern: String,
-        handler: suspend (SpiceMessage) -> Unit,
-        after: suspend (StreamEntryID) -> Unit
-    ) {
-        for (result in entries) {
-            val streamEntries = result.value ?: continue
-            for (entry in streamEntries) {
-                val fields = entry.fields ?: emptyMap()
-                val topic = fields["topic"]
-                val payload = fields["payload"]
-                if (topic == null || payload == null) {
-                    errors.incrementAndGet()
-                    after(entry.id)
-                    continue
-                }
-
-                if (!TopicPatternMatcher.matches(topic, topicPattern)) {
-                    after(entry.id)
-                    continue
-                }
-
-                val message = runCatching {
-                    json.decodeFromString(SpiceMessage.serializer(), payload)
-                }.onFailure { errors.incrementAndGet() }.getOrNull()
-
-                if (message != null) {
-                    handler(message)
-                    consumed.incrementAndGet()
-                }
-                after(entry.id)
-            }
+        handler: suspend (SpiceMessage) -> Unit
+    ): Boolean {
+        val fields = entry.fields ?: emptyMap()
+        val topic = fields["topic"]
+        val payload = fields["payload"]
+        if (topic == null || payload == null) {
+            errors.incrementAndGet()
+            return false
         }
+
+        if (!TopicPatternMatcher.matches(topic, topicPattern)) {
+            return false
+        }
+
+        val message = runCatching {
+            json.decodeFromString(SpiceMessage.serializer(), payload)
+        }.onFailure { errors.incrementAndGet() }.getOrNull()
+
+        if (message != null) {
+            handler(message)
+            consumed.incrementAndGet()
+            return true
+        }
+        return false
     }
 
     private fun ensureConsumerGroup(groupId: String) {

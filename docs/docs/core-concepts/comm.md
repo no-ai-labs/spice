@@ -178,7 +178,7 @@ val agent3 = object : Agent {
 ```
 
 :::tip
-See [Graph Nodes](../orchestration/graph-nodes.md#internal-behavior-state--metadata-propagation) for detailed information about metadata propagation in graphs.
+See [Graph Nodes](../orchestration/graph-nodes.md) for detailed information about metadata propagation in graphs.
 :::
 
 ### Media Attachments

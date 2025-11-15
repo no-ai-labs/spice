@@ -10,6 +10,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
@@ -26,6 +27,8 @@ import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -88,9 +91,22 @@ class KafkaEventBus(
     override suspend fun publish(topic: String, message: SpiceMessage): SpiceResult<String> =
         SpiceResult.catching {
             val payload = json.encodeToString(message)
-            val metadata = producer.send(ProducerRecord(this.topic, topic, payload)).get()
+            val record = ProducerRecord(this.topic, topic, payload)
+
+            val metadata = suspendCancellableCoroutine<org.apache.kafka.clients.producer.RecordMetadata> { cont ->
+                producer.send(record) { meta, exception ->
+                    if (exception != null) {
+                        errors.incrementAndGet()
+                        cont.resumeWithException(exception)
+                    } else if (meta != null) {
+                        cont.resume(meta)
+                    } else {
+                        cont.resumeWithException(IllegalStateException("Kafka send returned null metadata"))
+                    }
+                }
+            }
+
             published.incrementAndGet()
-            // Return Kafka record metadata as message ID: "topic-partition-offset"
             "${metadata.topic()}-${metadata.partition()}-${metadata.offset()}"
         }
 

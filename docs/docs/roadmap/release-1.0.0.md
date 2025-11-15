@@ -139,6 +139,14 @@ spice:
 
 The Redis Streams backend stores every logical topic inside a single stream key and filters client-side (maintaining `*`/`**` topic patterns). The Kafka backend follows the same envelope format (Spice topic in the record key, serialized `SpiceMessage` as payload) so existing subscribers keep working regardless of backend choice.
 
+:::note Redis Streams fan-out
+`XREADGROUP` delivers each entry to only one consumer per group. If you need broadcast-style delivery, either use `subscribe(...)` (no group) or ensure every consumer registers with its own `groupId`. Otherwise messages will be load-balanced, not fanned out.
+:::
+
+:::note Kafka publish semantics
+The Kafka backend waits for the broker ACK before returning. If the send fails, the coroutine throws and the caller receives a `SpiceResult.Failure`, making at-least-once delivery guarantees explicit.
+:::
+
 ### HITL Queue + Arbiter Wiring
 
 Two new property blocks make it trivial to stand up the shared queue/arbiter stack:

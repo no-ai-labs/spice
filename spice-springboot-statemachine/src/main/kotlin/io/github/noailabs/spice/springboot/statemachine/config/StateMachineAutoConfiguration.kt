@@ -166,6 +166,12 @@ class StateMachineAutoConfiguration {
         MetricsCollector(metrics)
 
     @Bean
+    @ConditionalOnProperty(
+        prefix = "spice.statemachine.events",
+        name = ["enabled"],
+        havingValue = "true",
+        matchIfMissing = true
+    )
     fun nodeExecutionLogger(publisher: ApplicationEventPublisher): StateMachineListener<ExecutionState, SpiceEvent> {
         return NodeExecutionLogger(publisher)
     }
