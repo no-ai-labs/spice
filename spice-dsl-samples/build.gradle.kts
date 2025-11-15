@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.github.no-ai-labs"
-version = "0.9.5"
+version = "1.0.0-alpha2"
 
 repositories {
     mavenCentral()

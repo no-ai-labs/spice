@@ -20,15 +20,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.7")
 
     // Spring AI dependencies
-    implementation("org.springframework.ai:spring-ai-core:1.0.0-M4")
-    implementation("org.springframework.ai:spring-ai-openai:1.0.0-M4")
-    implementation("org.springframework.ai:spring-ai-anthropic:1.0.0-M4")
-    implementation("org.springframework.ai:spring-ai-ollama:1.0.0-M4")
+    implementation("org.springframework.ai:spring-ai-core:1.1.0")
+    implementation("org.springframework.ai:spring-ai-openai:1.1.0")
+    implementation("org.springframework.ai:spring-ai-anthropic:1.1.0")
+    implementation("org.springframework.ai:spring-ai-ollama:1.1.0")
 
     // Optional: Additional Spring AI providers (Azure, Vertex, Bedrock, etc.)
-    compileOnly("org.springframework.ai:spring-ai-azure-openai:1.0.0-M4")
-    compileOnly("org.springframework.ai:spring-ai-vertex-ai-gemini:1.0.0-M4")
-    compileOnly("org.springframework.ai:spring-ai-bedrock:1.0.0-M4")
+    compileOnly("org.springframework.ai:spring-ai-azure-openai:1.1.0")
+    compileOnly("org.springframework.ai:spring-ai-vertex-ai-gemini:1.1.0")
+    compileOnly("org.springframework.ai:spring-ai-bedrock:1.1.0")
 
     // Kotlin coroutines support
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
@@ -61,7 +61,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot-ai"
-            version = "1.0.0-alpha-1"
+            version = "1.0.0-alpha-2"
 
             pom {
                 name.set("Spice Spring Boot AI Extension")
