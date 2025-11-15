@@ -47,8 +47,8 @@ dependencies {
     // Redis clients for MQ/Cache/Idempotency backends (exposed as API for Spring Boot integration)
     api("redis.clients:jedis:5.1.2")
     
-    // 🚀 Kafka Support (Optional)
-    compileOnly("org.apache.kafka:kafka-clients:3.7.1")
+    // 🚀 Kafka Support
+    implementation("org.apache.kafka:kafka-clients:3.7.1")
     
     // 🧪 Testing
     testImplementation("org.jetbrains.kotlin:kotlin-test")

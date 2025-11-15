@@ -10,16 +10,21 @@ import io.github.noailabs.spice.cache.RedisVectorCache
 import io.github.noailabs.spice.cache.VectorCache
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.events.InMemoryEventBus
+import io.github.noailabs.spice.events.KafkaEventBus
+import io.github.noailabs.spice.events.RedisStreamsEventBus
 import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
 import io.github.noailabs.spice.graph.runner.GraphRunner
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 import io.github.noailabs.spice.idempotency.InMemoryIdempotencyStore
 import io.github.noailabs.spice.idempotency.RedisIdempotencyStore
 import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.springboot.GraphProvider
 import io.github.noailabs.spice.validation.DeadLetterHandler
 import io.github.noailabs.spice.validation.SchemaValidationPipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.ApplicationRunner
@@ -140,22 +145,43 @@ class SpiceAutoConfiguration {
         }
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @ConditionalOnProperty(prefix = "spice.events", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
-    fun eventBus(properties: SpiceFrameworkProperties): EventBus {
-        return when (properties.events.backend) {
+    fun eventBus(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): EventBus {
+        val events = properties.events
+        return when (events.backend) {
             SpiceFrameworkProperties.EventProperties.EventBackend.IN_MEMORY -> InMemoryEventBus()
-            SpiceFrameworkProperties.EventProperties.EventBackend.REDIS_STREAMS ->
-                throw IllegalStateException(
-                    "Redis Streams EventBus backend is not yet available in spice-core 1.0.0. " +
-                        "Upgrade once the implementation lands to activate this setting."
+            SpiceFrameworkProperties.EventProperties.EventBackend.REDIS_STREAMS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "EventBus backend set to REDIS_STREAMS but spice.redis.enabled=false"
+                    )
+                val redisConfig = events.redisStreams
+                RedisStreamsEventBus(
+                    jedisPool = redisPool,
+                    streamKey = redisConfig.streamKey,
+                    consumerPrefix = redisConfig.consumerPrefix,
+                    batchSize = redisConfig.batchSize,
+                    blockTimeout = redisConfig.pollTimeout.toKotlinDuration()
                 )
-            SpiceFrameworkProperties.EventProperties.EventBackend.KAFKA ->
-                throw IllegalStateException(
-                    "Kafka EventBus backend is not yet available in spice-core 1.0.0. " +
-                        "Upgrade once the implementation lands to activate this setting."
+            }
+            SpiceFrameworkProperties.EventProperties.EventBackend.KAFKA -> {
+                val kafkaConfig = events.kafka
+                KafkaEventBus(
+                    bootstrapServers = kafkaConfig.bootstrapServers,
+                    topic = kafkaConfig.topic,
+                    clientId = kafkaConfig.clientId,
+                    pollTimeout = kafkaConfig.pollTimeout.toKotlinDuration(),
+                    acks = kafkaConfig.acks,
+                    securityProtocol = kafkaConfig.securityProtocol,
+                    saslMechanism = kafkaConfig.saslMechanism,
+                    saslJaasConfig = kafkaConfig.saslJaasConfig
                 )
+            }
         }
     }
 
@@ -219,6 +245,8 @@ class SpiceAutoConfiguration {
      *     myGraphRegistry.get(message.data["graphId"] as String)
      * }
      * ```
+     *
+     * Uses SmartLifecycle to ensure proper startup/shutdown with Spring context.
      */
     @Bean
     @ConditionalOnProperty(
@@ -228,14 +256,35 @@ class SpiceAutoConfiguration {
         matchIfMissing = false
     )
     @ConditionalOnBean(Arbiter::class, GraphProvider::class)
-    fun arbiterRunner(
+    fun arbiterLifecycle(
         arbiter: Arbiter,
         graphProvider: GraphProvider,
         properties: SpiceFrameworkProperties
-    ): ApplicationRunner = ApplicationRunner {
-        CoroutineScope(Dispatchers.Default).launch {
-            val topic = properties.hitl.arbiter.topic
-            arbiter.start(topic, graphProvider::provide)
+    ): org.springframework.context.SmartLifecycle {
+        return object : org.springframework.context.SmartLifecycle {
+            private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            private var running = false
+
+            override fun start() {
+                if (!running) {
+                    scope.launch {
+                        val topic = properties.hitl.arbiter.topic
+                        arbiter.start(topic, graphProvider::provide)
+                    }
+                    running = true
+                }
+            }
+
+            override fun stop() {
+                if (running) {
+                    scope.cancel()
+                    running = false
+                }
+            }
+
+            override fun isRunning(): Boolean = running
+
+            override fun getPhase(): Int = Int.MAX_VALUE  // Start last, stop first
         }
     }
 }

@@ -46,6 +46,7 @@ const sidebars: SidebarsConfig = {
         'core-concepts/comm',
         'core-concepts/tool',
         'core-concepts/registry',
+        'core-concepts/modules',
       ],
     },
     {

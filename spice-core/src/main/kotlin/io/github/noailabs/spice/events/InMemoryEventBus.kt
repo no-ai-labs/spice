@@ -118,11 +118,12 @@ class InMemoryEventBus(
     /**
      * Publish message to topic
      */
-    override suspend fun publish(topic: String, message: SpiceMessage): SpiceResult<Unit> {
+    override suspend fun publish(topic: String, message: SpiceMessage): SpiceResult<String> {
         return SpiceResult.catching {
             val event = PublishedEvent(topic, message)
             eventFlow.emit(event)
             published++
+            message.id  // Return message ID for acknowledgment
         }
     }
 
@@ -136,7 +137,7 @@ class InMemoryEventBus(
         val job = scope.launch {
             eventFlow.asSharedFlow().collect { event ->
                 try {
-                    if (matchesTopic(event.topic, topic)) {
+                    if (TopicPatternMatcher.matches(event.topic, topic)) {
                         handler(event.message)
                         consumed++
                     }
@@ -178,7 +179,7 @@ class InMemoryEventBus(
         val job = scope.launch {
             eventFlow.asSharedFlow().collect { event ->
                 try {
-                    if (matchesTopic(event.topic, topic)) {
+                    if (TopicPatternMatcher.matches(event.topic, topic)) {
                         // Load balancing: Only one consumer in group handles each message
                         val lastConsumed = groupState[topic]?.get(groupId)
                         if (lastConsumed != event.message.id) {
@@ -268,40 +269,8 @@ class InMemoryEventBus(
      * @param pattern Topic pattern with wildcards
      * @return true if topic matches pattern
      */
-    private fun matchesTopic(topic: String, pattern: String): Boolean {
-        // Exact match
-        if (topic == pattern) return true
-
-        val topicParts = topic.split(".")
-        val patternParts = pattern.split(".")
-
-        // Handle ** (multi-level wildcard)
-        if (pattern.contains("**")) {
-            val beforeWildcard = patternParts.takeWhile { it != "**" }
-            val afterWildcard = patternParts.dropWhile { it != "**" }.drop(1)
-
-            // Check prefix
-            if (beforeWildcard.isNotEmpty()) {
-                val prefixMatches = topicParts.take(beforeWildcard.size) == beforeWildcard
-                if (!prefixMatches) return false
-            }
-
-            // Check suffix
-            if (afterWildcard.isNotEmpty()) {
-                val suffixMatches = topicParts.takeLast(afterWildcard.size) == afterWildcard
-                if (!suffixMatches) return false
-            }
-
-            return true
-        }
-
-        // Handle * (single-level wildcard)
-        if (topicParts.size != patternParts.size) return false
-
-        return topicParts.zip(patternParts).all { (topicPart, patternPart) ->
-            patternPart == "*" || topicPart == patternPart
-        }
-    }
+    private fun matchesTopic(topic: String, pattern: String): Boolean =
+        TopicPatternMatcher.matches(topic, pattern)
 
     /**
      * Get active subscriptions count

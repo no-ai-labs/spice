@@ -64,8 +64,8 @@ dependencies {
 - `SchemaValidationPipeline`, `ExecutionStateMachine`, and `CachePolicy`
 - `DefaultGraphRunner` with optional `VectorCache`
 - Conditional `IdempotencyStore` (in-memory or Redis)
-- In-memory `EventBus` (until Redis Streams/Kafka variants ship)
-- Shared `JedisPool` used by idempotency/vector caches today and future Redis-backed EventBus abstractions
+- `EventBus` with three backends: in-memory (stable), Redis Streams (beta), and Kafka (beta)
+- Shared `JedisPool` used by idempotency/vector caches and Redis-backed EventBus
 
 ### Property Reference
 
@@ -73,13 +73,15 @@ dependencies {
 | --- | --- | --- |
 | `spice.enabled` | Global toggle for the starter | defaults to `true` |
 | `spice.graph-runner.enable-idempotency` | Controls idempotency checks | requires an `IdempotencyStore` bean |
-| `spice.graph-runner.enable-events` | Enables EventBus dispatch | `InMemoryEventBus` until additional backends land |
+| `spice.graph-runner.enable-events` | Enables EventBus dispatch | Works with all three EventBus backends |
 | `spice.cache.*` | TTLs for tool calls, steps, intents | mapped into `CachePolicy` |
 | `spice.idempotency.*` | Backend + namespace configuration | `IN_MEMORY` or `REDIS` |
 | `spice.vector-cache.*` | Vector cache backend + namespace | shares Redis pool when `REDIS` |
 | `spice.redis.*` | Jedis connection info | reused by all Redis-backed components |
 | `spice.events.enabled` | Switches the EventBus bean on/off | stays `true` for most apps |
-| `spice.events.backend` | Selects the EventBus backend (`in-memory`, `redis-streams`, `kafka`) | only `in-memory` exists today; selecting others raises a clear error until the new buses land |
+| `spice.events.backend` | Selects the EventBus backend (`in-memory`, `redis-streams`, `kafka`) | Redis Streams & Kafka are now first-class options |
+| `spice.events.redis-streams.*` | Stream key, consumer prefix, poll timeout, batch size | defaults: `spice:events`, `spice-events`, `1s`, `100` |
+| `spice.events.kafka.*` | Topic, bootstrap servers, poll timeout, client id, ACK settings | defaults: `spice.events`, `localhost:9092`, `1s`, `spice-eventbus`, `all` |
 | `spice.hitl.queue.enabled` | Exposes a `MessageQueue` bean (`InMemoryMessageQueue` or `RedisMessageQueue`) | uses shared Jedis pool when `backend=redis` |
 | `spice.hitl.queue.backend` | Queue backend selection (`in-memory`, `redis`) | set to `redis` once you enable `spice.redis.*` |
 | `spice.hitl.arbiter.enabled` | Publishes an `Arbiter` bean wired to the configured queue | lets apps bootstrap the full HITL worker stack |
@@ -106,7 +108,36 @@ spice:
     namespace: spice:vector:prod
 ```
 
-Once `RedisStreamsEventBus`/`KafkaEventBus` implementations arrive in `spice-core`, simply flip `spice.events.backend=redis-streams|kafka`—the Spring starter already has the property model and guards in place.
+### EventBus Backends
+
+`spice-core` now ships `RedisStreamsEventBus` and `KafkaEventBus`, both exposed through the starter:
+
+```yaml
+spice:
+  events:
+    enabled: true
+    backend: redis-streams
+    redis-streams:
+      stream-key: spice:events
+      consumer-prefix: spice-events
+      poll-timeout: 1s
+      batch-size: 200
+```
+
+```yaml
+spice:
+  events:
+    enabled: true
+    backend: kafka
+    kafka:
+      bootstrap-servers: kafka-1:9092,kafka-2:9092
+      topic: spice.events
+      client-id: spice-eventbus
+      poll-timeout: 1s
+      acks: all
+```
+
+The Redis Streams backend stores every logical topic inside a single stream key and filters client-side (maintaining `*`/`**` topic patterns). The Kafka backend follows the same envelope format (Spice topic in the record key, serialized `SpiceMessage` as payload) so existing subscribers keep working regardless of backend choice.
 
 ### HITL Queue + Arbiter Wiring
 
@@ -208,7 +239,7 @@ When `spice-core` lands Redis Streams or Kafka `EventBus` implementations, match
 
 ## Known Gaps & Follow-ups
 
-1. **EventBus backends** – Only an in-memory `EventBus` ships today. The new `spice.events.backend` property already understands `redis-streams`/`kafka`, and will flip over automatically once `spice-core` publishes those implementations.
+1. **EventBus operations tooling** – Distributed backends are now available; next steps are richer metrics/health endpoints (lag, consumer status) layered on top of the new EventBus implementations.
 2. **Redis Streams / Kafka queue options** – HITL queue wiring currently supports in-memory + Redis List semantics. When we settle on Redis Streams or Kafka queue adapters, wire them under the same `spice.hitl.queue.backend` enum.
 3. **Documentation versioning** – This page lives in the “next” docs set. Run `pnpm docusaurus docs:version 1.0.0` after locking the release so the 1.0.0 selector appears beside the existing 0.x versions.
 

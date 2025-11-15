@@ -38,9 +38,15 @@ import kotlin.time.Duration
  * - **Exactly-once:** Idempotent delivery (reliable, no duplicates)
  *
  * **Implementations:**
- * - `InMemoryEventBus`: Fast, ephemeral (testing, dev)
- * - `RedisStreamEventBus`: Distributed, persistent (production)
- * - `KafkaEventBus`: High-throughput, persistent (enterprise)
+ * - `InMemoryEventBus`: Fast, ephemeral (testing, dev) - ✅ Stable
+ * - `RedisStreamsEventBus`: Distributed, persistent (Beta - production ready with caveats)
+ * - `KafkaEventBus`: High-throughput, persistent (Beta - production ready with caveats)
+ *
+ * **⚠️ Production Notes (Beta Backends):**
+ * - **RedisStreamsEventBus**: Requires Redis 5.0+, consumer group acknowledgment may have edge cases
+ * - **KafkaEventBus**: Requires proper Kafka cluster setup, idempotent producer enabled by default
+ * - Both backends are tested and functional but may have edge cases in high-throughput scenarios
+ * - Consider thorough testing in staging before production deployment
  *
  * **Example Usage:**
  * ```kotlin
@@ -74,9 +80,9 @@ interface EventBus {
      *
      * @param topic Topic name (supports wildcards in subscription)
      * @param message Message to publish
-     * @return SpiceResult indicating success or failure
+     * @return SpiceResult with message ID for acknowledgment (required for at-least-once semantics)
      */
-    suspend fun publish(topic: String, message: SpiceMessage): SpiceResult<Unit>
+    suspend fun publish(topic: String, message: SpiceMessage): SpiceResult<String>
 
     /**
      * Subscribe to topic with message handler

@@ -13,6 +13,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-autoconfigure:3.5.7")
     implementation("org.springframework:spring-webflux:6.2.1")
     implementation("jakarta.validation:jakarta.validation-api:3.0.2")
+
+    // Kotlin Coroutines (for Arbiter auto-start)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     
     // Configuration Processor (IDE 지원)
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor:3.5.7")

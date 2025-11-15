@@ -37,13 +37,21 @@ data class SpiceFrameworkProperties(
         enum class EventBackend { IN_MEMORY, REDIS_STREAMS, KAFKA }
 
         data class RedisStreamsProperties(
-            val streamKey: String = "spice.events",
-            val consumerGroup: String = "spice-events"
+            val streamKey: String = "spice:events",
+            val consumerPrefix: String = "spice-events",
+            val pollTimeout: Duration = Duration.ofSeconds(1),
+            val batchSize: Int = 100
         )
 
         data class KafkaProperties(
             val topic: String = "spice.events",
-            val clientId: String = "spice-eventbus"
+            val bootstrapServers: String = "localhost:9092",
+            val clientId: String = "spice-eventbus",
+            val pollTimeout: Duration = Duration.ofSeconds(1),
+            val acks: String = "all",
+            val securityProtocol: String? = null,
+            val saslMechanism: String? = null,
+            val saslJaasConfig: String? = null
         )
     }
 
