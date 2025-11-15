@@ -155,7 +155,7 @@ class SpiceAutoConfiguration {
         }
     }
 
-    @Bean
+    @Bean(destroyMethod = "")  // Disable auto-detection - eventBusLifecycle handles shutdown
     @ConditionalOnProperty(prefix = "spice.events", name = ["enabled"], havingValue = "true", matchIfMissing = true)
     @ConditionalOnMissingBean
     fun eventBus(
