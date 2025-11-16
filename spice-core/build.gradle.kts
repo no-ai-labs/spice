@@ -62,6 +62,10 @@ dependencies {
 
     // Test fixtures and utilities
     testImplementation("org.awaitility:awaitility-kotlin:4.2.0")
+
+    // Testcontainers for integration tests
+    testImplementation("org.testcontainers:testcontainers:1.19.3")
+    testImplementation("org.testcontainers:junit-jupiter:1.19.3")
 }
 
 tasks.test {

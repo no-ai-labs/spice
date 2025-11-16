@@ -8,19 +8,30 @@ import kotlin.time.Duration.Companion.days
  * 📻 Typed Event Channel
  *
  * Strongly-typed event stream with configuration.
- * Channels are identified by name and restricted to a specific event type.
+ * Channels are identified by name and restricted to a specific event type and schema version.
+ *
+ * **Schema Enforcement:**
+ * Each channel is tied to a specific event type and schema version.
+ * The schema MUST be registered in SchemaRegistry before the channel can be used.
+ * This prevents schema mismatches and incompatible payloads at the code level.
  *
  * **Usage:**
  * ```kotlin
+ * // 1. Register schema first
+ * registry.register(MyEvent::class, "1.0.0", MyEvent.serializer())
+ *
+ * // 2. Create channel (version required!)
  * val channel = EventChannel(
  *     name = "my.events",
  *     type = MyEvent::class,
+ *     version = "1.0.0",
  *     config = ChannelConfig(enableHistory = true)
  * )
  * ```
  *
  * @property name Channel name (unique identifier)
  * @property type Event type class (for type safety and serialization)
+ * @property version Schema version (must be registered in SchemaRegistry)
  * @property config Channel configuration
  *
  * @since 1.0.0-alpha-5
@@ -29,13 +40,21 @@ import kotlin.time.Duration.Companion.days
 data class EventChannel<T : Any>(
     val name: String,
     val type: KClass<T>,
+    val version: String,
     val config: ChannelConfig = ChannelConfig.DEFAULT
 ) {
     init {
         require(name.isNotBlank()) { "Channel name must not be blank" }
+        require(version.isNotBlank()) { "Version must not be blank" }
     }
 
-    override fun toString(): String = "EventChannel(name='$name', type=${type.simpleName})"
+    /**
+     * Get schema key for this channel (TypeName:Version)
+     */
+    val schemaKey: String
+        get() = "${type.qualifiedName}:$version"
+
+    override fun toString(): String = "EventChannel(name='$name', type=${type.simpleName}, version='$version')"
 }
 
 /**

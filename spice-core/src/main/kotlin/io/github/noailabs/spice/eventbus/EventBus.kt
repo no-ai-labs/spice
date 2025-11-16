@@ -22,39 +22,36 @@ import kotlin.reflect.KClass
  * - StandardChannels: Predefined channels (GRAPH_LIFECYCLE, TOOL_CALLS, etc.)
  * - Custom channels: User-defined typed channels
  *
- * **Automatic Serialization:**
- * EventBus uses SchemaRegistry to automatically serialize/deserialize events.
- * This ensures all publishers/subscribers use the same versioned schema, preventing mismatches.
+ * **Automatic Serialization (ENFORCED):**
+ * EventBus REQUIRES SchemaRegistry for all channels. When you create a channel,
+ * the event type MUST be registered in the SchemaRegistry first. This prevents
+ * schema mismatches and incompatible payloads at compile time.
  *
  * **Example Usage:**
  * ```kotlin
- * val eventBus = InMemoryEventBus(schemaRegistry = mySchemaRegistry)
+ * // 1. Register schema first (REQUIRED!)
+ * val registry = DefaultSchemaRegistry()
+ * registry.register(MyEvent::class, "1.0.0", MyEvent.serializer())
  *
- * // Publish typed event (automatic serialization!)
- * eventBus.publish(
- *     StandardChannels.GRAPH_LIFECYCLE,
- *     GraphLifecycleEvent.Started(graphId, runId, message),
- *     EventMetadata(source = "graph-runner")
- * )
+ * // 2. Create EventBus with registry
+ * val eventBus = InMemoryEventBus(schemaRegistry = registry)
  *
- * // Subscribe to typed channel (automatic deserialization!)
- * eventBus.subscribe(StandardChannels.TOOL_CALLS)
- *     .collect { typedEvent ->
- *         // typedEvent.event is already deserialized to ToolCallEvent!
- *         when (val event = typedEvent.event) {
- *             is ToolCallEvent.Emitted -> handleEmitted(event)
- *             is ToolCallEvent.Completed -> handleCompleted(event)
- *             else -> {}
- *         }
- *     }
- *
- * // Create custom channel
+ * // 3. Create channel (fails if schema not registered!)
  * val myChannel = eventBus.channel(
  *     "my.custom.channel",
  *     MyEvent::class,
- *     ChannelConfig(enableHistory = true, historySize = 1000)
+ *     version = "1.0.0",  // Must match registered version
+ *     config = ChannelConfig(enableHistory = true)
  * )
+ *
+ * // 4. Publish (automatic serialization using registry!)
  * eventBus.publish(myChannel, MyEvent("data"))
+ *
+ * // 5. Subscribe (automatic deserialization using registry!)
+ * eventBus.subscribe(myChannel).collect { typedEvent ->
+ *     // typedEvent.event is already deserialized to MyEvent!
+ *     println(typedEvent.event.data)
+ * }
  * ```
  *
  * **Thread Safety:**
@@ -69,16 +66,29 @@ import kotlin.reflect.KClass
  */
 interface EventBus {
     /**
+     * Get SchemaRegistry used by this EventBus
+     *
+     * All channels must have their schemas registered here.
+     */
+    val schemaRegistry: io.github.noailabs.spice.eventbus.schema.SchemaRegistry
+
+    /**
      * Get or create a typed channel
+     *
+     * **IMPORTANT**: The event type MUST be registered in SchemaRegistry first!
+     * This method will throw IllegalStateException if schema is not registered.
      *
      * @param name Channel name (unique identifier)
      * @param type Event type class
+     * @param version Schema version (must be registered in SchemaRegistry)
      * @param config Channel configuration
      * @return Typed event channel
+     * @throws IllegalStateException if schema not registered for this type/version
      */
     fun <T : Any> channel(
         name: String,
         type: KClass<T>,
+        version: String,
         config: ChannelConfig = ChannelConfig.DEFAULT
     ): EventChannel<T>
 
@@ -127,12 +137,13 @@ interface EventBus {
 }
 
 /**
- * Extension function to get typed channel
+ * Extension function to get typed channel with reified type
  */
 inline fun <reified T : Any> EventBus.channel(
     name: String,
+    version: String,
     config: ChannelConfig = ChannelConfig.DEFAULT
-): EventChannel<T> = channel(name, T::class, config)
+): EventChannel<T> = channel(name, T::class, version, config)
 
 /**
  * Extension function to publish event with type inference

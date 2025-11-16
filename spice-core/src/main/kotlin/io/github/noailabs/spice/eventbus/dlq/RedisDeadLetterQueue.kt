@@ -79,6 +79,112 @@ class RedisDeadLetterQueue(
 
     private fun channelKey(channelName: String) = "$namespace:channel:$channelName"
 
+    /**
+     * Lua script for atomic DLQ enqueue with trimming
+     *
+     * This script atomically:
+     * 1. Adds message to hash and sorted sets
+     * 2. Trims per-channel sorted set if needed
+     * 3. Trims global sorted set if needed
+     * 4. Updates stats
+     * 5. Returns number of evicted messages
+     *
+     * KEYS[1] = messagesKey
+     * KEYS[2] = indexKey
+     * KEYS[3] = channelIndexKey
+     * KEYS[4] = statsKey
+     * KEYS[5] = evictedKey
+     * ARGV[1] = messageId
+     * ARGV[2] = messageJson
+     * ARGV[3] = score (timestamp)
+     * ARGV[4] = channelName
+     * ARGV[5] = reason
+     * ARGV[6] = maxSizePerChannel (or -1 if unlimited)
+     * ARGV[7] = maxSize (or -1 if unlimited)
+     */
+    private val enqueueWithTrimScript = """
+        local messagesKey = KEYS[1]
+        local indexKey = KEYS[2]
+        local channelIndexKey = KEYS[3]
+        local statsKey = KEYS[4]
+        local evictedKey = KEYS[5]
+
+        local messageId = ARGV[1]
+        local messageJson = ARGV[2]
+        local score = tonumber(ARGV[3])
+        local channelName = ARGV[4]
+        local reason = ARGV[5]
+        local maxSizePerChannel = tonumber(ARGV[6])
+        local maxSize = tonumber(ARGV[7])
+
+        local evictedCount = 0
+
+        -- 1. Add message
+        redis.call('HSET', messagesKey, messageId, messageJson)
+        redis.call('ZADD', indexKey, score, messageId)
+        redis.call('ZADD', channelIndexKey, score, messageId)
+
+        -- 2. Per-channel trimming
+        if maxSizePerChannel > 0 then
+            local channelSize = redis.call('ZCARD', channelIndexKey)
+            if channelSize > maxSizePerChannel then
+                local toEvict = channelSize - maxSizePerChannel
+                local evictedIds = redis.call('ZRANGE', channelIndexKey, 0, toEvict - 1)
+
+                for _, evictedId in ipairs(evictedIds) do
+                    redis.call('HDEL', messagesKey, evictedId)
+                    redis.call('ZREM', indexKey, evictedId)
+                    redis.call('ZREM', channelIndexKey, evictedId)
+                    redis.call('HINCRBY', statsKey, 'total', -1)
+                    redis.call('HINCRBY', statsKey, 'channel:' .. channelName, -1)
+                    evictedCount = evictedCount + 1
+                end
+            end
+        end
+
+        -- 3. Global trimming
+        if maxSize > 0 then
+            local totalSize = redis.call('ZCARD', indexKey)
+            if totalSize > maxSize then
+                local toEvict = totalSize - maxSize
+                local evictedIds = redis.call('ZRANGE', indexKey, 0, toEvict - 1)
+
+                for _, evictedId in ipairs(evictedIds) do
+                    -- Get message to find channel
+                    local evictedJson = redis.call('HGET', messagesKey, evictedId)
+                    if evictedJson then
+                        -- Parse channel from JSON (simple pattern matching)
+                        local evictedChannel = string.match(evictedJson, '"channelName":"([^"]+)"')
+                        if evictedChannel then
+                            redis.call('ZREM', '${namespace}:channel:' .. evictedChannel, evictedId)
+                            redis.call('HINCRBY', statsKey, 'channel:' .. evictedChannel, -1)
+                        end
+                    end
+
+                    redis.call('HDEL', messagesKey, evictedId)
+                    redis.call('ZREM', indexKey, evictedId)
+                    redis.call('HINCRBY', statsKey, 'total', -1)
+                    evictedCount = evictedCount + 1
+                end
+            end
+        end
+
+        -- 4. Update stats for new message
+        redis.call('HINCRBY', statsKey, 'total', 1)
+        redis.call('HINCRBY', statsKey, 'channel:' .. channelName, 1)
+        redis.call('HINCRBY', statsKey, 'reason:' .. reason, 1)
+
+        -- 5. Update evicted counter
+        if evictedCount > 0 then
+            redis.call('INCRBY', evictedKey, evictedCount)
+        end
+
+        return evictedCount
+    """.trimIndent()
+
+    // Cache SHA1 hash of script for EVALSHA
+    private var scriptSha: String? = null
+
     override suspend fun send(
         originalEnvelope: EventEnvelope,
         reason: String,
@@ -100,76 +206,45 @@ class RedisDeadLetterQueue(
         jedisPool.resource.use { jedis ->
             val messageJson = json.encodeToString(dlqMessage)
             val score = dlqMessage.receivedAt.toEpochMilliseconds().toDouble()
-
-            // 1. Store message
-            jedis.hset(messagesKey, messageId, messageJson)
-
-            // 2. Add to global index
-            jedis.zadd(indexKey, score, messageId)
-
-            // 3. Add to per-channel index
             val channelIndexKey = channelKey(channelName)
-            jedis.zadd(channelIndexKey, score, messageId)
 
-            // 4. Per-channel FIFO eviction
-            if (maxSizePerChannel != null) {
-                val channelSize = jedis.zcard(channelIndexKey)
-                if (channelSize > maxSizePerChannel) {
-                    val toEvict = channelSize - maxSizePerChannel
-                    // Get oldest messages from this channel
-                    val evictedIds = jedis.zrange(channelIndexKey, 0, toEvict - 1)
+            // Execute Lua script for atomic enqueue + trim
+            val keys = arrayOf(
+                messagesKey,
+                indexKey,
+                channelIndexKey,
+                statsKey,
+                evictedKey
+            )
 
-                    evictedIds.forEach { evictedId ->
-                        // Remove from all indices
-                        jedis.hdel(messagesKey, evictedId)
-                        jedis.zrem(indexKey, evictedId)
-                        jedis.zrem(channelIndexKey, evictedId)
+            val args = arrayOf(
+                messageId,
+                messageJson,
+                score.toString(),
+                channelName,
+                reason,
+                (maxSizePerChannel ?: -1).toString(),
+                (maxSize ?: -1).toString()
+            )
 
-                        // Update stats
-                        jedis.hincrBy(statsKey, "total", -1)
-                        jedis.hincrBy(statsKey, "channel:$channelName", -1)
-                        jedis.incr(evictedKey)
-                    }
+            // Try EVALSHA first (faster if script already loaded)
+            val evictedCount = try {
+                if (scriptSha != null) {
+                    jedis.evalsha(scriptSha, keys.size, *keys, *args) as Long
+                } else {
+                    // First time: load script and cache SHA
+                    val result = jedis.eval(enqueueWithTrimScript, keys.size, *keys, *args) as Long
+                    scriptSha = jedis.scriptLoad(enqueueWithTrimScript)
+                    result
                 }
+            } catch (e: redis.clients.jedis.exceptions.JedisNoScriptException) {
+                // Script not in cache, reload
+                val result = jedis.eval(enqueueWithTrimScript, keys.size, *keys, *args) as Long
+                scriptSha = jedis.scriptLoad(enqueueWithTrimScript)
+                result
             }
 
-            // 5. Global FIFO eviction
-            if (maxSize != null) {
-                val totalSize = jedis.zcard(indexKey)
-                if (totalSize > maxSize) {
-                    val toEvict = totalSize - maxSize
-                    // Get oldest messages globally
-                    val evictedIds = jedis.zrange(indexKey, 0, toEvict - 1)
-
-                    evictedIds.forEach { evictedId ->
-                        // Get message to find its channel
-                        val evictedJson = jedis.hget(messagesKey, evictedId)
-                        val evictedMsg = evictedJson?.let {
-                            json.decodeFromString<DeadLetterMessage>(it)
-                        }
-
-                        // Remove from all indices
-                        jedis.hdel(messagesKey, evictedId)
-                        jedis.zrem(indexKey, evictedId)
-
-                        if (evictedMsg != null) {
-                            jedis.zrem(channelKey(evictedMsg.channelName), evictedId)
-                            jedis.hincrBy(statsKey, "channel:${evictedMsg.channelName}", -1)
-                        }
-
-                        // Update stats
-                        jedis.hincrBy(statsKey, "total", -1)
-                        jedis.incr(evictedKey)
-                    }
-                }
-            }
-
-            // 6. Update stats for new message
-            jedis.hincrBy(statsKey, "total", 1)
-            jedis.hincrBy(statsKey, "channel:$channelName", 1)
-            jedis.hincrBy(statsKey, "reason:$reason", 1)
-
-            // 7. Set TTL if configured
+            // Set TTL if configured (on all keys)
             if (ttl != null) {
                 val ttlSeconds = ttl.inWholeSeconds
                 jedis.expire(messagesKey, ttlSeconds)
@@ -177,6 +252,12 @@ class RedisDeadLetterQueue(
                 jedis.expire(channelIndexKey, ttlSeconds)
                 jedis.expire(statsKey, ttlSeconds)
                 jedis.expire(evictedKey, ttlSeconds)
+            }
+
+            // Optional: Log evictions if significant
+            if (evictedCount > 10) {
+                // Operators can monitor this via metrics
+                // logger.warn("DLQ evicted $evictedCount messages from $channelName")
             }
         }
 

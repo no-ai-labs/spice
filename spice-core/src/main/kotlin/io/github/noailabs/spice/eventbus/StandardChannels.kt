@@ -49,10 +49,12 @@ object StandardChannels {
      * Events: GraphLifecycleEvent.Started, Completed, Failed, Paused
      * History: Enabled (last 1000 events)
      * Use: Track graph execution lifecycle
+     * Version: 1.0.0
      */
     val GRAPH_LIFECYCLE = EventChannel(
         name = "spice.graph.lifecycle",
         type = GraphLifecycleEvent::class,
+        version = "1.0.0",
         config = ChannelConfig(
             enableHistory = true,
             historySize = 1000,
@@ -66,10 +68,12 @@ object StandardChannels {
      * Events: NodeLifecycleEvent.Started, Completed, Failed
      * History: Disabled (high volume)
      * Use: Track node execution within graphs
+     * Version: 1.0.0
      */
     val NODE_LIFECYCLE = EventChannel(
         name = "spice.node.lifecycle",
         type = NodeLifecycleEvent::class,
+        version = "1.0.0",
         config = ChannelConfig(
             enableHistory = false,  // High volume, transient events
             enableDeadLetter = true
@@ -82,10 +86,12 @@ object StandardChannels {
      * Events: ToolCallEvent.Emitted, Received, Completed, Failed, Retrying, Cancelled
      * History: Enabled (last 10000 events)
      * Use: Track tool call lifecycle for debugging and analytics
+     * Version: 1.0.0
      */
     val TOOL_CALLS = EventChannel(
         name = "spice.toolcalls",
         type = ToolCallEvent::class,
+        version = "1.0.0",
         config = ChannelConfig(
             enableHistory = true,
             historySize = 10000,
@@ -99,10 +105,12 @@ object StandardChannels {
      * Events: SystemEvent (errors, warnings, info)
      * History: Enabled (last 5000 events)
      * Use: System-level monitoring and alerts
+     * Version: 1.0.0
      */
     val SYSTEM_EVENTS = EventChannel(
         name = "spice.system",
         type = SystemEvent::class,
+        version = "1.0.0",
         config = ChannelConfig(
             enableHistory = true,
             historySize = 5000,
