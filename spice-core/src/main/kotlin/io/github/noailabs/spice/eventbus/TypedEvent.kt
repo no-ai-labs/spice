@@ -73,5 +73,5 @@ data class TypedEvent<T>(
     fun matches(predicate: (T) -> Boolean): Boolean = predicate(event)
 
     override fun toString(): String =
-        "TypedEvent(id='$id', event=${event::class.simpleName}, timestamp=$timestamp)"
+        "TypedEvent(id='$id', event=${event!!.javaClass.simpleName}, timestamp=$timestamp)"
 }

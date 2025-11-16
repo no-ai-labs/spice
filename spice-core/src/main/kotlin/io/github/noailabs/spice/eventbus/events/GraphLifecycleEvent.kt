@@ -4,6 +4,7 @@ import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceError
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 
 /**
@@ -108,7 +109,7 @@ sealed class GraphLifecycleEvent {
         override val graphId: String,
         override val runId: String,
         override val timestamp: Instant = Clock.System.now(),
-        val error: SpiceError,
+        @Contextual val error: SpiceError,
         val durationMs: Long,
         val failedNodeId: String? = null,
         val metadata: Map<String, String> = emptyMap()

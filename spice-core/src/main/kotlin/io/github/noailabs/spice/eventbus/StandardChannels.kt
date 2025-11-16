@@ -3,6 +3,9 @@ package io.github.noailabs.spice.eventbus
 import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.eventbus.events.GraphLifecycleEvent
 import io.github.noailabs.spice.eventbus.events.NodeLifecycleEvent
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
+import kotlinx.serialization.Serializable
 
 /**
  * 📻 Standard Event Channels
@@ -126,10 +129,6 @@ object StandardChannels {
  * @since 1.0.0-alpha-5
  * @author Spice Framework
  */
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
-import kotlinx.serialization.Serializable
-
 @Serializable
 sealed class SystemEvent {
     abstract val message: String

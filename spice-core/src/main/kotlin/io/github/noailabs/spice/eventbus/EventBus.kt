@@ -12,6 +12,7 @@ import kotlin.reflect.KClass
  *
  * **Key Features:**
  * - Typed channels for type-safe event publishing/subscription
+ * - **Automatic serialization**: Uses SchemaRegistry for versioned serialization (no manual marshal/unmarshal!)
  * - Schema evolution via EventEnvelope with versioning
  * - Dead letter queue for malformed/failed events
  * - Unified connection pooling and lifecycle management
@@ -21,20 +22,25 @@ import kotlin.reflect.KClass
  * - StandardChannels: Predefined channels (GRAPH_LIFECYCLE, TOOL_CALLS, etc.)
  * - Custom channels: User-defined typed channels
  *
+ * **Automatic Serialization:**
+ * EventBus uses SchemaRegistry to automatically serialize/deserialize events.
+ * This ensures all publishers/subscribers use the same versioned schema, preventing mismatches.
+ *
  * **Example Usage:**
  * ```kotlin
- * val eventBus = InMemoryEventBus()
+ * val eventBus = InMemoryEventBus(schemaRegistry = mySchemaRegistry)
  *
- * // Publish typed event
+ * // Publish typed event (automatic serialization!)
  * eventBus.publish(
  *     StandardChannels.GRAPH_LIFECYCLE,
  *     GraphLifecycleEvent.Started(graphId, runId, message),
  *     EventMetadata(source = "graph-runner")
  * )
  *
- * // Subscribe to typed channel
+ * // Subscribe to typed channel (automatic deserialization!)
  * eventBus.subscribe(StandardChannels.TOOL_CALLS)
  *     .collect { typedEvent ->
+ *         // typedEvent.event is already deserialized to ToolCallEvent!
  *         when (val event = typedEvent.event) {
  *             is ToolCallEvent.Emitted -> handleEmitted(event)
  *             is ToolCallEvent.Completed -> handleCompleted(event)
@@ -53,6 +59,10 @@ import kotlin.reflect.KClass
  *
  * **Thread Safety:**
  * All implementations must be thread-safe for concurrent pub/sub operations.
+ *
+ * **Schema Evolution:**
+ * Events are automatically versioned. Subscribers receive events even if schema version differs
+ * (within same major version). Unknown versions go to dead letter queue.
  *
  * @since 1.0.0-alpha-5
  * @author Spice Framework
