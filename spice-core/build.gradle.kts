@@ -46,7 +46,11 @@ dependencies {
 
     // Redis clients for MQ/Cache/Idempotency backends (exposed as API for Spring Boot integration)
     api("redis.clients:jedis:5.1.2")
-    
+
+    // 📝 Logging
+    implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
+    implementation("org.slf4j:slf4j-api:2.0.9")
+
     // 🚀 Kafka Support
     implementation("org.apache.kafka:kafka-clients:3.7.1")
     

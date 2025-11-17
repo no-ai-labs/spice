@@ -86,6 +86,7 @@ data class EventChannel<T : Any>(
  * @property deadLetterTopic Custom DLQ topic (null = default)
  * @property retryPolicy Retry policy for failed events
  * @property ttl Time-to-live for events
+ * @property maxLen Maximum stream length for this channel (null = use global default, 0 = unlimited)
  *
  * @since 1.0.0-alpha-5
  * @author Spice Framework
@@ -96,7 +97,8 @@ data class ChannelConfig(
     val enableDeadLetter: Boolean = true,
     val deadLetterTopic: String? = null,
     val retryPolicy: RetryPolicy = RetryPolicy.NONE,
-    val ttl: Duration? = null
+    val ttl: Duration? = null,
+    val maxLen: Long? = null  // Per-channel stream retention (null = use bus default)
 ) {
     init {
         require(historySize > 0) { "History size must be positive" }

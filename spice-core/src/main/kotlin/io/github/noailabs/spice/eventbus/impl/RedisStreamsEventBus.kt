@@ -122,8 +122,11 @@ class RedisStreamsEventBus(
     // Pending recovery jobs: channelName → Job
     private val recoveryJobs = ConcurrentHashMap<String, Job>()
 
-    // Stream trimming jobs: channelName → Job
-    private val trimmingJobs = ConcurrentHashMap<String, Job>()
+    // Channel configs: channelName → ChannelConfig (for per-channel retention)
+    private val channelConfigs = ConcurrentHashMap<String, ChannelConfig>()
+
+    // Global stream trimming job
+    private var globalTrimmingJob: Job? = null
 
     // Shutdown flag
     private val isShutdown = AtomicBoolean(false)
@@ -144,6 +147,15 @@ class RedisStreamsEventBus(
 
     // Coroutine scope for subscriber management
     private val subscriberScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    init {
+        // Start global stream trimming job if enabled
+        if (streamTrimmingEnabled) {
+            globalTrimmingJob = subscriberScope.launch {
+                globalTrimLoop()
+            }
+        }
+    }
 
     override fun <T : Any> channel(
         name: String,
@@ -167,6 +179,9 @@ class RedisStreamsEventBus(
 
         // Ensure consumer group exists for this stream
         ensureConsumerGroup(name, consumerGroup)
+
+        // Store channel config for global trimming loop
+        channelConfigs[name] = config
 
         return EventChannel(name, type, version, config)
     }
@@ -281,14 +296,8 @@ class RedisStreamsEventBus(
         //     }
         // }
 
-        // Start async stream trimming job if enabled and not already running
-        if (streamTrimmingEnabled && maxLen != null) {
-            trimmingJobs.computeIfAbsent(channel.name) { _ ->
-                subscriberScope.launch {
-                    trimStream(streamKey, maxLen)
-                }
-            }
-        }
+        // Note: Stream trimming now handled by global trimming loop (started in init)
+        // This ensures all streams are trimmed regardless of subscription state
 
         // Return filtered flow
         return sharedFlow.filter { typedEvent ->
@@ -445,32 +454,73 @@ class RedisStreamsEventBus(
     }
 
     /**
-     * Periodically trim Redis Stream to prevent unbounded growth
+     * Global trimming loop that scans all streams and trims them
      *
-     * Runs XTRIM asynchronously at configured interval to limit stream length.
-     * Uses approximate trimming (~) for better performance.
+     * This runs independently of subscriptions, ensuring streams are trimmed even for:
+     * - Publish-only channels (no active subscribers)
+     * - Streams created before event bus started
+     * - Channels that had subscribers but are currently idle
      *
-     * @param streamKey Redis stream key to trim
-     * @param maxLength Maximum number of entries to keep (approximate)
+     * For each stream:
+     * 1. Extracts channel name from stream key
+     * 2. Looks up channel config for per-channel maxLen
+     * 3. Falls back to global maxLen if channel config not found
+     * 4. Trims using XTRIM with approximate (~) for performance
      */
-    private suspend fun trimStream(streamKey: String, maxLength: Long) {
+    private suspend fun globalTrimLoop() {
         if (!streamTrimmingEnabled) return
 
         while (!isShutdown.get()) {
             try {
                 delay(streamTrimmingIntervalMs)
 
-                // Trim stream asynchronously
-                jedisPool.resource.use { jedis ->
-                    // Use XTRIM with MAXLEN ~ (approximate) for better performance
-                    // This doesn't block and allows Redis to trim when convenient
-                    jedis.xtrim(streamKey, maxLength, true) // true = approximate
+                // Scan for all streams matching our namespace pattern
+                val streamPattern = "$namespace:stream:*"
+                val streams = jedisPool.resource.use { jedis ->
+                    val allKeys = mutableListOf<String>()
+                    var cursor = "0"
+
+                    // Use SCAN to find all matching stream keys
+                    do {
+                        val result = jedis.scan(cursor, redis.clients.jedis.params.ScanParams().match(streamPattern))
+                        allKeys.addAll(result.result)
+                        cursor = result.cursor
+                    } while (cursor != "0")
+
+                    allKeys
+                }
+
+                // Trim each stream
+                streams.forEach { streamKey ->
+                    try {
+                        // Extract channel name from stream key: "namespace:stream:channelName" -> "channelName"
+                        val channelName = streamKey.removePrefix("$namespace:stream:")
+
+                        // Get max length: channel config > global default
+                        val channelConfig = channelConfigs[channelName]
+                        val effectiveMaxLen = when {
+                            channelConfig?.maxLen != null && channelConfig.maxLen > 0 -> channelConfig.maxLen
+                            maxLen != null && maxLen > 0 -> maxLen
+                            else -> null // No trimming
+                        }
+
+                        // Trim if maxLen is configured
+                        if (effectiveMaxLen != null) {
+                            jedisPool.resource.use { jedis ->
+                                // Use XTRIM with MAXLEN ~ (approximate) for better performance
+                                jedis.xtrim(streamKey, effectiveMaxLen, true) // true = approximate
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Log error for this stream but continue with others
+                        // In production, this should be logged to monitoring system
+                    }
                 }
 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Log error but continue trimming
+                // Log error but continue trimming loop
                 // In production, this should be logged to monitoring system
             }
         }
@@ -494,6 +544,24 @@ class RedisStreamsEventBus(
         )
     }
 
+    /**
+     * Close the event bus and clean up all resources.
+     *
+     * **Resource Cleanup**:
+     * - Cancels all subscriber jobs (consumer loops)
+     * - Cancels all recovery jobs (pending entry recovery)
+     * - Cancels global trimming job
+     * - Cancels coroutine scopes (subscriber scope, DLQ scope)
+     * - Clears all collections (flows, jobs, signals)
+     * - Returns all Jedis connections to the pool
+     *
+     * **Shutdown Behavior**:
+     * - Consumer loops may block for up to `blockMs` (default: 1 second) before cancellation takes effect
+     * - In-flight DLQ writes are cancelled and may be lost
+     * - JedisPool is NOT closed (it's an injected dependency - caller must close it)
+     *
+     * **Thread-Safety**: Safe to call multiple times (idempotent)
+     */
     override suspend fun close() {
         isShutdown.set(true)
 
@@ -505,9 +573,9 @@ class RedisStreamsEventBus(
         recoveryJobs.values.forEach { it.cancel() }
         recoveryJobs.clear()
 
-        // Cancel all trimming jobs
-        trimmingJobs.values.forEach { it.cancel() }
-        trimmingJobs.clear()
+        // Cancel global trimming job
+        globalTrimmingJob?.cancel()
+        globalTrimmingJob = null
 
         // Clear flows
         subscriberFlows.clear()
@@ -515,7 +583,7 @@ class RedisStreamsEventBus(
         // Clear ready signals
         consumerReadySignals.clear()
 
-        // Cancel DLQ scope
+        // Cancel DLQ scope (in-flight writes may be lost)
         dlqScope?.cancel()
 
         // Cancel subscriber scope

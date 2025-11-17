@@ -7,8 +7,11 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mu.KotlinLogging
 import redis.clients.jedis.JedisPool
 import java.util.UUID
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * 💀 Redis Dead Letter Queue
@@ -55,6 +58,7 @@ import java.util.UUID
  * @property maxSize Maximum total messages across all channels (null = unlimited)
  * @property maxSizePerChannel Maximum messages per channel (null = unlimited)
  * @property ttl Time-to-live for DLQ messages (null = no expiry)
+ * @property onEviction Optional callback when messages are evicted (for monitoring)
  *
  * @since 1.0.0-alpha-5
  * @author Spice Framework
@@ -64,7 +68,8 @@ class RedisDeadLetterQueue(
     private val namespace: String = "spice:dlq",
     private val maxSize: Long? = 10000,
     private val maxSizePerChannel: Long? = 1000,
-    private val ttl: kotlin.time.Duration? = null
+    private val ttl: kotlin.time.Duration? = null,
+    private val onEviction: ((channelName: String, evictedCount: Long) -> Unit)? = null
 ) : DeadLetterQueue {
 
     private val json = Json {
@@ -203,6 +208,17 @@ class RedisDeadLetterQueue(
             retryCount = 0
         )
 
+        // Log DLQ write with structured context
+        logger.warn {
+            "DLQ: Message sent to dead letter queue [id=$messageId, channel=$channelName, reason=$reason, envelopeId=${originalEnvelope.id}]"
+        }
+
+        if (error != null) {
+            logger.debug(error) {
+                "DLQ: Error details for message $messageId in channel $channelName"
+            }
+        }
+
         jedisPool.resource.use { jedis ->
             val messageJson = json.encodeToString(dlqMessage)
             val score = dlqMessage.receivedAt.toEpochMilliseconds().toDouble()
@@ -254,10 +270,22 @@ class RedisDeadLetterQueue(
                 jedis.expire(evictedKey, ttlSeconds)
             }
 
-            // Optional: Log evictions if significant
-            if (evictedCount > 10) {
-                // Operators can monitor this via metrics
-                // logger.warn("DLQ evicted $evictedCount messages from $channelName")
+            // Log and report evictions
+            if (evictedCount > 0) {
+                logger.warn {
+                    "DLQ: Evicted $evictedCount message(s) from channel $channelName [maxSize=$maxSize, maxSizePerChannel=$maxSizePerChannel]"
+                }
+
+                // Invoke callback for monitoring integration
+                onEviction?.invoke(channelName, evictedCount)
+
+                // Log when evictions are excessive
+                if (evictedCount > 100) {
+                    logger.error {
+                        "DLQ: Excessive evictions detected! $evictedCount messages evicted from $channelName. " +
+                        "Consider increasing maxSize ($maxSize) or maxSizePerChannel ($maxSizePerChannel)."
+                    }
+                }
             }
         }
 
@@ -298,6 +326,10 @@ class RedisDeadLetterQueue(
 
             val message = json.decodeFromString<DeadLetterMessage>(messageJson)
 
+            logger.info {
+                "DLQ: Retrying message [id=$messageId, channel=${message.channelName}, retryCount=${message.retryCount + 1}]"
+            }
+
             // Update retry count
             val updated = message.copy(
                 retryCount = message.retryCount + 1,
@@ -317,6 +349,10 @@ class RedisDeadLetterQueue(
                 ?: throw IllegalArgumentException("DLQ message not found: $messageId")
 
             val message = json.decodeFromString<DeadLetterMessage>(messageJson)
+
+            logger.info {
+                "DLQ: Deleting message [id=$messageId, channel=${message.channelName}, reason=${message.reason}]"
+            }
 
             // Delete message from all indices
             jedis.hdel(messagesKey, messageId)
@@ -362,7 +398,7 @@ class RedisDeadLetterQueue(
                 }
             }
 
-            DeadLetterStats(
+            val result = DeadLetterStats(
                 totalMessages = total,
                 byChannel = byChannel,
                 byReason = byReason,
@@ -370,12 +406,23 @@ class RedisDeadLetterQueue(
                 newestMessage = newest,
                 totalEvicted = totalEvicted
             )
+
+            // Log summary for monitoring
+            logger.debug {
+                "DLQ Stats: total=$total, evicted=$totalEvicted, channels=${byChannel.size}, reasons=${byReason.size}"
+            }
+
+            result
         }
     }.getOrElse { DeadLetterStats.EMPTY }
 
     override suspend fun clear(): SpiceResult<Int> = SpiceResult.catching {
         jedisPool.resource.use { jedis ->
             val count = jedis.hlen(messagesKey).toInt()
+
+            logger.warn {
+                "DLQ: Clearing all messages from dead letter queue [count=$count, namespace=$namespace]"
+            }
 
             // Delete main keys
             jedis.del(messagesKey)
@@ -387,14 +434,20 @@ class RedisDeadLetterQueue(
             // Use SCAN to find all channel keys
             val channelPattern = "$namespace:channel:*"
             var cursor = "0"
+            var channelKeysDeleted = 0
             do {
                 val scanResult = jedis.scan(cursor, redis.clients.jedis.params.ScanParams().match(channelPattern))
                 cursor = scanResult.cursor
                 val keys = scanResult.result
                 if (keys.isNotEmpty()) {
                     jedis.del(*keys.toTypedArray())
+                    channelKeysDeleted += keys.size
                 }
             } while (cursor != "0")
+
+            logger.info {
+                "DLQ: Cleared $count messages and $channelKeysDeleted channel indices"
+            }
 
             count
         }
