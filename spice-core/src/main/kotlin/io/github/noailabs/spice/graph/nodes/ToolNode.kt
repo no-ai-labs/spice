@@ -90,17 +90,24 @@ class ToolNode(
         return when (val result = tool.execute(nonNullParams, toolContext)) {
             is SpiceResult.Success -> {
                 val toolResult = result.value
+                val toolMetadata = toolResult.metadata.filterValues { it != null }.mapValues { it.value!! }
 
                 // Embed tool result in message
                 val dataUpdates = buildMap<String, Any> {
                     toolResult.result?.let { put("tool_result", it) }
                     put("tool_success", toolResult.success)
                     put("tool_name", tool.name)
+                    if (toolMetadata.isNotEmpty()) {
+                        putAll(toolMetadata)
+                    }
                 }
-                val metadataUpdates = mapOf<String, Any>(
-                    "tool_executed" to tool.name,
-                    "tool_success" to toolResult.success
-                )
+                val metadataUpdates = buildMap<String, Any> {
+                    put("tool_executed", tool.name)
+                    put("tool_success", toolResult.success)
+                    if (toolMetadata.isNotEmpty()) {
+                        putAll(toolMetadata)
+                    }
+                }
 
                 val output = message
                     .withData(dataUpdates)
