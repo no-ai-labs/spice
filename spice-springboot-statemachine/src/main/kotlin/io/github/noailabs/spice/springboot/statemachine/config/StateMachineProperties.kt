@@ -12,7 +12,8 @@ data class StateMachineProperties(
     val retry: Retry = Retry(),
     val events: Events = Events(),
     val visualization: Visualization = Visualization(),
-    val metrics: Metrics = Metrics()
+    val metrics: Metrics = Metrics(),
+    val execution: Execution = Execution()
 ) {
     data class Persistence(
         val type: PersistenceType = PersistenceType.IN_MEMORY,
@@ -67,4 +68,13 @@ data class StateMachineProperties(
     data class Metrics(
         val enabled: Boolean = true
     )
+
+    data class Execution(
+        val dispatcher: Dispatcher = Dispatcher.IO
+    ) {
+        enum class Dispatcher {
+            IO,
+            DEFAULT
+        }
+    }
 }

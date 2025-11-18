@@ -1,6 +1,10 @@
 package io.github.noailabs.spice.event
 
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.eventbus.EventEnvelope
+import io.github.noailabs.spice.eventbus.EventMetadata
+import io.github.noailabs.spice.eventbus.dlq.DeadLetterQueue
+import io.github.noailabs.spice.eventbus.dlq.InMemoryDeadLetterQueue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.apache.kafka.clients.consumer.ConsumerConfig
@@ -85,6 +90,8 @@ import kotlin.time.Duration.Companion.seconds
  * @property securityProtocol Optional security protocol (SASL_SSL, etc.)
  * @property saslMechanism Optional SASL mechanism (PLAIN, SCRAM, etc.)
  * @property saslJaasConfig Optional SASL JAAS configuration
+ * @property deadLetterQueue Dead letter queue for failed events (default: InMemoryDeadLetterQueue)
+ * @property onDLQWrite Optional callback when event is written to DLQ
  *
  * @since 1.0.0
  */
@@ -100,6 +107,8 @@ class KafkaToolCallEventBus(
     private val securityProtocol: String? = null,
     private val saslMechanism: String? = null,
     private val saslJaasConfig: String? = null,
+    private val deadLetterQueue: DeadLetterQueue = InMemoryDeadLetterQueue(),
+    private val onDLQWrite: ((String, String) -> Unit)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val json: Json = Json {
         ignoreUnknownKeys = true
@@ -127,6 +136,7 @@ class KafkaToolCallEventBus(
     private var publishCount = 0L
     private var subscriberCount = 0
     private var errors = 0L
+    private var dlqCount = 0L
 
     init {
         // Start background consumer
@@ -253,18 +263,46 @@ class KafkaToolCallEventBus(
                             is SpiceResult.Failure -> {
                                 // Record error metrics
                                 if (config.enableMetrics) {
-                                    mutex.withLock { errors++ }
+                                    mutex.withLock {
+                                        errors++
+                                        dlqCount++
+                                    }
+                                }
+
+                                // Create EventEnvelope for DLQ from raw Kafka record
+                                val envelope = EventEnvelope(
+                                    channelName = "kafka.toolcall.events",
+                                    eventType = "ToolCallEvent",
+                                    schemaVersion = "1.0.0",
+                                    payload = record.value(),
+                                    metadata = EventMetadata(
+                                        custom = mapOf(
+                                            "kafka.key" to (record.key() ?: ""),
+                                            "kafka.topic" to record.topic(),
+                                            "kafka.partition" to record.partition().toString(),
+                                            "kafka.offset" to record.offset().toString(),
+                                            "kafka.timestamp" to record.timestamp().toString()
+                                        )
+                                    ),
+                                    timestamp = Clock.System.now(),
+                                    correlationId = record.key()
+                                )
+
+                                // Send to DLQ
+                                val reason = "Deserialization failed: ${decoded.error.message} (type: ${decoded.error.code})"
+                                scope.launch {
+                                    deadLetterQueue.send(envelope, reason, decoded.error.cause)
+                                    onDLQWrite?.invoke(record.key() ?: "unknown", reason)
                                 }
 
                                 // Log error with record metadata
                                 System.err.println(
                                     "[KafkaToolCallEventBus] Failed to decode event at " +
                                     "topic=${record.topic()} partition=${record.partition()} offset=${record.offset()}: " +
-                                    "${decoded.error.message} (type: ${decoded.error.code})"
+                                    "$reason -> Sent to DLQ"
                                 )
 
                                 // Offset auto-commits, so malformed event is skipped
-                                // TODO: Add dead letter handler support
                             }
                         }
                     }

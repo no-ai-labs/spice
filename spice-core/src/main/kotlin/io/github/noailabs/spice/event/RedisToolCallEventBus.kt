@@ -1,6 +1,10 @@
 package io.github.noailabs.spice.event
 
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.eventbus.EventEnvelope
+import io.github.noailabs.spice.eventbus.EventMetadata
+import io.github.noailabs.spice.eventbus.dlq.DeadLetterQueue
+import io.github.noailabs.spice.eventbus.dlq.InMemoryDeadLetterQueue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import redis.clients.jedis.JedisPool
@@ -67,6 +72,8 @@ import kotlin.time.Duration.Companion.seconds
  * @property consumerName Consumer name within group (defaults to UUID)
  * @property startFrom Starting stream ID ("$" for latest, "0-0" for beginning)
  * @property config Event bus configuration
+ * @property deadLetterQueue Dead letter queue for failed events (default: InMemoryDeadLetterQueue)
+ * @property onDLQWrite Optional callback when event is written to DLQ
  *
  * @since 1.0.0
  */
@@ -78,6 +85,8 @@ class RedisToolCallEventBus(
     private val startFrom: String = "$",
     private val config: EventBusConfig = EventBusConfig.DEFAULT,
     private val pollInterval: Duration = 1.seconds,
+    private val deadLetterQueue: DeadLetterQueue = InMemoryDeadLetterQueue(),
+    private val onDLQWrite: ((String, String) -> Unit)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val json: Json = Json {
         ignoreUnknownKeys = true
@@ -105,6 +114,7 @@ class RedisToolCallEventBus(
     private var publishCount = 0L
     private var subscriberCount = 0
     private var errors = 0L
+    private var dlqCount = 0L
 
     init {
         // Create consumer group if specified
@@ -293,17 +303,49 @@ class RedisToolCallEventBus(
                     is SpiceResult.Failure -> {
                         // Record error metrics
                         if (config.enableMetrics) {
-                            mutex.withLock { errors++ }
+                            mutex.withLock {
+                                errors++
+                                dlqCount++
+                            }
                         }
 
-                        // Log error (using System.err until proper logger is added)
-                        System.err.println(
-                            "[RedisToolCallEventBus] Failed to decode event at ${entry.id}: " +
-                            "${decoded.error.message} (type: ${decoded.error.code})"
+                        // Create EventEnvelope for DLQ from Redis stream entry
+                        val envelope = EventEnvelope(
+                            channelName = "redis.toolcall.events",
+                            eventType = "ToolCallEvent",
+                            schemaVersion = "1.0.0",
+                            payload = entry.fields["payload"] ?: "",
+                            metadata = EventMetadata(
+                                custom = mapOf(
+                                    "redis.streamKey" to streamKey,
+                                    "redis.entryId" to entry.id.toString(),
+                                    "redis.consumerGroup" to (consumerGroup ?: "none"),
+                                    "event.type" to (entry.fields["type"] ?: "unknown"),
+                                    "event.runId" to (entry.fields["runId"] ?: ""),
+                                    "toolCallId" to (entry.fields["toolCallId"] ?: "")
+                                )
+                            ),
+                            timestamp = Clock.System.now(),
+                            correlationId = entry.fields["toolCallId"]
                         )
 
-                        // Don't ack - leave in pending list for manual inspection
-                        // TODO: Add dead letter handler support
+                        // Send to DLQ
+                        val reason = "Deserialization failed: ${decoded.error.message} (type: ${decoded.error.code})"
+                        scope.launch {
+                            deadLetterQueue.send(envelope, reason, decoded.error.cause)
+                            onDLQWrite?.invoke(entry.fields["toolCallId"] ?: "unknown", reason)
+                        }
+
+                        // Log error
+                        System.err.println(
+                            "[RedisToolCallEventBus] Failed to decode event at ${entry.id}: " +
+                            "$reason -> Sent to DLQ"
+                        )
+
+                        // ACK the message to prevent infinite retries (already in DLQ)
+                        jedisPool.resource.use { jedis ->
+                            jedis.xack(streamKey, consumerGroup, entry.id)
+                        }
                     }
                 }
             }
@@ -350,19 +392,47 @@ class RedisToolCallEventBus(
                     is SpiceResult.Failure -> {
                         // Record error metrics
                         if (config.enableMetrics) {
-                            mutex.withLock { errors++ }
+                            mutex.withLock {
+                                errors++
+                                dlqCount++
+                            }
+                        }
+
+                        // Create EventEnvelope for DLQ from Redis stream entry
+                        val envelope = EventEnvelope(
+                            channelName = "redis.toolcall.events",
+                            eventType = "ToolCallEvent",
+                            schemaVersion = "1.0.0",
+                            payload = entry.fields["payload"] ?: "",
+                            metadata = EventMetadata(
+                                custom = mapOf(
+                                    "redis.streamKey" to streamKey,
+                                    "redis.entryId" to entry.id.toString(),
+                                    "redis.consumerGroup" to "none",
+                                    "event.type" to (entry.fields["type"] ?: "unknown"),
+                                    "event.runId" to (entry.fields["runId"] ?: ""),
+                                    "toolCallId" to (entry.fields["toolCallId"] ?: "")
+                                )
+                            ),
+                            timestamp = Clock.System.now(),
+                            correlationId = entry.fields["toolCallId"]
+                        )
+
+                        // Send to DLQ
+                        val reason = "Deserialization failed: ${decoded.error.message} (type: ${decoded.error.code})"
+                        scope.launch {
+                            deadLetterQueue.send(envelope, reason, decoded.error.cause)
+                            onDLQWrite?.invoke(entry.fields["toolCallId"] ?: "unknown", reason)
                         }
 
                         // Log error
                         System.err.println(
                             "[RedisToolCallEventBus] Failed to decode event at ${entry.id}: " +
-                            "${decoded.error.message} (type: ${decoded.error.code})"
+                            "$reason -> Sent to DLQ"
                         )
 
                         // Advance offset to skip this malformed event
                         lastReadId = entry.id.toString()
-
-                        // TODO: Add dead letter handler support
                     }
                 }
             }

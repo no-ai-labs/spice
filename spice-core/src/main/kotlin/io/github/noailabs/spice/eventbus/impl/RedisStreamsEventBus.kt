@@ -284,17 +284,13 @@ class RedisStreamsEventBus(
         }
 
         // Start pending recovery job if enabled and not already running
-        // FIXME: XPENDING/XCLAIM recovery disabled due to Jedis API type inference issues
-        // This is a PRODUCTION RISK - messages can be lost on consumer crashes!
-        // See: https://github.com/redis/jedis/issues for proper API typing
-        // Alternative: migrate to Lettuce or implement manual field extraction
-        // if (pendingRecoveryEnabled) {
-        //     recoveryJobs.computeIfAbsent(channel.name) { _ ->
-        //         subscriberScope.launch {
-        //             recoverPendingEntries(streamKey, consumerGroup, channel, sharedFlow)
-        //         }
-        //     }
-        // }
+        if (pendingRecoveryEnabled) {
+            recoveryJobs.computeIfAbsent(channel.name) { _ ->
+                subscriberScope.launch {
+                    recoverPendingEntries(streamKey, consumerGroup, channel, sharedFlow)
+                }
+            }
+        }
 
         // Note: Stream trimming now handled by global trimming loop (started in init)
         // This ensures all streams are trimmed regardless of subscription state
@@ -421,36 +417,196 @@ class RedisStreamsEventBus(
     }
 
     /**
-     * STUB: Periodically recover pending (unacknowledged) entries from Redis Stream
+     * Periodically recover pending (unacknowledged) entries from Redis Stream
      *
-     * ⚠️ NOT IMPLEMENTED - PRODUCTION RISK
+     * This function prevents silent data loss by:
+     * 1. Periodically calling XPENDING to find idle entries (messages delivered but not ACKed)
+     * 2. Using XCLAIM to re-deliver entries that exceed pendingIdleTimeMs
+     * 3. Checking delivery count and routing to DLQ after maxPendingRetries
      *
-     * Without this, messages that are delivered but not ACKed before a consumer
-     * crashes will remain in Redis Streams' pending list forever, causing silent
-     * data loss.
+     * **Recovery Strategy**:
+     * - Every `pendingRecoveryIntervalMs` (default: 30s), scan for pending messages
+     * - Messages idle for > `pendingIdleTimeMs` (default: 60s) are eligible for recovery
+     * - If delivery count >= `maxPendingRetries` (default: 3), route to DLQ
+     * - Otherwise, XCLAIM to re-deliver to this consumer
      *
-     * Required implementation:
-     * 1. Periodically call XPENDING to find idle entries
-     * 2. Use XCLAIM to re-deliver entries that exceed pendingIdleTimeMs
-     * 3. Check delivery count and route to DLQ after maxPendingRetries
+     * **Implementation Details**:
+     * - Uses type-safe wrappers to handle Jedis API quirks
+     * - Runs in background coroutine (started in subscribe(), cancelled in close())
+     * - Handles deserialization failures gracefully (route to DLQ)
+     * - Properly ACKs messages after DLQ routing to prevent infinite loops
      *
-     * Blocked by: Jedis API type inference issues with StreamEntry field accessors
-     * Alternative solutions:
-     * - Migrate to Lettuce client (better Kotlin interop)
-     * - Manual field extraction with explicit casts
-     * - Wrapper functions to handle Jedis type ambiguity
-     *
-     * See: https://github.com/redis/jedis/issues
+     * @since 1.0.0-alpha-6
      */
-    @Suppress("UNUSED_PARAMETER", "unused")
     private suspend fun <T : Any> recoverPendingEntries(
         streamKey: String,
         groupName: String,
         channel: EventChannel<T>,
         sharedFlow: MutableSharedFlow<TypedEvent<T>>
     ) {
-        // TODO: Implement XPENDING/XCLAIM recovery
-        // This is critical for production - messages WILL be lost without it
+        while (!isShutdown.get()) {
+            try {
+                delay(pendingRecoveryIntervalMs)
+
+                // 1. Find idle pending entries using type-safe wrapper
+                val pendingEntries = xpendingSafe(streamKey, groupName)
+
+                // Filter entries that are idle and belong to any consumer
+                val idleEntries = pendingEntries.filter { entry ->
+                    entry.idleTime >= pendingIdleTimeMs
+                }
+
+                if (idleEntries.isEmpty()) {
+                    continue
+                }
+
+                // 2. Process each idle entry
+                for (entry in idleEntries) {
+                    try {
+                        // Check if exceeded max retries
+                        if (entry.deliveryCount >= maxPendingRetries) {
+                            // Route to DLQ
+                            val claimedMessages = xclaimSafe(
+                                streamKey = streamKey,
+                                groupName = groupName,
+                                consumerId = consumerId,
+                                minIdleTime = pendingIdleTimeMs,
+                                messageId = entry.id
+                            )
+
+                            claimedMessages.forEach { claimedEntry ->
+                                try {
+                                    // Extract envelope from claimed entry
+                                    val envelope = EventEnvelope(
+                                        id = claimedEntry.fields["id"] ?: claimedEntry.id,
+                                        channelName = claimedEntry.fields["channelName"] ?: channel.name,
+                                        eventType = claimedEntry.fields["eventType"] ?: "",
+                                        schemaVersion = claimedEntry.fields["schemaVersion"] ?: channel.version,
+                                        payload = claimedEntry.fields["payload"] ?: "",
+                                        metadata = claimedEntry.fields["metadata"]?.let {
+                                            json.decodeFromString(EventMetadata.serializer(), it)
+                                        } ?: EventMetadata(),
+                                        timestamp = claimedEntry.fields["timestamp"]?.let {
+                                            kotlinx.datetime.Instant.parse(it)
+                                        } ?: Clock.System.now()
+                                    )
+
+                                    // Send to DLQ
+                                    val reason = "Max pending retries exceeded (${entry.deliveryCount} >= $maxPendingRetries)"
+                                    getDlqScope().launch {
+                                        deadLetterQueue.send(envelope, reason, null)
+                                        onDLQWrite?.invoke(envelope, reason)
+                                    }
+
+                                    // ACK to prevent re-delivery
+                                    jedisPool.resource.use { jedis ->
+                                        jedis.xack(streamKey, groupName, StreamEntryID(claimedEntry.id))
+                                    }
+
+                                } catch (e: Exception) {
+                                    errorCount.incrementAndGet()
+                                    // Continue with next entry
+                                }
+                            }
+
+                        } else {
+                            // Re-deliver for retry
+                            val claimedMessages = xclaimSafe(
+                                streamKey = streamKey,
+                                groupName = groupName,
+                                consumerId = consumerId,
+                                minIdleTime = pendingIdleTimeMs,
+                                messageId = entry.id
+                            )
+
+                            claimedMessages.forEach { claimedEntry ->
+                                try {
+                                    // Deserialize and emit to flow (same logic as consumeStream)
+                                    val envelope = EventEnvelope(
+                                        id = claimedEntry.fields["id"] ?: claimedEntry.id,
+                                        channelName = claimedEntry.fields["channelName"] ?: channel.name,
+                                        eventType = claimedEntry.fields["eventType"] ?: "",
+                                        schemaVersion = claimedEntry.fields["schemaVersion"] ?: channel.version,
+                                        payload = claimedEntry.fields["payload"] ?: "",
+                                        metadata = claimedEntry.fields["metadata"]?.let {
+                                            json.decodeFromString(EventMetadata.serializer(), it)
+                                        } ?: EventMetadata(),
+                                        timestamp = claimedEntry.fields["timestamp"]?.let {
+                                            kotlinx.datetime.Instant.parse(it)
+                                        } ?: Clock.System.now()
+                                    )
+
+                                    // Deserialize event
+                                    val serializer = schemaRegistry.getSerializer(channel.type, channel.version)
+                                        ?: throw IllegalStateException(
+                                            "No serializer for ${channel.type.qualifiedName}:${channel.version}"
+                                        )
+
+                                    val event = json.decodeFromString(serializer, envelope.payload)
+
+                                    // Emit to flow
+                                    sharedFlow.emit(
+                                        TypedEvent(
+                                            id = envelope.id,
+                                            event = event,
+                                            envelope = envelope,
+                                            receivedAt = Clock.System.now()
+                                        )
+                                    )
+
+                                    consumedCount.incrementAndGet()
+
+                                    // ACK message
+                                    jedisPool.resource.use { jedis ->
+                                        jedis.xack(streamKey, groupName, StreamEntryID(claimedEntry.id))
+                                    }
+
+                                } catch (e: Exception) {
+                                    // Deserialization failed - send to DLQ
+                                    errorCount.incrementAndGet()
+                                    val envelope = EventEnvelope(
+                                        id = claimedEntry.fields["id"] ?: claimedEntry.id,
+                                        channelName = claimedEntry.fields["channelName"] ?: channel.name,
+                                        eventType = claimedEntry.fields["eventType"] ?: "",
+                                        schemaVersion = claimedEntry.fields["schemaVersion"] ?: channel.version,
+                                        payload = claimedEntry.fields["payload"] ?: "",
+                                        metadata = claimedEntry.fields["metadata"]?.let {
+                                            json.decodeFromString(EventMetadata.serializer(), it)
+                                        } ?: EventMetadata(),
+                                        timestamp = claimedEntry.fields["timestamp"]?.let {
+                                            kotlinx.datetime.Instant.parse(it)
+                                        } ?: Clock.System.now()
+                                    )
+
+                                    val reason = "Recovery deserialization failed: ${e.message}"
+                                    getDlqScope().launch {
+                                        deadLetterQueue.send(envelope, reason, e)
+                                        onDLQWrite?.invoke(envelope, reason)
+                                    }
+
+                                    // ACK failed message
+                                    jedisPool.resource.use { jedis ->
+                                        jedis.xack(streamKey, groupName, StreamEntryID(claimedEntry.id))
+                                    }
+                                }
+                            }
+                        }
+
+                    } catch (e: Exception) {
+                        errorCount.incrementAndGet()
+                        // Continue with next entry
+                    }
+                }
+
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!isShutdown.get()) {
+                    errorCount.incrementAndGet()
+                    // Log error and continue
+                }
+            }
+        }
     }
 
     /**
@@ -659,6 +815,139 @@ class RedisStreamsEventBus(
             }
         } catch (e: TimeoutCancellationException) {
             false
+        }
+    }
+
+    // ============================================================================
+    // Type-Safe Jedis Wrappers for XPENDING/XCLAIM
+    // ============================================================================
+
+    /**
+     * Type-safe wrapper for XPENDING result
+     *
+     * Jedis returns StreamPendingEntry with ambiguous field accessors that cause
+     * Kotlin type inference issues. This data class provides a clean, type-safe API.
+     */
+    private data class PendingEntry(
+        val id: String,
+        val consumerName: String,
+        val idleTime: Long,
+        val deliveryCount: Long
+    )
+
+    /**
+     * Type-safe wrapper for XCLAIM result
+     *
+     * Wraps StreamEntry with explicit field types to avoid Jedis API ambiguity.
+     */
+    private data class ClaimedEntry(
+        val id: String,
+        val fields: Map<String, String>
+    )
+
+    /**
+     * Type-safe wrapper for Jedis XPENDING command
+     *
+     * Safely extracts pending entry data from Jedis API, handling type inference issues.
+     *
+     * @param streamKey Redis stream key
+     * @param groupName Consumer group name
+     * @return List of pending entries with type-safe accessors
+     */
+    private fun xpendingSafe(
+        streamKey: String,
+        groupName: String
+    ): List<PendingEntry> {
+        return try {
+            jedisPool.resource.use { jedis ->
+                // Get pending entries summary
+                val pendingSummary: redis.clients.jedis.resps.StreamPendingSummary? =
+                    jedis.xpending(streamKey, groupName)
+
+                // If no pending entries, return empty list
+                if (pendingSummary == null || pendingSummary.total == 0L) {
+                    return@use emptyList<PendingEntry>()
+                }
+
+                // Get detailed pending entries with explicit type
+                val detailedPending: List<redis.clients.jedis.resps.StreamPendingEntry>? =
+                    jedis.xpending(
+                        streamKey,
+                        groupName,
+                        redis.clients.jedis.params.XPendingParams()
+                            .start(redis.clients.jedis.StreamEntryID.MINIMUM_ID)
+                            .end(redis.clients.jedis.StreamEntryID.MAXIMUM_ID)
+                            .count(100)
+                    )
+
+                detailedPending?.mapNotNull { entry: redis.clients.jedis.resps.StreamPendingEntry ->
+                    try {
+                        // Jedis 5.1.2 uses getDeliveredTimes() accessor
+                        // (private field is "deliveredTimes", not "deliveryCount")
+                        PendingEntry(
+                            id = entry.id.toString(),
+                            consumerName = entry.consumerName ?: "",
+                            idleTime = entry.idleTime,
+                            deliveryCount = entry.deliveredTimes  // Use official accessor
+                        )
+                    } catch (e: Exception) {
+                        null  // Skip malformed entries
+                    }
+                } ?: emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()  // Return empty on error (Redis down, group doesn't exist, etc.)
+        }
+    }
+
+    /**
+     * Type-safe wrapper for Jedis XCLAIM command
+     *
+     * Safely claims pending messages and extracts fields, handling Jedis type ambiguity.
+     *
+     * @param streamKey Redis stream key
+     * @param groupName Consumer group name
+     * @param consumerId Consumer ID claiming the message
+     * @param minIdleTime Minimum idle time in milliseconds
+     * @param messageId Message ID to claim
+     * @return List of claimed entries with type-safe field accessors
+     */
+    private fun xclaimSafe(
+        streamKey: String,
+        groupName: String,
+        consumerId: String,
+        minIdleTime: Long,
+        messageId: String
+    ): List<ClaimedEntry> {
+        return try {
+            jedisPool.resource.use { jedis ->
+                // XCLAIM with explicit type annotation
+                val claimed: List<redis.clients.jedis.resps.StreamEntry>? = jedis.xclaim(
+                    streamKey,
+                    groupName,
+                    consumerId,
+                    minIdleTime,
+                    redis.clients.jedis.params.XClaimParams(),
+                    StreamEntryID(messageId)
+                )
+
+                claimed?.mapNotNull { entry: redis.clients.jedis.resps.StreamEntry ->
+                    try {
+                        // Safely extract fields with explicit type conversion
+                        @Suppress("UNCHECKED_CAST")
+                        val fields = (entry.fields as? Map<String, String>) ?: emptyMap()
+
+                        ClaimedEntry(
+                            id = entry.id.toString(),
+                            fields = fields
+                        )
+                    } catch (e: Exception) {
+                        null  // Skip malformed entries
+                    }
+                } ?: emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()  // Return empty on error
         }
     }
 }

@@ -20,6 +20,8 @@ import io.github.noailabs.spice.springboot.statemachine.listeners.HitlStateMachi
 import io.github.noailabs.spice.springboot.statemachine.listeners.MetricsCollector
 import io.github.noailabs.spice.springboot.statemachine.listeners.NodeExecutionLogger
 import io.github.noailabs.spice.springboot.statemachine.persistence.StateMachineCheckpointBridge
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -141,6 +143,14 @@ class StateMachineAutoConfiguration {
         ToolRetryAction(properties.retry)
 
     @Bean
+    fun stateMachineDispatcher(properties: StateMachineProperties): CoroutineDispatcher {
+        return when (properties.execution.dispatcher) {
+            StateMachineProperties.Execution.Dispatcher.DEFAULT -> Dispatchers.Default
+            StateMachineProperties.Execution.Dispatcher.IO -> Dispatchers.IO
+        }
+    }
+
+    @Bean
     @ConditionalOnBean(GraphRunner::class)
     fun graphToStateMachineAdapter(
         stateMachineFactory: SpiceStateMachineFactory,
@@ -148,7 +158,8 @@ class StateMachineAutoConfiguration {
         checkpointSaveAction: CheckpointSaveAction,
         eventPublishAction: EventPublishAction,
         toolRetryAction: ToolRetryAction,
-        retryableErrorGuard: RetryableErrorGuard
+        retryableErrorGuard: RetryableErrorGuard,
+        stateMachineDispatcher: CoroutineDispatcher
     ): GraphToStateMachineAdapter {
         return GraphToStateMachineAdapter(
             stateMachineFactory = stateMachineFactory,
@@ -156,7 +167,8 @@ class StateMachineAutoConfiguration {
             checkpointSaveAction = checkpointSaveAction,
             eventPublishAction = eventPublishAction,
             toolRetryAction = toolRetryAction,
-            retryableErrorGuard = retryableErrorGuard
+            retryableErrorGuard = retryableErrorGuard,
+            dispatcher = stateMachineDispatcher
         )
     }
 

@@ -148,7 +148,6 @@ class RedisStreamsEventBusSmokeTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("FIXME: Requires XPENDING/XCLAIM recovery implementation - messages are read but pending count query fails due to recovery stub. See RedisStreamsEventBus.recoverPendingEntries() TODO")
     fun `should read event from Redis stream`() = runBlocking {
         val registry = DefaultSchemaRegistry()
         registry.register(SimpleEvent::class, "1.0.0", SimpleEvent.serializer())

@@ -11,7 +11,10 @@ import io.github.noailabs.spice.springboot.statemachine.actions.NodeExecutionAct
 import io.github.noailabs.spice.springboot.statemachine.actions.ToolRetryAction
 import io.github.noailabs.spice.springboot.statemachine.events.WorkflowCompletedEvent
 import io.github.noailabs.spice.springboot.statemachine.guards.RetryableErrorGuard
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import org.slf4j.LoggerFactory
 
@@ -24,11 +27,12 @@ class GraphToStateMachineAdapter(
     private val checkpointSaveAction: CheckpointSaveAction,
     private val eventPublishAction: EventPublishAction,
     private val toolRetryAction: ToolRetryAction,
-    private val retryableErrorGuard: RetryableErrorGuard
+    private val retryableErrorGuard: RetryableErrorGuard,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val logger = LoggerFactory.getLogger(GraphToStateMachineAdapter::class.java)
 
-    suspend fun execute(graph: Graph, message: SpiceMessage): SpiceResult<SpiceMessage> {
+    suspend fun execute(graph: Graph, message: SpiceMessage): SpiceResult<SpiceMessage> = withContext(dispatcher) {
         val stateMachine = stateMachineFactory.create()
         val springStateMachine = stateMachine.asSpringStateMachine()
         val runId = message.runId ?: "${graph.id}:${System.currentTimeMillis()}"
@@ -128,7 +132,7 @@ class GraphToStateMachineAdapter(
         }
 
         stateMachine.stop()
-        return lastResult ?: SpiceResult.failure(
+        lastResult ?: SpiceResult.failure(
             SpiceError.executionError("Graph execution did not produce any result", graph.id)
         )
     }

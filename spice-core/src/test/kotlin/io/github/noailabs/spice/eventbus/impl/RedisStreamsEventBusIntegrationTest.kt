@@ -315,7 +315,6 @@ class RedisStreamsEventBusIntegrationTest {
     // ============================================================================
 
     @Test
-    @org.junit.jupiter.api.Disabled("TODO: Requires XPENDING/XCLAIM recovery implementation. Currently fails with NPE in Jedis xpending() call. See RedisStreamsEventBus.recoverPendingEntries() stub.")
     fun `should detect pending entries`() = runBlocking {
         val channel = eventBus1.channel<TestEvent>("test.pending", "1.0.0")
 
