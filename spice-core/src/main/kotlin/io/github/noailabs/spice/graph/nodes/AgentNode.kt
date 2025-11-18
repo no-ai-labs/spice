@@ -1,72 +1,116 @@
 package io.github.noailabs.spice.graph.nodes
 
 import io.github.noailabs.spice.Agent
-import io.github.noailabs.spice.Comm
-import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.graph.Node
-import io.github.noailabs.spice.graph.NodeContext
-import io.github.noailabs.spice.graph.NodeResult
-import io.github.noailabs.spice.toAgentContext
+import io.github.noailabs.spice.error.SpiceResult
 
 /**
- * Node that executes an Agent.
- * Wraps the existing Spice Agent abstraction for use in graphs.
+ * 🤖 Agent Node for Spice Framework 1.0.0
+ *
+ * Wraps an Agent and integrates it into graph execution.
+ *
+ * **BREAKING CHANGE from 0.x:**
+ * - Direct SpiceMessage → Agent → SpiceMessage flow
+ * - No more Context/Result conversion
+ * - Tool calls automatically passed through
+ * - State machine integrated
+ *
+ * **Architecture:**
+ * ```
+ * Input Message (RUNNING)
+ *   ↓
+ * Agent.processMessage()
+ *   ↓
+ * Output Message (RUNNING/WAITING/COMPLETED)
+ *   ↓
+ * Tool calls propagated in message.toolCalls
+ * ```
+ *
+ * **Usage:**
+ * ```kotlin
+ * val agent = MyAgent(id = "booking-agent")
+ * val node = AgentNode(agent)
+ *
+ * graph("workflow") {
+ *     agent("booking", agent)  // Uses AgentNode internally
+ *     output("result")
+ *     edge("booking", "result")
+ * }
+ * ```
+ *
+ * @property agent The wrapped agent instance
+ * @since 1.0.0
  */
 class AgentNode(
-    override val id: String,
-    val agent: Agent,
-    val inputKey: String? = null  // If null, use "input" or last node's result
+    private val agent: Agent
 ) : Node {
-    override suspend fun run(ctx: NodeContext): SpiceResult<NodeResult> {
-        // Get input: use inputKey, or "_previous", or "input"
-        val inputContent = when {
-            inputKey != null -> ctx.state[inputKey]?.toString() ?: ""
-            ctx.state.containsKey("_previous") -> ctx.state["_previous"]?.toString() ?: ""
-            ctx.state.containsKey("input") -> ctx.state["input"]?.toString() ?: ""
-            else -> ""
+    override val id: String = agent.id
+
+    /**
+     * Execute agent with message
+     *
+     * **Flow:**
+     * 1. Validate agent is ready
+     * 2. Call agent.processMessage()
+     * 3. Preserve message correlation
+     * 4. Propagate tool calls
+     * 5. Update graph context
+     *
+     * **State Handling:**
+     * - Input state: Typically RUNNING
+     * - Output state: Depends on agent logic (RUNNING/WAITING/COMPLETED)
+     *
+     * **Tool Calls:**
+     * - Agent can add tool calls via message.withToolCall()
+     * - Tool calls are preserved in output message
+     * - Next nodes can access via message.toolCalls
+     *
+     * @param message Input message with execution context
+     * @return SpiceResult with agent response or error
+     */
+    override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
+        // Validate agent is ready
+        if (!agent.isReady()) {
+            return SpiceResult.failure(
+                io.github.noailabs.spice.error.SpiceError.executionError(
+                    "Agent is not ready: ${agent.id}",
+                    nodeId = id
+                )
+            )
         }
 
-        // 🔥 Extract previous Comm's data for propagation
-        // Priority: _previousComm (from previous node) -> comm (initial state) -> metadata (fallback)
-        val previousComm = ctx.state["_previousComm"] as? Comm
-            ?: ctx.state["comm"] as? Comm  // 🆕 Support initial Comm from graph input
+        // Execute agent
+        return when (val result = agent.processMessage(message)) {
+            is SpiceResult.Success -> {
+                val response = result.value
 
-        val previousData = previousComm?.data
-            ?: (ctx.state["metadata"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value.toString() }  // 🆕 Support direct metadata map
-            ?: emptyMap()
-
-        // 🔥 Merge ctx.context into comm.data for Checkpoint HITL support!
-        // This ensures Agent receives all ExecutionContext data (e.g., reservations_json from Checkpoint)
-        val contextData = ctx.context.toMap().mapValues { it.value.toString() }
-        val mergedData = contextData + previousData  // context first, then previousData overwrites
-
-        // Create Comm from input (with ExecutionContext and propagated data)
-        val comm = Comm(
-            content = inputContent,
-            from = "graph-${ctx.graphId}",
-            context = ctx.context,  // ✨ Context propagation via ExecutionContext!
-            data = mergedData             // 🔥 Metadata propagation with ExecutionContext merge!
-        )
-
-        // Execute agent and map to NodeResult (chain SpiceResult)
-        return agent.processComm(comm)
-            .map { response ->
-                // 🔥 Store full response Comm in metadata for next node to access
-                val additional = buildMap<String, Any?> {
-                    put("agentId", agent.id)
-                    put("agentName", agent.name)
-                    put("_previousComm", response)  // Store Comm in metadata
-
-                    // 🆕 Propagate comm.data to metadata for non-AgentNode access
-                    // This allows DynamicHumanNode and other nodes to read agent data
-                    response.data.forEach { (key, value) ->
-                        put(key, value)
-                    }
-
-                    ctx.context.tenantId?.let { put("tenantId", it) }
-                    ctx.context.userId?.let { put("userId", it) }
+                // Ensure correlationId is preserved
+                val output = if (response.correlationId != message.correlationId) {
+                    response.copy(correlationId = message.correlationId)
+                } else {
+                    response
                 }
-                NodeResult.fromContext(ctx, data = response.content, additional = additional)
+
+                // Update graph context
+                val contextualizedOutput = output.withGraphContext(
+                    graphId = message.graphId,
+                    nodeId = id,
+                    runId = message.runId
+                )
+
+                SpiceResult.success(contextualizedOutput)
             }
+            is SpiceResult.Failure -> {
+                // Propagate agent error
+                SpiceResult.failure(result.error)
+            }
+        }
     }
+
+    /**
+     * Get wrapped agent
+     * @return Agent instance
+     */
+    fun getAgent(): Agent = agent
 }

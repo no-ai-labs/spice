@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "io.github.noailabs"
-    version = "0.9.5"
+    version = "1.0.0-beta-1"
 
     repositories {
         mavenCentral()
@@ -23,5 +23,23 @@ subprojects {
     
     tasks.withType<Test> {
         useJUnitPlatform()
+    }
+
+    plugins.withId("maven-publish") {
+        extensions.configure<PublishingExtension>("publishing") {
+            repositories {
+                maven {
+                    name = "Nexus"
+                    val releasesRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-releases")
+                    val snapshotsRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-snapshots")
+                    url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+                    isAllowInsecureProtocol = true
+                    credentials {
+                        username = findProperty("nexusUsername") as String? ?: System.getenv("NEXUS_USERNAME")
+                        password = findProperty("nexusPassword") as String? ?: System.getenv("NEXUS_PASSWORD")
+                    }
+                }
+            }
+        }
     }
 }

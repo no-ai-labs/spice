@@ -1,230 +1,401 @@
 package io.github.noailabs.spice.springboot
 
-import io.github.noailabs.spice.Agent
-import io.github.noailabs.spice.CommHub
-import io.github.noailabs.spice.SpiceConfig
-import io.github.noailabs.spice.VectorStoreSettings
-import io.github.noailabs.spice.agents.claudeAgent
-import io.github.noailabs.spice.agents.gptAgent
-import io.github.noailabs.spice.agents.mockClaudeAgent
-import io.github.noailabs.spice.agents.mockGPTAgent
-import io.github.noailabs.spice.config.AnthropicConfig
-import io.github.noailabs.spice.config.OpenAIConfig
+import io.github.noailabs.spice.arbiter.Arbiter
+import io.github.noailabs.spice.arbiter.InMemoryMessageQueue
+import io.github.noailabs.spice.arbiter.MessageQueue
+import io.github.noailabs.spice.arbiter.RedisMessageQueue
+import io.github.noailabs.spice.cache.CachePolicy
+import io.github.noailabs.spice.cache.InMemoryVectorCache
+import io.github.noailabs.spice.cache.RedisVectorCache
+import io.github.noailabs.spice.cache.VectorCache
+import io.github.noailabs.spice.event.EventBusConfig
+import io.github.noailabs.spice.event.InMemoryToolCallEventBus
+import io.github.noailabs.spice.event.KafkaToolCallEventBus
+import io.github.noailabs.spice.event.RedisToolCallEventBus
+import io.github.noailabs.spice.event.ToolCallEventBus
+import io.github.noailabs.spice.events.EventBus
+import io.github.noailabs.spice.events.InMemoryEventBus
+import io.github.noailabs.spice.events.KafkaEventBus
+import io.github.noailabs.spice.events.RedisStreamsEventBus
+import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
+import io.github.noailabs.spice.graph.runner.GraphRunner
+import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.idempotency.InMemoryIdempotencyStore
+import io.github.noailabs.spice.idempotency.RedisIdempotencyStore
+import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.springboot.GraphProvider
+import io.github.noailabs.spice.validation.DeadLetterHandler
+import io.github.noailabs.spice.validation.SchemaValidationPipeline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.context.SmartLifecycle
 import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Primary
+import java.util.concurrent.atomic.AtomicBoolean
+import redis.clients.jedis.DefaultJedisClientConfig
+import redis.clients.jedis.HostAndPort
+import redis.clients.jedis.JedisPool
+import kotlin.time.toKotlinDuration
 
 /**
- * Spice Framework Spring Boot Auto Configuration
- * 
- * Automatically configures Spice Framework components based on application properties.
+ * Auto-configuration aligning Spice Spring Boot starter with the 1.0 core runtime.
  */
 @AutoConfiguration
-@EnableConfigurationProperties(SpiceProperties::class)
+@EnableConfigurationProperties(SpiceFrameworkProperties::class)
+@ConditionalOnProperty(prefix = "spice", name = ["enabled"], havingValue = "true", matchIfMissing = true)
 class SpiceAutoConfiguration {
-    
-    /**
-     * Initialize SpiceConfig from Spring properties
-     */
+
     @Bean
-    @Primary
-    @ConditionalOnProperty(name = ["spice.enabled"], havingValue = "true", matchIfMissing = true)
-    fun spiceConfig(properties: SpiceProperties): SpiceConfig {
-        
-        SpiceConfig.initialize {
-            // Configure providers
-            providers {
-                if (properties.openai.enabled && properties.openai.apiKey.isNotEmpty()) {
-                    openai {
-                        enabled = properties.openai.enabled
-                        apiKey = properties.openai.apiKey
-                        baseUrl = properties.openai.baseUrl
-                        model = properties.openai.model
-                        temperature = properties.openai.temperature
-                        maxTokens = properties.openai.maxTokens
-                        timeoutMs = properties.openai.timeoutMs
-                        functionCalling = properties.openai.functionCalling
-                        vision = properties.openai.vision
-                    }
-                }
-                
-                if (properties.anthropic.enabled && properties.anthropic.apiKey.isNotEmpty()) {
-                    anthropic {
-                        enabled = properties.anthropic.enabled
-                        apiKey = properties.anthropic.apiKey
-                        baseUrl = properties.anthropic.baseUrl
-                        model = properties.anthropic.model
-                        temperature = properties.anthropic.temperature
-                        maxTokens = properties.anthropic.maxTokens
-                        timeoutMs = properties.anthropic.timeoutMs
-                        toolUse = properties.anthropic.toolUse
-                        vision = properties.anthropic.vision
-                    }
-                }
-                
-                if (properties.vertex.enabled && properties.vertex.projectId.isNotEmpty()) {
-                    vertex {
-                        enabled = properties.vertex.enabled
-                        projectId = properties.vertex.projectId
-                        location = properties.vertex.location
-                        model = properties.vertex.model
-                        temperature = properties.vertex.temperature
-                        maxTokens = properties.vertex.maxTokens
-                        timeoutMs = properties.vertex.timeoutMs
-                        functionCalling = properties.vertex.functionCalling
-                        multimodal = properties.vertex.multimodal
-                        serviceAccountKeyPath = properties.vertex.serviceAccountKeyPath
-                        useApplicationDefaultCredentials = properties.vertex.useApplicationDefaultCredentials
-                    }
-                }
-                
-                if (properties.vllm.enabled && properties.vllm.baseUrl.isNotEmpty()) {
-                    vllm {
-                        enabled = properties.vllm.enabled
-                        baseUrl = properties.vllm.baseUrl
-                        model = properties.vllm.model
-                        temperature = properties.vllm.temperature
-                        maxTokens = properties.vllm.maxTokens
-                        timeoutMs = properties.vllm.timeoutMs
-                        batchSize = properties.vllm.batchSize
-                        maxConcurrentRequests = properties.vllm.maxConcurrentRequests
-                    }
-                }
-            }
-            
-            // Configure engine
-            engine {
-                enabled = properties.engine.enabled
-                maxAgents = properties.engine.maxAgents
-                cleanupIntervalMs = properties.engine.cleanupIntervalMs
-                maxMessageHistory = properties.engine.maxMessageHistory
-                enableStreaming = properties.engine.enableStreaming
-                enableCycleDetection = properties.engine.enableCycleDetection
-                enableHealthCheck = properties.engine.enableHealthCheck
-            }
-            
-            // Configure debug if needed
-            debug {
-                enabled = properties.debug?.enabled ?: false
-                prefix = properties.debug?.prefix ?: "[SPICE]"
-                logAgentCommunication = properties.debug?.logAgentCommunication ?: false
-            }
-            
-            // Configure vector store
-            vectorStore {
-                enabled = properties.vectorstore.enabled
-                defaultProvider = properties.vectorstore.defaultProvider
-                
-                properties.vectorstore.qdrant?.let { qdrantProps ->
-                    qdrant = VectorStoreSettings.QdrantConfig(
-                        host = qdrantProps.host,
-                        port = qdrantProps.port,
-                        apiKey = qdrantProps.apiKey,
-                        useTls = qdrantProps.useTls
+    @ConditionalOnMissingBean
+    fun schemaValidationPipeline(): SchemaValidationPipeline = SchemaValidationPipeline()
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun executionStateMachine(): ExecutionStateMachine = ExecutionStateMachine()
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun cachePolicy(properties: SpiceFrameworkProperties): CachePolicy {
+        val cache = properties.cache
+        return CachePolicy(
+            toolCallTtl = cache.toolCallTtl.toKotlinDuration(),
+            stepTtl = cache.stepTtl.toKotlinDuration(),
+            intentTtl = cache.intentTtl.toKotlinDuration()
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun graphRunner(
+        properties: SpiceFrameworkProperties,
+        schemaValidationPipeline: SchemaValidationPipeline,
+        executionStateMachine: ExecutionStateMachine,
+        cachePolicy: CachePolicy,
+        vectorCacheProvider: ObjectProvider<VectorCache>
+    ): GraphRunner {
+        val vectorCache = vectorCacheProvider.getIfAvailable()
+        val graphRunnerProps = properties.graphRunner
+        return DefaultGraphRunner(
+            enableIdempotency = graphRunnerProps.enableIdempotency,
+            enableEvents = graphRunnerProps.enableEvents,
+            validationPipeline = schemaValidationPipeline,
+            stateMachine = executionStateMachine,
+            cachePolicy = cachePolicy,
+            vectorCache = vectorCache
+        )
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnProperty(prefix = "spice.redis", name = ["enabled"], havingValue = "true")
+    fun spiceRedisPool(properties: SpiceFrameworkProperties): JedisPool {
+        val redis = properties.redis
+        val clientConfigBuilder = DefaultJedisClientConfig.builder()
+            .database(redis.database)
+            .ssl(redis.ssl)
+        redis.password?.takeIf { it.isNotBlank() }?.let { clientConfigBuilder.password(it) }
+        val clientConfig = clientConfigBuilder.build()
+        return JedisPool(HostAndPort(redis.host, redis.port), clientConfig)
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.vector-cache", name = ["enabled"], havingValue = "true")
+    fun vectorCache(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): VectorCache {
+        val config = properties.vectorCache
+        return when (config.backend) {
+            SpiceFrameworkProperties.VectorCacheProperties.Backend.IN_MEMORY -> InMemoryVectorCache()
+            SpiceFrameworkProperties.VectorCacheProperties.Backend.REDIS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "Vector cache backend set to REDIS but spice.redis.enabled=false"
                     )
-                }
-                
-                properties.vectorstore.pinecone?.let { pineconeProps ->
-                    pinecone = VectorStoreSettings.PineconeConfig(
-                        apiKey = pineconeProps.apiKey,
-                        environment = pineconeProps.environment,
-                        projectName = pineconeProps.projectName,
-                        indexName = pineconeProps.indexName
-                    )
-                }
-                
-                properties.vectorstore.weaviate?.let { weaviateProps ->
-                    weaviate = VectorStoreSettings.WeaviateConfig(
-                        host = weaviateProps.host,
-                        port = weaviateProps.port,
-                        scheme = weaviateProps.scheme,
-                        apiKey = weaviateProps.apiKey
-                    )
-                }
+                RedisVectorCache(redisPool, namespace = config.namespace)
             }
         }
-        
-        return SpiceConfig.current()
     }
-    
-    /**
-     * CommHub bean
-     */
+
     @Bean
-    @ConditionalOnProperty(name = ["spice.enabled"], havingValue = "true", matchIfMissing = true)
-    fun commHub(): CommHub {
-        CommHub.reset() // Ensure clean state
-        return CommHub
+    @ConditionalOnProperty(prefix = "spice.idempotency", name = ["enabled"], havingValue = "true")
+    @ConditionalOnMissingBean
+    fun idempotencyStore(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): IdempotencyStore {
+        val config = properties.idempotency
+        return when (config.backend) {
+            SpiceFrameworkProperties.IdempotencyProperties.Backend.IN_MEMORY ->
+                InMemoryIdempotencyStore(
+                    maxEntries = config.maxEntries,
+                    enableStats = config.enableStats
+                )
+            SpiceFrameworkProperties.IdempotencyProperties.Backend.REDIS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "Idempotency backend set to REDIS but spice.redis.enabled=false"
+                    )
+                RedisIdempotencyStore(
+                    jedisPool = redisPool,
+                    namespace = config.namespace
+                )
+            }
+        }
+    }
+
+    @Bean(destroyMethod = "")  // Disable auto-detection - eventBusLifecycle handles shutdown
+    @ConditionalOnProperty(prefix = "spice.events", name = ["enabled"], havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean
+    fun eventBus(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): EventBus {
+        val events = properties.events
+        return when (events.backend) {
+            SpiceFrameworkProperties.EventProperties.EventBackend.IN_MEMORY -> InMemoryEventBus()
+            SpiceFrameworkProperties.EventProperties.EventBackend.REDIS_STREAMS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "EventBus backend set to REDIS_STREAMS but spice.redis.enabled=false"
+                    )
+                val redisConfig = events.redisStreams
+                RedisStreamsEventBus(
+                    jedisPool = redisPool,
+                    streamKey = redisConfig.streamKey,
+                    consumerPrefix = redisConfig.consumerPrefix,
+                    batchSize = redisConfig.batchSize,
+                    blockTimeout = redisConfig.pollTimeout.toKotlinDuration()
+                )
+            }
+            SpiceFrameworkProperties.EventProperties.EventBackend.KAFKA -> {
+                val kafkaConfig = events.kafka
+                KafkaEventBus(
+                    bootstrapServers = kafkaConfig.bootstrapServers,
+                    topic = kafkaConfig.topic,
+                    clientId = kafkaConfig.clientId,
+                    pollTimeout = kafkaConfig.pollTimeout.toKotlinDuration(),
+                    acks = kafkaConfig.acks,
+                    securityProtocol = kafkaConfig.securityProtocol,
+                    saslMechanism = kafkaConfig.saslMechanism,
+                    saslJaasConfig = kafkaConfig.saslJaasConfig
+                )
+            }
+        }
     }
 
     /**
-     * OpenAI Agent bean
+     * Lifecycle bean for EventBus shutdown
+     * Handles suspend fun close() properly using runBlocking
      */
     @Bean
-    @ConditionalOnProperty(name = ["spice.openai.enabled"], havingValue = "true")
-    fun openaiAgent(spiceConfig: SpiceConfig): Agent? {
-        val config = spiceConfig.providers.getTyped<OpenAIConfig>("openai") ?: return null
-        
-        return gptAgent(
-            id = "spring-openai-agent",
-            apiKey = config.apiKey,
-            model = config.model,
-            systemPrompt = config.systemPrompt,
-            debugEnabled = spiceConfig.debug.enabled
+    @ConditionalOnBean(EventBus::class)
+    fun eventBusLifecycle(eventBus: EventBus): SmartLifecycle {
+        return object : SmartLifecycle {
+            private val running = AtomicBoolean(true)
+
+            override fun start() {
+                // EventBus starts automatically on creation
+            }
+
+            override fun stop() {
+                if (running.compareAndSet(true, false)) {
+                    runBlocking {
+                        eventBus.close()
+                    }
+                }
+            }
+
+            override fun stop(callback: Runnable) {
+                stop()
+                callback.run()
+            }
+
+            override fun isRunning(): Boolean = running.get()
+
+            override fun isAutoStartup(): Boolean = false
+
+            override fun getPhase(): Int = Int.MAX_VALUE - 100 // Shutdown before other components
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.tool-call-event-bus", name = ["enabled"], havingValue = "true")
+    @ConditionalOnMissingBean
+    fun toolCallEventBus(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): ToolCallEventBus {
+        val toolCallEventBus = properties.toolCallEventBus
+        val eventBusConfig = EventBusConfig(
+            enableHistory = toolCallEventBus.history.enabled,
+            historySize = toolCallEventBus.history.size,
+            enableMetrics = toolCallEventBus.history.enableMetrics
+        )
+
+        return when (toolCallEventBus.backend) {
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.IN_MEMORY -> {
+                InMemoryToolCallEventBus(config = eventBusConfig)
+            }
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.REDIS_STREAMS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "ToolCallEventBus backend set to REDIS_STREAMS but spice.redis.enabled=false"
+                    )
+                val redisConfig = toolCallEventBus.redisStreams
+                RedisToolCallEventBus(
+                    jedisPool = redisPool,
+                    streamKey = redisConfig.streamKey,
+                    consumerGroup = redisConfig.consumerGroup,
+                    consumerName = redisConfig.consumerName,
+                    startFrom = redisConfig.startFrom,
+                    config = eventBusConfig,
+                    pollInterval = redisConfig.pollInterval.toKotlinDuration()
+                )
+            }
+            SpiceFrameworkProperties.ToolCallEventBusProperties.ToolCallEventBackend.KAFKA -> {
+                val kafkaConfig = toolCallEventBus.kafka
+                KafkaToolCallEventBus(
+                    bootstrapServers = kafkaConfig.bootstrapServers,
+                    topic = kafkaConfig.topic,
+                    clientId = kafkaConfig.clientId,
+                    consumerGroup = kafkaConfig.consumerGroup,
+                    autoOffsetReset = kafkaConfig.autoOffsetReset,
+                    config = eventBusConfig,
+                    pollTimeout = kafkaConfig.pollTimeout.toKotlinDuration(),
+                    acks = kafkaConfig.acks,
+                    securityProtocol = kafkaConfig.securityProtocol,
+                    saslMechanism = kafkaConfig.saslMechanism,
+                    saslJaasConfig = kafkaConfig.saslJaasConfig
+                )
+            }
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.hitl.queue", name = ["enabled"], havingValue = "true")
+    @ConditionalOnMissingBean
+    fun hitlMessageQueue(
+        properties: SpiceFrameworkProperties,
+        redisPoolProvider: ObjectProvider<JedisPool>
+    ): MessageQueue {
+        val queue = properties.hitl.queue
+        return when (queue.backend) {
+            SpiceFrameworkProperties.HitlProperties.QueueBackend.IN_MEMORY -> InMemoryMessageQueue()
+            SpiceFrameworkProperties.HitlProperties.QueueBackend.REDIS -> {
+                val redisPool = redisPoolProvider.getIfAvailable()
+                    ?: throw IllegalStateException(
+                        "HITL queue backend set to REDIS but spice.redis.enabled=false"
+                    )
+                RedisMessageQueue(
+                    jedisPool = redisPool,
+                    namespace = queue.namespace
+                )
+            }
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "spice.hitl.arbiter", name = ["enabled"], havingValue = "true")
+    @ConditionalOnBean(GraphRunner::class)
+    @ConditionalOnMissingBean
+    fun hitlArbiter(
+        graphRunner: GraphRunner,
+        schemaValidationPipeline: SchemaValidationPipeline,
+        executionStateMachine: ExecutionStateMachine,
+        deadLetterHandlerProvider: ObjectProvider<DeadLetterHandler>,
+        messageQueueProvider: ObjectProvider<MessageQueue>
+    ): Arbiter {
+        val queue = messageQueueProvider.getIfAvailable()
+            ?: throw IllegalStateException(
+                "HITL Arbiter requires a MessageQueue bean. " +
+                    "Enable spice.hitl.queue.enabled or provide your own MessageQueue implementation."
+            )
+
+        return Arbiter(
+            queue = queue,
+            graphRunner = graphRunner,
+            validationPipeline = schemaValidationPipeline,
+            stateMachine = executionStateMachine,
+            deadLetterHandler = deadLetterHandlerProvider.getIfAvailable()
         )
     }
 
     /**
-     * Claude Agent bean
+     * Auto-start the Arbiter when enabled.
+     *
+     * Requires a GraphProvider bean to be configured:
+     * ```kotlin
+     * @Bean
+     * fun graphProvider(): GraphProvider = GraphProvider { message ->
+     *     // Return the appropriate graph based on message
+     *     myGraphRegistry.get(message.data["graphId"] as String)
+     * }
+     * ```
+     *
+     * Uses SmartLifecycle to ensure proper startup/shutdown with Spring context.
      */
     @Bean
-    @ConditionalOnProperty(name = ["spice.anthropic.enabled"], havingValue = "true")
-    fun claudeAgent(spiceConfig: SpiceConfig): Agent? {
-        val config = spiceConfig.providers.getTyped<AnthropicConfig>("anthropic") ?: return null
-        
-        return claudeAgent(
-            id = "spring-claude-agent",
-            apiKey = config.apiKey,
-            model = config.model,
-            systemPrompt = config.systemPrompt,
-            debugEnabled = spiceConfig.debug.enabled
-        )
-    }
+    @ConditionalOnProperty(
+        prefix = "spice.hitl.arbiter",
+        name = ["enabled", "auto-start"],
+        havingValue = "true",
+        matchIfMissing = false
+    )
+    @ConditionalOnBean(Arbiter::class, GraphProvider::class)
+    fun arbiterLifecycle(
+        arbiter: Arbiter,
+        graphProvider: GraphProvider,
+        properties: SpiceFrameworkProperties
+    ): SmartLifecycle {
+        val topic = properties.hitl.arbiter.topic
+        return object : SmartLifecycle {
+            private val running = AtomicBoolean(false)
+            private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            private var job: Job? = null
 
-    /**
-     * Agent registry bean
-     */
-    @Bean
-    fun spiceAgentRegistry(): MutableMap<String, Agent> {
-        return mutableMapOf()
-    }
-    
-    /**
-     * Mock agents for development/testing
-     */
-    @Configuration
-    @ConditionalOnProperty(name = ["spice.mock.enabled"], havingValue = "true")
-    class MockAgentConfiguration {
-        
-        @Bean
-        fun mockGPTAgent(): Agent {
-            return mockGPTAgent(
-                id = "mock-gpt-spring",
-                personality = "professional",
-                debugEnabled = true
-            )
-        }
-        
-        @Bean
-        fun mockClaudeAgent(): Agent {
-            return mockClaudeAgent(
-                id = "mock-claude-spring",
-                personality = "friendly",
-                debugEnabled = true
-            )
+            override fun start() {
+                if (running.compareAndSet(false, true)) {
+                    if (!scope.isActive) {
+                        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                    }
+                    job = scope.launch {
+                        arbiter.start(topic, graphProvider::provide)
+                    }
+                }
+            }
+
+            override fun stop(callback: Runnable) {
+                stop()
+                callback.run()
+            }
+
+            override fun stop() {
+                if (running.compareAndSet(true, false)) {
+                    runBlocking {
+                        job?.cancelAndJoin()
+                        job = null
+                    }
+                    scope.cancel()
+                }
+            }
+
+            override fun isRunning(): Boolean = running.get()
+
+            override fun isAutoStartup(): Boolean = true
+
+            override fun getPhase(): Int = Int.MAX_VALUE
         }
     }
 }

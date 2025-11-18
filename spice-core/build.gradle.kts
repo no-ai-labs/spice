@@ -25,6 +25,7 @@ dependencies {
     // 🌶️ Spice Core Dependencies - Framework 독립적
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.4.1")
 
     // Public API - exposed to consumers (NodeContext.state uses PersistentMap)
     api("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
@@ -42,9 +43,16 @@ dependencies {
     implementation("io.opentelemetry:opentelemetry-exporter-otlp:1.34.1")
     implementation("io.opentelemetry.semconv:opentelemetry-semconv:1.23.1-alpha")
     implementation("io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations:2.1.0")
-    
-    // 🚀 Kafka Support (Optional)
-    compileOnly("org.apache.kafka:kafka-clients:3.7.1")
+
+    // Redis clients for MQ/Cache/Idempotency backends (exposed as API for Spring Boot integration)
+    api("redis.clients:jedis:5.1.2")
+
+    // 📝 Logging
+    implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
+    implementation("org.slf4j:slf4j-api:2.0.9")
+
+    // 🚀 Kafka Support
+    implementation("org.apache.kafka:kafka-clients:3.7.1")
     
     // 🧪 Testing
     testImplementation("org.jetbrains.kotlin:kotlin-test")
@@ -58,6 +66,10 @@ dependencies {
 
     // Test fixtures and utilities
     testImplementation("org.awaitility:awaitility-kotlin:4.2.0")
+
+    // Testcontainers for integration tests
+    testImplementation("org.testcontainers:testcontainers:1.19.3")
+    testImplementation("org.testcontainers:junit-jupiter:1.19.3")
 }
 
 tasks.test {
@@ -100,7 +112,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-core"
-            version = "0.9.5"
+            version = "1.0.0-beta"
 
             pom {
                 name.set("Spice Core")
@@ -114,7 +126,7 @@ publishing {
                 }
                 developers {
                     developer {
-                        id.set("spice-team")
+                        id.set("no-ai-labs")
                         name.set("Spice Framework Team")
                         email.set("human@noailabs.ai")
                     }

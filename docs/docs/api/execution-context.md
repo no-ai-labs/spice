@@ -344,7 +344,6 @@ ctx.state["key"] = "value"
 
 ## See Also
 
-- [Migration Guide](/MIGRATION_GUIDE_v0.6.0.md)
+- [Release Guide](../roadmap/release-1-0-0)
 - [Graph Nodes](/docs/orchestration/graph-nodes)
 - [NodeResult API](/docs/api/graph#noderesult)
-

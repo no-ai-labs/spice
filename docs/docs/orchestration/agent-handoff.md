@@ -352,6 +352,6 @@ withAgentContext(
 
 ## Next Steps
 
-- [HITL (Human-in-the-Loop)](/docs/roadmap/hitl-design) - Graph-level synchronous approval
+- [HITL (Human-in-the-Loop)](../roadmap/release-1-0-0#hitl-queue--arbiter-wiring) - Graph-level synchronous approval
 - [Multi-Agent Orchestration](/docs/orchestration/multi-agent) - Coordinating multiple agents
 - [Context Propagation](/docs/guides/context-propagation) - Utilizing AgentContext

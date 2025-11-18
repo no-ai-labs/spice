@@ -174,16 +174,21 @@ object AgentRegistry : SearchableRegistry<Agent>("agents") {
 ### Register Agents
 
 ```kotlin
-// Register single agent
-val agent = buildAgent {
-    name = "Research Assistant"
-    description = "AI-powered research assistant"
-    capabilities = listOf("research", "analysis", "summarization")
+import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
+import io.github.noailabs.spice.springboot.ai.factory.AnthropicConfig
 
-    llm = anthropic(apiKey = "...") {
-        model = "claude-3-5-sonnet-20241022"
-    }
-}
+// Create agent with Spring AI factory
+val factory: SpringAIAgentFactory = ... // Inject or create
+
+val agent = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(
+        agentId = "research-assistant",
+        agentName = "Research Assistant",
+        agentDescription = "AI-powered research assistant",
+        temperature = 0.7
+    )
+)
 
 AgentRegistry.register(agent)
 
@@ -203,20 +208,30 @@ if (AgentRegistry.has("research-assistant")) {
 Find agents with specific capabilities:
 
 ```kotlin
+import io.github.noailabs.spice.springboot.ai.factory.AnthropicConfig
+
 // Register agents with capabilities
-AgentRegistry.register(buildAgent {
-    name = "Data Analyst"
-    capabilities = listOf("data-analysis", "visualization", "statistics")
-    llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-})
+val dataAnalyst = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(
+        agentId = "data-analyst",
+        agentName = "Data Analyst",
+        agentDescription = "Data analysis specialist #data-analysis #visualization #statistics"
+    )
+)
+AgentRegistry.register(dataAnalyst)
 
-AgentRegistry.register(buildAgent {
-    name = "Code Reviewer"
-    capabilities = listOf("code-review", "security-analysis", "testing")
-    llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-})
+val codeReviewer = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(
+        agentId = "code-reviewer",
+        agentName = "Code Reviewer",
+        agentDescription = "Code review specialist #code-review #security #testing"
+    )
+)
+AgentRegistry.register(codeReviewer)
 
-// Find agents by capability
+// Find agents by capability (searches in description)
 val dataAgents = AgentRegistry.findByCapability("data-analysis")
 println("Data agents: ${dataAgents.size}") // 1
 
@@ -227,7 +242,9 @@ println("Code reviewers: ${reviewers.size}") // 1
 **Dynamic Agent Discovery:**
 
 ```kotlin
-fun getAgentForTask(task: String): Agent? {
+import io.github.noailabs.spice.SpiceMessage
+
+suspend fun getAgentForTask(task: String): Agent? {
     return when {
         task.contains("data") -> AgentRegistry.findByCapability("data-analysis").firstOrNull()
         task.contains("code") -> AgentRegistry.findByCapability("code-review").firstOrNull()
@@ -239,7 +256,9 @@ fun getAgentForTask(task: String): Agent? {
 // Use discovered agent
 val agent = getAgentForTask("Analyze this dataset")
 if (agent != null) {
-    val result = agent.processComm(Comm(content = "Analyze data", from = "user"))
+    val result = agent.processMessage(
+        SpiceMessage.create("Analyze data", "user")
+    )
 }
 ```
 
@@ -249,11 +268,15 @@ Find agents by tags (checks name, description, metadata):
 
 ```kotlin
 // Register agents with tags in description
-AgentRegistry.register(buildAgent {
-    name = "Claude Assistant"
-    description = "Anthropic Claude-powered assistant #anthropic #llm"
-    llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-})
+val claudeAgent = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(
+        agentId = "claude-assistant",
+        agentName = "Claude Assistant",
+        agentDescription = "Anthropic Claude-powered assistant #anthropic #llm"
+    )
+)
+AgentRegistry.register(claudeAgent)
 
 // Find by tag
 val anthropicAgents = AgentRegistry.findByTag("anthropic")
@@ -268,20 +291,30 @@ println("LLM agents: ${llmAgents.size}")
 Find agents by LLM provider:
 
 ```kotlin
+import io.github.noailabs.spice.springboot.ai.factory.OpenAIConfig
+
 // Register agents with different providers
-AgentRegistry.register(buildAgent {
-    name = "Claude Agent"
-    llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-})
+val claudeAgent = factory.anthropic(
+    model = "claude-3-5-sonnet-20241022",
+    config = AnthropicConfig(
+        agentId = "claude-agent",
+        agentName = "Claude Agent"
+    )
+)
+AgentRegistry.register(claudeAgent)
 
-AgentRegistry.register(buildAgent {
-    name = "GPT Agent"
-    llm = openai(...) { model = "gpt-4" }
-})
+val gptAgent = factory.openai(
+    model = "gpt-4",
+    config = OpenAIConfig(
+        agentId = "gpt-agent",
+        agentName = "GPT Agent"
+    )
+)
+AgentRegistry.register(gptAgent)
 
-// Find by provider
+// Find by provider (searches in name/description)
 val claudeAgents = AgentRegistry.findByProvider("claude")
-val openaiAgents = AgentRegistry.findByProvider("openai")
+val openaiAgents = AgentRegistry.findByProvider("gpt")
 
 println("Claude agents: ${claudeAgents.size}")
 println("OpenAI agents: ${openaiAgents.size}")
@@ -801,29 +834,47 @@ ToolRegistry.register(tool)
 Route requests to appropriate agents based on capabilities:
 
 ```kotlin
-class AgentRouter {
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.error.SpiceError
+import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
+import io.github.noailabs.spice.springboot.ai.factory.AnthropicConfig
+
+class AgentRouter(private val factory: SpringAIAgentFactory) {
     init {
         // Register agents with capabilities
-        AgentRegistry.register(buildAgent {
-            name = "Code Reviewer"
-            capabilities = listOf("code-review", "security", "testing")
-            llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-        })
+        val codeReviewer = factory.anthropic(
+            model = "claude-3-5-sonnet-20241022",
+            config = AnthropicConfig(
+                agentId = "code-reviewer",
+                agentName = "Code Reviewer",
+                agentDescription = "Code review specialist #code-review #security #testing"
+            )
+        )
+        AgentRegistry.register(codeReviewer)
 
-        AgentRegistry.register(buildAgent {
-            name = "Data Analyst"
-            capabilities = listOf("data-analysis", "visualization", "statistics")
-            llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-        })
+        val dataAnalyst = factory.anthropic(
+            model = "claude-3-5-sonnet-20241022",
+            config = AnthropicConfig(
+                agentId = "data-analyst",
+                agentName = "Data Analyst",
+                agentDescription = "Data analysis specialist #data-analysis #visualization #statistics"
+            )
+        )
+        AgentRegistry.register(dataAnalyst)
 
-        AgentRegistry.register(buildAgent {
-            name = "Research Assistant"
-            capabilities = listOf("research", "summarization", "fact-checking")
-            llm = anthropic(...) { model = "claude-3-5-sonnet-20241022" }
-        })
+        val researchAssistant = factory.anthropic(
+            model = "claude-3-5-sonnet-20241022",
+            config = AnthropicConfig(
+                agentId = "research-assistant",
+                agentName = "Research Assistant",
+                agentDescription = "Research specialist #research #summarization #fact-checking"
+            )
+        )
+        AgentRegistry.register(researchAssistant)
     }
 
-    suspend fun routeRequest(request: String): SpiceResult<Comm> {
+    suspend fun routeRequest(request: String): SpiceResult<SpiceMessage> {
         // Determine required capability
         val capability = when {
             request.contains("code", ignoreCase = true) -> "code-review"
@@ -833,40 +884,39 @@ class AgentRouter {
         }
 
         if (capability == null) {
-            return SpiceResult.failure(SpiceError(
-                message = "Could not determine appropriate agent",
-                code = "ROUTING_ERROR"
+            return SpiceResult.failure(SpiceError.validationError(
+                "Could not determine appropriate agent"
             ))
         }
 
         // Find agent with capability
         val agent = AgentRegistry.findByCapability(capability).firstOrNull()
-            ?: return SpiceResult.failure(SpiceError(
-                message = "No agent found for capability: $capability",
-                code = "AGENT_NOT_FOUND"
+            ?: return SpiceResult.failure(SpiceError.validationError(
+                "No agent found for capability: $capability"
             ))
 
         // Route to agent
-        return agent.processComm(Comm(
-            content = request,
-            from = "router"
-        ))
+        return agent.processMessage(
+            SpiceMessage.create(request, "router")
+        )
     }
 }
 
 // Usage
-val router = AgentRouter()
+val factory: SpringAIAgentFactory = ... // Inject
+val router = AgentRouter(factory)
 
 val result = router.routeRequest("Review this code for security issues")
-result.fold(
-    onSuccess = { response ->
+when (result) {
+    is SpiceResult.Success -> {
+        val response = result.value
         println("Agent: ${response.from}")
         println("Response: ${response.content}")
-    },
-    onFailure = { error ->
-        println("Routing failed: ${error.message}")
     }
-)
+    is SpiceResult.Failure -> {
+        println("Routing failed: ${result.error.message}")
+    }
+}
 ```
 
 ### Example 2: Tool Marketplace

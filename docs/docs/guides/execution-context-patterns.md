@@ -788,7 +788,6 @@ class ContextSanitizer : Node {
 ## See Also
 
 - [ExecutionContext API](/docs/api/execution-context)
-- [Migration Guide](/MIGRATION_GUIDE_v0.6.0.md)
+- [Release Guide](../roadmap/release-1-0-0)
 - [Graph Nodes](/docs/orchestration/graph-nodes)
 - [Context Propagation](/docs/advanced/context-propagation)
-

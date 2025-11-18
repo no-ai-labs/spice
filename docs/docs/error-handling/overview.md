@@ -156,13 +156,20 @@ when (result) {
 ### With Agents
 
 ```kotlin
-val agent = claudeAgent(apiKey = "...")
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.springboot.ai.factory.SpringAIAgentFactory
 
-agent.processComm(comm)
-    .toResult()  // Convert Comm to SpiceResult
+val factory: SpringAIAgentFactory = ... // Inject
+val agent = factory.anthropic("claude-3-5-sonnet-20241022")
+
+val message = SpiceMessage.create("Hello", "user")
+
+agent.processMessage(message)
     .map { it.content.uppercase() }
-    .recover { error -> "Fallback response" }
-    .onSuccess { println("Success: $it") }
+    .recover { error ->
+        SpiceMessage.create("Fallback response", "system")
+    }
+    .onSuccess { println("Success: ${it.content}") }
     .onFailure { error -> logger.error("Failed: ${error.message}") }
 ```
 

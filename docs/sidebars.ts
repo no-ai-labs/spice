@@ -21,10 +21,7 @@ const sidebars: SidebarsConfig = {
       label: '🗺️ Roadmap & Migration',
       items: [
         'roadmap/overview',
-        'roadmap/af-architecture',
-        'roadmap/migration-guide',
-        'roadmap/migration-0.5-to-0.6',
-        'roadmap/hitl-design',
+        'roadmap/release-1-0-0',
       ],
     },
     {
@@ -45,6 +42,7 @@ const sidebars: SidebarsConfig = {
         'core-concepts/comm',
         'core-concepts/tool',
         'core-concepts/registry',
+        'core-concepts/modules',
       ],
     },
     {
@@ -222,6 +220,7 @@ const sidebars: SidebarsConfig = {
         'api/registry',
         'api/dsl',
         'api/graph',
+        'api/merge-strategies',
       ],
     },
   ],
