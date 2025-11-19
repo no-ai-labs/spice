@@ -122,7 +122,7 @@ version = "1.0.0"
 
 dependencies {
     // Spice Core
-    implementation("io.github.noailabs:spice-core:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-core:1.0.0")
 
     // Kotlin Coroutines (Required)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
@@ -157,11 +157,11 @@ plugins {
 
 dependencies {
     // Spice Framework
-    implementation("io.github.noailabs:spice-core:1.0.0-beta-1")
-    implementation("io.github.noailabs:spice-agents:1.0.0-beta-1")
-    implementation("io.github.noailabs:spice-springboot:1.0.0-beta-1")
-    implementation("io.github.noailabs:spice-springboot-ai:1.0.0-beta-1")
-    implementation("io.github.noailabs:spice-springboot-statemachine:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-core:1.0.0")
+    implementation("io.github.noailabs:spice-agents:1.0.0")
+    implementation("io.github.noailabs:spice-springboot:1.0.0")
+    implementation("io.github.noailabs:spice-springboot-ai:1.0.0")
+    implementation("io.github.noailabs:spice-springboot-statemachine:1.0.0")
 
     // Kotlin
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
@@ -237,7 +237,7 @@ Add to `~/.m2/settings.xml`:
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-core</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <!-- Kotlin -->
@@ -269,31 +269,31 @@ Add to `~/.m2/settings.xml`:
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-core</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-agents</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-springboot</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-springboot-ai</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-springboot-statemachine</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <!-- Kotlin & Coroutines -->
@@ -735,7 +735,7 @@ class SpiceHealthController(
     fun health(): Map<String, Any> {
         return mapOf(
             "status" to "UP",
-            "spice_version" to "1.0.0-beta-1",
+            "spice_version" to "1.0.0",
             "agents_loaded" to agents.size,
             "agents" to agents.map { it.id }
         )
@@ -749,7 +749,7 @@ Expected response:
 ```json
 {
   "status": "UP",
-  "spice_version": "1.0.0-beta-1",
+  "spice_version": "1.0.0",
   "agents_loaded": 1,
   "agents": ["spring-agent"]
 }
@@ -763,7 +763,7 @@ Expected response:
 
 **Error:**
 ```
-Could not resolve io.github.noailabs:spice-core:1.0.0-beta-1
+Could not resolve io.github.noailabs:spice-core:1.0.0
 401 Unauthorized
 ```
 

@@ -43,19 +43,19 @@ dependencyResolutionManagement {
 // build.gradle.kts
 dependencies {
     // Core framework
-    implementation("io.github.noailabs:spice-core:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-core:1.0.0")
 
     // Optional: Agents module
-    implementation("io.github.noailabs:spice-agents:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-agents:1.0.0")
 
     // Optional: Spring Boot integration
-    implementation("io.github.noailabs:spice-springboot:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-springboot:1.0.0")
 
     // Optional: Spring AI integration
-    implementation("io.github.noailabs:spice-springboot-ai:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-springboot-ai:1.0.0")
 
     // Optional: State machine integration
-    implementation("io.github.noailabs:spice-springboot-statemachine:1.0.0-beta-1")
+    implementation("io.github.noailabs:spice-springboot-statemachine:1.0.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
@@ -78,14 +78,14 @@ dependencies {
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-core</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 
     <!-- Optional modules -->
     <dependency>
         <groupId>io.github.noailabs</groupId>
         <artifactId>spice-agents</artifactId>
-        <version>1.0.0-beta-1</version>
+        <version>1.0.0</version>
     </dependency>
 </dependencies>
 ```
