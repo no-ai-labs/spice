@@ -20,6 +20,8 @@ import io.github.noailabs.spice.springboot.statemachine.listeners.HitlStateMachi
 import io.github.noailabs.spice.springboot.statemachine.listeners.MetricsCollector
 import io.github.noailabs.spice.springboot.statemachine.listeners.NodeExecutionLogger
 import io.github.noailabs.spice.springboot.statemachine.persistence.StateMachineCheckpointBridge
+import io.github.noailabs.spice.springboot.statemachine.transformer.MessageTransformer
+import io.github.noailabs.spice.springboot.statemachine.transformer.TransformerChain
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.springframework.beans.factory.annotation.Autowired
@@ -126,7 +128,17 @@ class StateMachineAutoConfiguration {
 
     @Bean
     @ConditionalOnBean(GraphRunner::class)
-    fun nodeExecutionAction(graphRunner: GraphRunner): NodeExecutionAction = NodeExecutionAction(graphRunner)
+    fun nodeExecutionAction(
+        graphRunner: GraphRunner,
+        @Autowired(required = false) transformers: List<MessageTransformer>?
+    ): NodeExecutionAction {
+        val transformerChain = if (!transformers.isNullOrEmpty()) {
+            TransformerChain(transformers)
+        } else {
+            null
+        }
+        return NodeExecutionAction(graphRunner, transformerChain)
+    }
 
     @Bean
     fun checkpointSaveAction(
@@ -159,7 +171,8 @@ class StateMachineAutoConfiguration {
         eventPublishAction: EventPublishAction,
         toolRetryAction: ToolRetryAction,
         retryableErrorGuard: RetryableErrorGuard,
-        stateMachineDispatcher: CoroutineDispatcher
+        stateMachineDispatcher: CoroutineDispatcher,
+        @Autowired(required = false) transformers: List<MessageTransformer>?
     ): GraphToStateMachineAdapter {
         return GraphToStateMachineAdapter(
             stateMachineFactory = stateMachineFactory,
@@ -168,6 +181,7 @@ class StateMachineAutoConfiguration {
             eventPublishAction = eventPublishAction,
             toolRetryAction = toolRetryAction,
             retryableErrorGuard = retryableErrorGuard,
+            transformers = transformers ?: emptyList(),
             dispatcher = stateMachineDispatcher
         )
     }
