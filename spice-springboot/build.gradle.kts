@@ -38,6 +38,7 @@ tasks.bootJar {
 // Enable regular jar task
 tasks.jar {
     enabled = true
+    archiveClassifier.set("")  // Ensure no "-plain" suffix
 }
 
 publishing {
