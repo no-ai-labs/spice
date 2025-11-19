@@ -10,12 +10,11 @@ Modern Kotlin runtime for building AI-centric workflows with **SpiceMessage**, g
 
 | Topic | Description |
 | --- | --- |
-| [README_1.0.md](docs/README_1.0.md) | Documentation hub & navigation |
-| [Quick Start](docs/QUICK_START_1.0.md) | Build and run your first graph in minutes |
-| [Installation](docs/INSTALLATION_1.0.md) | Dependency matrix for core/agents/spring modules |
-| [Architecture](docs/ARCHITECTURE_1.0.md) | SpiceMessage flow, graphs, state machine adapter |
-| [Migration 0.x → 1.0](docs/MIGRATION_0.x_TO_1.0.md) | Breaking changes, side-by-side code samples |
-| [Concept Comparison](docs/CONCEPT_COMPARISON_1.0.md) | Quick reference tables for APIs & patterns |
+| [[README](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/README_1.0.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/README_1.0.md) | Documentation hub & navigation |
+| [[Quick Start](docs/QUICK_START_1.0.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/QUICK_START_1.0.md) | Build and run your first graph in minutes |
+| [[Installation](docs/INSTALLATION_1.0.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/INSTALLATION_1.0.md) | Dependency matrix for core/agents/spring modules |
+| [[Architecture](docs/ARCHITECTURE_1.0.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/ARCHITECTURE_1.0.md) | SpiceMessage flow, graphs, state machine adapter |
+| [[Concept Comparison](docs/CONCEPT_COMPARISON_1.0.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/CONCEPT_COMPARISON_1.0.md) | Quick reference tables for APIs & patterns |
 
 ---
 
@@ -59,7 +58,7 @@ implementation("io.github.noailabs:spice-springboot:1.0.0")
 
 ## 🛡️ Production Readiness
 
-- Redis Streams event bus: pending recovery (XPENDING/XCLAIM) and DLQ routing documented in [REDIS_EVENTBUS_PRODUCTION_READINESS.md](docs/REDIS_EVENTBUS_PRODUCTION_READINESS.md).
+- Redis Streams event bus: pending recovery (XPENDING/XCLAIM) and DLQ routing documented in [[REDIS_EVENTBUS_PRODUCTION_READINESS.md](docs/REDIS_EVENTBUS_PRODUCTION_READINESS.md)](https://github.com/no-ai-labs/spice/blob/8aadc2ba3863ceae8fe976c6c551cc220a562a2d/docs/REDIS_EVENTBUS_PRODUCTION_READINESS.md).
 - ToolCall buses: DLQ support for Kafka/Redis, metrics hooks, and message transformers to enrich context.
 - Documentation includes troubleshooting checklists, verification scripts, and release notes from v0.4 → v1.0.
 
