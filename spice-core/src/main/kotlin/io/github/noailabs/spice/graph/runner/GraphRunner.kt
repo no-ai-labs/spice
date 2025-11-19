@@ -15,7 +15,12 @@ import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.middleware.Middleware
+import io.github.noailabs.spice.graph.nodes.ToolNode
+import io.github.noailabs.spice.graph.nodes.ToolNode.Companion.buildOutputMessage
 import io.github.noailabs.spice.state.ExecutionStateMachine
+import io.github.noailabs.spice.tool.ToolInvocationContext
+import io.github.noailabs.spice.tool.ToolLifecycleListeners
+import io.github.noailabs.spice.ToolContext
 import io.github.noailabs.spice.validation.SchemaValidationPipeline
 import io.github.noailabs.spice.validation.ValidationError
 import kotlinx.datetime.Clock
@@ -115,7 +120,8 @@ class DefaultGraphRunner(
     private val validationPipeline: SchemaValidationPipeline = SchemaValidationPipeline(),
     private val stateMachine: ExecutionStateMachine = ExecutionStateMachine(),
     private val cachePolicy: CachePolicy = CachePolicy(),
-    private val vectorCache: VectorCache? = null
+    private val vectorCache: VectorCache? = null,
+    private val fallbackToolLifecycleListeners: ToolLifecycleListeners? = null
 ) : GraphRunner {
 
     /**
@@ -307,8 +313,14 @@ class DefaultGraphRunner(
                 return beforeResult
             }
 
-            // Execute node
-            val result = node.run(currentMessage)
+            // Execute node (with lifecycle listeners for ToolNode)
+            // Use graph-level listeners if available, otherwise fallback to runner-level listeners
+            val effectiveListeners = graph.toolLifecycleListeners ?: fallbackToolLifecycleListeners
+            val result = if (node is ToolNode && effectiveListeners != null) {
+                executeToolNodeWithListeners(node, currentMessage, effectiveListeners)
+            } else {
+                node.run(currentMessage)
+            }
 
             when (result) {
                 is SpiceResult.Success -> {
@@ -815,6 +827,63 @@ class DefaultGraphRunner(
 
             // Publish to tool call event bus
             toolCallEventBus.publish(event)
+        }
+    }
+
+    /**
+     * Execute a ToolNode with lifecycle listener callbacks
+     *
+     * Wraps tool execution with onInvoke/onSuccess/onFailure/onComplete callbacks.
+     * Handles both SpiceResult.Success and SpiceResult.Failure from tool execution,
+     * as well as ToolResult.success=false (tool returned error result).
+     */
+    private suspend fun executeToolNodeWithListeners(
+        toolNode: ToolNode,
+        message: SpiceMessage,
+        listeners: ToolLifecycleListeners
+    ): SpiceResult<SpiceMessage> {
+        // Prepare invocation using shared helper
+        val (nonNullParams, toolContext) = toolNode.prepareInvocation(message)
+
+        // Create invocation context
+        val invocationContext = ToolInvocationContext.create(
+            tool = toolNode.tool,
+            toolContext = toolContext,
+            params = nonNullParams,
+            attemptNumber = 1
+        )
+
+        // Notify listeners: onInvoke
+        listeners.onInvoke(invocationContext)
+
+        val startTime = Clock.System.now()
+
+        try {
+            // Execute tool
+            val result = toolNode.tool.execute(nonNullParams, toolContext)
+            val durationMs = Clock.System.now().toEpochMilliseconds() - startTime.toEpochMilliseconds()
+
+            return when (result) {
+                is SpiceResult.Success -> {
+                    val toolResult = result.value
+
+                    // Notify listeners: onSuccess (even if toolResult.success=false)
+                    listeners.onSuccess(invocationContext, toolResult, durationMs)
+
+                    // Build output message using shared helper
+                    val output = buildOutputMessage(message, toolResult, toolNode.tool.name)
+
+                    SpiceResult.success(output)
+                }
+                is SpiceResult.Failure -> {
+                    // Notify listeners: onFailure
+                    listeners.onFailure(invocationContext, result.error, durationMs)
+                    SpiceResult.failure(result.error)
+                }
+            }
+        } finally {
+            // Notify listeners: onComplete (always called)
+            listeners.onComplete(invocationContext)
         }
     }
 

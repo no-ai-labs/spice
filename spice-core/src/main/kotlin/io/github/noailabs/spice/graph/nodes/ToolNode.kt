@@ -3,6 +3,7 @@ package io.github.noailabs.spice.graph.nodes
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolContext
+import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 
@@ -70,7 +71,34 @@ class ToolNode(
      * @return SpiceResult with tool result or error
      */
     override suspend fun run(message: SpiceMessage): SpiceResult<SpiceMessage> {
-        // Extract tool parameters from message
+        // Prepare invocation using shared helper
+        val (nonNullParams, toolContext) = prepareInvocation(message)
+
+        // Execute tool
+        return when (val result = tool.execute(nonNullParams, toolContext)) {
+            is SpiceResult.Success -> {
+                val output = buildOutputMessage(message, result.value, tool.name)
+                SpiceResult.success(output)
+            }
+            is SpiceResult.Failure -> {
+                // Propagate tool error
+                SpiceResult.failure(result.error)
+            }
+        }
+    }
+
+    /**
+     * Prepare invocation parameters from message.
+     *
+     * Extracts and sanitizes tool parameters, and creates ToolContext.
+     * This shared method ensures consistent parameter preparation between
+     * ToolNode.run() and GraphRunner.executeToolNodeWithListeners().
+     *
+     * @param message Input message with tool parameters
+     * @return Pair of (sanitized parameters, tool context)
+     */
+    fun prepareInvocation(message: SpiceMessage): Pair<Map<String, Any>, ToolContext> {
+        // Extract tool parameters from message using paramMapper
         val params = paramMapper(message)
 
         // Filter out null values and ensure type is Map<String, Any>
@@ -78,42 +106,59 @@ class ToolNode(
             .mapValues { it.value!! }
 
         // Create ToolContext from message using factory method
-        // This automatically populates auth, tracing, and graph context sections
         val toolContext = ToolContext.from(message, message.from)
 
-        // Execute tool
-        return when (val result = tool.execute(nonNullParams, toolContext)) {
-            is SpiceResult.Success -> {
-                val toolResult = result.value
-                val toolMetadata = toolResult.metadata.filterValues { it != null }.mapValues { it.value!! }
+        return Pair(nonNullParams, toolContext)
+    }
 
-                // Embed tool result in message
-                val dataUpdates = buildMap<String, Any> {
-                    toolResult.result?.let { put("tool_result", it) }
-                    put("tool_success", toolResult.success)
-                    put("tool_name", tool.name)
-                    if (toolMetadata.isNotEmpty()) {
-                        putAll(toolMetadata)
-                    }
+    companion object {
+        /**
+         * Build output message from tool result.
+         *
+         * This is a shared helper used by both ToolNode.run() and
+         * DefaultGraphRunner.executeToolNodeWithListeners() to ensure
+         * consistent message building.
+         *
+         * @param message Input message
+         * @param toolResult Tool execution result
+         * @param toolName Name of the executed tool
+         * @return Output message with tool result embedded
+         */
+        fun buildOutputMessage(
+            message: SpiceMessage,
+            toolResult: ToolResult,
+            toolName: String
+        ): SpiceMessage {
+            val toolMetadata = toolResult.metadata.filterValues { it != null }.mapValues { it.value!! }
+
+            // Embed tool result in message
+            val dataUpdates = buildMap<String, Any> {
+                toolResult.result?.let { put("tool_result", it) }
+                put("tool_success", toolResult.success)
+                put("tool_name", toolName)
+                // Store metadata under namespaced key for DecisionNode routing
+                // Include tool_name for consistency with whenToolMetadata access pattern
+                val lastMetadata = if (toolMetadata.isNotEmpty()) {
+                    toolMetadata + ("tool_name" to toolName)
+                } else {
+                    mapOf("tool_name" to toolName)
                 }
-                val metadataUpdates = buildMap<String, Any> {
-                    put("tool_executed", tool.name)
-                    put("tool_success", toolResult.success)
-                    if (toolMetadata.isNotEmpty()) {
-                        putAll(toolMetadata)
-                    }
+                put("_tool.lastMetadata", lastMetadata)
+                if (toolMetadata.isNotEmpty()) {
+                    putAll(toolMetadata)
                 }
-
-                val output = message
-                    .withData(dataUpdates)
-                    .withMetadata(metadataUpdates)
-
-                SpiceResult.success(output)
             }
-            is SpiceResult.Failure -> {
-                // Propagate tool error
-                SpiceResult.failure(result.error)
+            val metadataUpdates = buildMap<String, Any> {
+                put("tool_executed", toolName)
+                put("tool_success", toolResult.success)
+                if (toolMetadata.isNotEmpty()) {
+                    putAll(toolMetadata)
+                }
             }
+
+            return message
+                .withData(dataUpdates)
+                .withMetadata(metadataUpdates)
         }
     }
 }

@@ -5,6 +5,7 @@ import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.tool.ToolLifecycleListeners
 
 /**
  * 🕸️ Graph for Spice Framework 1.0.0
@@ -59,6 +60,7 @@ import io.github.noailabs.spice.idempotency.IdempotencyStore
  * @property toolCallEventBus Optional tool call event bus for type-safe tool call lifecycle events (Spice 2.0)
  * @property idempotencyStore Optional store for idempotent execution
  * @property checkpointStore Optional store for checkpoint persistence (HITL workflows)
+ * @property toolLifecycleListeners Optional listeners for tool execution lifecycle events (telemetry, metrics, alerting)
  * @since 1.0.0
  */
 data class Graph(
@@ -71,7 +73,8 @@ data class Graph(
     val eventBus: EventBus? = null,
     val toolCallEventBus: ToolCallEventBus? = null,
     val idempotencyStore: IdempotencyStore? = null,
-    val checkpointStore: CheckpointStore? = null
+    val checkpointStore: CheckpointStore? = null,
+    val toolLifecycleListeners: ToolLifecycleListeners? = null
 )
 
 /**

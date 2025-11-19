@@ -57,7 +57,8 @@ object ToolCallEventBusFactory {
         val eventBusConfig = EventBusConfig(
             enableHistory = config.enableHistory,
             historySize = config.historySize,
-            enableMetrics = config.enableMetrics
+            enableMetrics = config.enableMetrics,
+            metadataFilter = config.metadataFilter
         )
 
         return RedisToolCallEventBus(
@@ -80,7 +81,8 @@ object ToolCallEventBusFactory {
         val eventBusConfig = EventBusConfig(
             enableHistory = config.enableHistory,
             historySize = config.historySize,
-            enableMetrics = config.enableMetrics
+            enableMetrics = config.enableMetrics,
+            metadataFilter = config.metadataFilter
         )
 
         return KafkaToolCallEventBus(
@@ -105,18 +107,24 @@ object ToolCallEventBusFactory {
      * - `type`: "inmemory" | "redis" | "kafka"
      * - `history.enabled`: true | false
      * - `history.size`: Int (max events to store)
+     * - `filter.include`: List<String> (whitelist of metadata keys)
+     * - `filter.exclude`: List<String> (blacklist of metadata keys)
      * - Redis: `redis.host`, `redis.port`, `redis.streamKey`, etc.
      * - Kafka: `kafka.bootstrapServers`, `kafka.topic`, etc.
      */
     fun fromConfig(config: Map<String, Any>): ToolCallEventBus {
         val type = config["type"] as? String ?: "inmemory"
 
+        // Parse metadata filter from config
+        val metadataFilter = parseMetadataFilter(config)
+
         return when (type.lowercase()) {
             "inmemory", "in-memory", "memory" -> {
                 val eventBusConfig = EventBusConfig(
                     enableHistory = config["history.enabled"] as? Boolean ?: true,
                     historySize = config["history.size"] as? Int ?: 1000,
-                    enableMetrics = config["history.enableMetrics"] as? Boolean ?: true
+                    enableMetrics = config["history.enableMetrics"] as? Boolean ?: true,
+                    metadataFilter = metadataFilter
                 )
                 inMemory(eventBusConfig)
             }
@@ -136,6 +144,7 @@ object ToolCallEventBusFactory {
                     enableHistory = config["history.enabled"] as? Boolean ?: true
                     historySize = config["history.size"] as? Int ?: 1000
                     enableMetrics = config["history.enableMetrics"] as? Boolean ?: true
+                    this.metadataFilter = metadataFilter
                 }
             }
 
@@ -154,6 +163,7 @@ object ToolCallEventBusFactory {
                     enableHistory = config["history.enabled"] as? Boolean ?: true
                     historySize = config["history.size"] as? Int ?: 1000
                     enableMetrics = config["history.enableMetrics"] as? Boolean ?: true
+                    this.metadataFilter = metadataFilter
                 }
             }
 
@@ -177,7 +187,8 @@ object ToolCallEventBusFactory {
         var pollInterval: Duration = 1.seconds,
         var enableHistory: Boolean = true,
         var historySize: Int = 1000,
-        var enableMetrics: Boolean = true
+        var enableMetrics: Boolean = true,
+        var metadataFilter: MetadataFilterConfig = MetadataFilterConfig.NONE
     )
 
     /**
@@ -196,8 +207,36 @@ object ToolCallEventBusFactory {
         var saslJaasConfig: String? = null,
         var enableHistory: Boolean = true,
         var historySize: Int = 1000,
-        var enableMetrics: Boolean = true
+        var enableMetrics: Boolean = true,
+        var metadataFilter: MetadataFilterConfig = MetadataFilterConfig.NONE
     )
+
+    /**
+     * Parse metadata filter configuration from config map
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseMetadataFilter(config: Map<String, Any>): MetadataFilterConfig {
+        val includeKeys = when (val include = config["filter.include"]) {
+            is List<*> -> (include as? List<String>)?.toSet()
+            is Set<*> -> include as? Set<String>
+            else -> null
+        }
+
+        val excludeKeys = when (val exclude = config["filter.exclude"]) {
+            is List<*> -> (exclude as? List<String>)?.toSet()
+            is Set<*> -> exclude as? Set<String>
+            else -> null
+        }
+
+        return if (includeKeys == null && excludeKeys == null) {
+            MetadataFilterConfig.NONE
+        } else {
+            MetadataFilterConfig(
+                includeMetadataKeys = includeKeys?.takeIf { it.isNotEmpty() },
+                excludeMetadataKeys = excludeKeys?.takeIf { it.isNotEmpty() }
+            )
+        }
+    }
 
     /**
      * Create Jedis pool from Redis config

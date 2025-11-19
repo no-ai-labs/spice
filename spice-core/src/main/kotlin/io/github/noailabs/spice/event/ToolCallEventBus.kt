@@ -152,15 +152,18 @@ interface ToolCallEventBus {
  * @property enableHistory Whether to store event history
  * @property historySize Maximum number of events to store
  * @property enableMetrics Whether to collect metrics
+ * @property metadataFilter Configuration for filtering event metadata (include/exclude keys)
  */
 data class EventBusConfig(
     val enableHistory: Boolean = true,
     val historySize: Int = 1000,
-    val enableMetrics: Boolean = true
+    val enableMetrics: Boolean = true,
+    val metadataFilter: MetadataFilterConfig = MetadataFilterConfig.NONE
 ) {
     companion object {
         val DEFAULT = EventBusConfig()
         val NO_HISTORY = EventBusConfig(enableHistory = false)
         val UNLIMITED_HISTORY = EventBusConfig(historySize = Int.MAX_VALUE)
+        val SECURITY_FILTERED = EventBusConfig(metadataFilter = MetadataFilterConfig.SECURITY_EXCLUDE)
     }
 }

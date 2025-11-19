@@ -11,18 +11,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -32,10 +29,8 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import java.time.Duration as JavaDuration
 import java.util.Properties
-import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.reflect.KClass
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -101,7 +96,7 @@ class KafkaToolCallEventBus(
     private val clientId: String = "spice-toolcall-eventbus",
     private val consumerGroup: String = clientId,
     private val autoOffsetReset: String = "latest",
-    private val config: EventBusConfig = EventBusConfig.DEFAULT,
+    config: EventBusConfig = EventBusConfig.DEFAULT,
     private val pollTimeout: Duration = 1.seconds,
     private val acks: String = "all",
     private val securityProtocol: String? = null,
@@ -115,26 +110,14 @@ class KafkaToolCallEventBus(
         encodeDefaults = true
         classDiscriminator = "_type"
     }
-) : ToolCallEventBus {
+) : AbstractToolCallEventBus(config) {
 
     private val producer = KafkaProducer<String, String>(producerProperties())
-
-    // Local event flow for subscribers on this instance
-    private val eventFlow = MutableSharedFlow<ToolCallEvent>(
-        replay = 0,
-        extraBufferCapacity = 100
-    )
-
-    // Event history (if enabled)
-    private val history = mutableListOf<ToolCallEvent>()
-    private val mutex = Mutex()
 
     // Background consumer job
     private var consumerJob: Job? = null
 
-    // Metrics
-    private var publishCount = 0L
-    private var subscriberCount = 0
+    // Additional metrics
     private var errors = 0L
     private var dlqCount = 0L
 
@@ -143,106 +126,28 @@ class KafkaToolCallEventBus(
         startConsumer()
     }
 
-    override suspend fun publish(event: ToolCallEvent): SpiceResult<Unit> {
-        return SpiceResult.catching {
-            val payload = json.encodeToString<ToolCallEvent>(event)
-            val key = event.toolCall.id  // Use toolCallId as key for partitioning
+    /**
+     * Publish event to Kafka topic.
+     */
+    override suspend fun doPublish(event: ToolCallEvent) {
+        val payload = json.encodeToString<ToolCallEvent>(event)
+        val key = event.toolCall.id  // Use toolCallId as key for partitioning
 
-            val record = ProducerRecord(topic, key, payload)
+        val record = ProducerRecord(topic, key, payload)
 
-            val metadata = suspendCancellableCoroutine<org.apache.kafka.clients.producer.RecordMetadata> { cont ->
-                producer.send(record) { meta, exception ->
-                    if (exception != null) {
-                        cont.resumeWithException(exception)
-                    } else {
-                        cont.resume(meta)
-                    }
+        suspendCancellableCoroutine<org.apache.kafka.clients.producer.RecordMetadata> { cont ->
+            producer.send(record) { meta, exception ->
+                if (exception != null) {
+                    cont.resumeWithException(exception)
+                } else {
+                    cont.resume(meta)
                 }
             }
-
-            // Store in history if enabled
-            if (config.enableHistory) {
-                mutex.withLock {
-                    history.add(event)
-                    if (history.size > config.historySize) {
-                        history.removeAt(0)
-                    }
-                }
-            }
-
-            // Update metrics
-            if (config.enableMetrics) {
-                mutex.withLock {
-                    publishCount++
-                }
-            }
-
-            Unit
         }
-    }
-
-    override fun subscribe(): Flow<ToolCallEvent> {
-        subscriberCount++
-        return eventFlow
-    }
-
-    override fun subscribe(vararg eventTypes: KClass<out ToolCallEvent>): Flow<ToolCallEvent> {
-        subscriberCount++
-        return eventFlow.filter { event ->
-            eventTypes.any { it.isInstance(event) }
-        }
-    }
-
-    override fun subscribeToToolCall(toolCallId: String): Flow<ToolCallEvent> {
-        subscriberCount++
-        return eventFlow.filter { event ->
-            event.toolCall.id == toolCallId
-        }
-    }
-
-    override fun subscribeToRun(runId: String): Flow<ToolCallEvent> {
-        subscriberCount++
-        return eventFlow.filter { event ->
-            when (event) {
-                is ToolCallEvent.Emitted -> event.runId == runId
-                else -> event.message.runId == runId
-            }
-        }
-    }
-
-    override suspend fun getHistory(limit: Int): SpiceResult<List<ToolCallEvent>> {
-        return mutex.withLock {
-            if (!config.enableHistory) {
-                return@withLock SpiceResult.success(emptyList())
-            }
-            val events = history.takeLast(limit).reversed()
-            SpiceResult.success(events)
-        }
-    }
-
-    override suspend fun getToolCallHistory(toolCallId: String): SpiceResult<List<ToolCallEvent>> {
-        return mutex.withLock {
-            if (!config.enableHistory) {
-                return@withLock SpiceResult.success(emptyList())
-            }
-            val events = history.filter { it.toolCall.id == toolCallId }
-            SpiceResult.success(events)
-        }
-    }
-
-    override suspend fun clearHistory(): SpiceResult<Unit> {
-        return mutex.withLock {
-            history.clear()
-            SpiceResult.success(Unit)
-        }
-    }
-
-    override suspend fun getSubscriberCount(): Int {
-        return subscriberCount
     }
 
     /**
-     * Start background Kafka consumer
+     * Start background Kafka consumer.
      */
     private fun startConsumer() {
         consumerJob = scope.launch {
@@ -258,51 +163,10 @@ class KafkaToolCallEventBus(
                             json.decodeFromString<ToolCallEvent>(record.value())
                         }) {
                             is SpiceResult.Success -> {
-                                eventFlow.emit(decoded.value)
+                                emitToSubscribers(decoded.value)
                             }
                             is SpiceResult.Failure -> {
-                                // Record error metrics
-                                if (config.enableMetrics) {
-                                    mutex.withLock {
-                                        errors++
-                                        dlqCount++
-                                    }
-                                }
-
-                                // Create EventEnvelope for DLQ from raw Kafka record
-                                val envelope = EventEnvelope(
-                                    channelName = "kafka.toolcall.events",
-                                    eventType = "ToolCallEvent",
-                                    schemaVersion = "1.0.0",
-                                    payload = record.value(),
-                                    metadata = EventMetadata(
-                                        custom = mapOf(
-                                            "kafka.key" to (record.key() ?: ""),
-                                            "kafka.topic" to record.topic(),
-                                            "kafka.partition" to record.partition().toString(),
-                                            "kafka.offset" to record.offset().toString(),
-                                            "kafka.timestamp" to record.timestamp().toString()
-                                        )
-                                    ),
-                                    timestamp = Clock.System.now(),
-                                    correlationId = record.key()
-                                )
-
-                                // Send to DLQ
-                                val reason = "Deserialization failed: ${decoded.error.message} (type: ${decoded.error.code})"
-                                scope.launch {
-                                    deadLetterQueue.send(envelope, reason, decoded.error.cause)
-                                    onDLQWrite?.invoke(record.key() ?: "unknown", reason)
-                                }
-
-                                // Log error with record metadata
-                                System.err.println(
-                                    "[KafkaToolCallEventBus] Failed to decode event at " +
-                                    "topic=${record.topic()} partition=${record.partition()} offset=${record.offset()}: " +
-                                    "$reason -> Sent to DLQ"
-                                )
-
-                                // Offset auto-commits, so malformed event is skipped
+                                handleDecodingError(record, decoded.error)
                             }
                         }
                     }
@@ -316,7 +180,56 @@ class KafkaToolCallEventBus(
     }
 
     /**
-     * Close event bus and stop consumer
+     * Handle decoding errors by sending to DLQ.
+     */
+    private suspend fun handleDecodingError(
+        record: ConsumerRecord<String, String>,
+        error: io.github.noailabs.spice.error.SpiceError
+    ) {
+        // Record error metrics
+        if (config.enableMetrics) {
+            mutex.withLock {
+                errors++
+                dlqCount++
+            }
+        }
+
+        // Create EventEnvelope for DLQ from raw Kafka record
+        val envelope = EventEnvelope(
+            channelName = "kafka.toolcall.events",
+            eventType = "ToolCallEvent",
+            schemaVersion = "1.0.0",
+            payload = record.value(),
+            metadata = EventMetadata(
+                custom = mapOf(
+                    "kafka.key" to (record.key() ?: ""),
+                    "kafka.topic" to record.topic(),
+                    "kafka.partition" to record.partition().toString(),
+                    "kafka.offset" to record.offset().toString(),
+                    "kafka.timestamp" to record.timestamp().toString()
+                )
+            ),
+            timestamp = Clock.System.now(),
+            correlationId = record.key()
+        )
+
+        // Send to DLQ
+        val reason = "Deserialization failed: ${error.message} (type: ${error.code})"
+        scope.launch {
+            deadLetterQueue.send(envelope, reason, error.cause)
+            onDLQWrite?.invoke(record.key() ?: "unknown", reason)
+        }
+
+        // Log error with record metadata
+        System.err.println(
+            "[KafkaToolCallEventBus] Failed to decode event at " +
+            "topic=${record.topic()} partition=${record.partition()} offset=${record.offset()}: " +
+            "$reason -> Sent to DLQ"
+        )
+    }
+
+    /**
+     * Close event bus and stop consumer.
      */
     suspend fun close() {
         consumerJob?.cancelAndJoin()
@@ -325,7 +238,7 @@ class KafkaToolCallEventBus(
     }
 
     /**
-     * Producer configuration
+     * Producer configuration.
      */
     private fun producerProperties(): Properties {
         return Properties().apply {
@@ -345,7 +258,7 @@ class KafkaToolCallEventBus(
     }
 
     /**
-     * Consumer configuration
+     * Consumer configuration.
      */
     private fun consumerProperties(): Properties {
         return Properties().apply {

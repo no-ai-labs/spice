@@ -412,4 +412,345 @@ class DecisionNodeTest {
         val invalidResult = runner.execute(g, invalidMessage)
         assertEquals("Invalid", (invalidResult as SpiceResult.Success).value.content)
     }
+
+    // ==================== Tool Metadata Routing Tests ====================
+
+    @Test
+    fun `whenToolMetadata routes based on tool metadata condition`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("escalate", "escalation-handler")
+                    .whenToolMetadata("action_type") { it == "escalate" }
+                branch("normal", "normal-handler")
+                    .otherwise()
+            }
+
+            output("escalation-handler") { "Escalated" }
+            output("normal-handler") { "Normal" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test with escalate action_type
+        val escalateMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("action_type" to "escalate")
+            ))
+        val escalateResult = runner.execute(g, escalateMessage)
+
+        assertTrue(escalateResult is SpiceResult.Success)
+        assertEquals("Escalated", (escalateResult as SpiceResult.Success).value.content)
+
+        // Test without escalate action_type
+        val normalMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("action_type" to "normal")
+            ))
+        val normalResult = runner.execute(g, normalMessage)
+
+        assertTrue(normalResult is SpiceResult.Success)
+        assertEquals("Normal", (normalResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolMetadataEquals routes based on exact value match`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("high", "high-handler")
+                    .whenToolMetadataEquals("priority", 100)
+                branch("medium", "medium-handler")
+                    .whenToolMetadataEquals("priority", 50)
+                branch("low", "low-handler")
+                    .otherwise()
+            }
+
+            output("high-handler") { "High Priority" }
+            output("medium-handler") { "Medium Priority" }
+            output("low-handler") { "Low Priority" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test high priority
+        val highMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("priority" to 100)
+            ))
+        val highResult = runner.execute(g, highMessage)
+        assertEquals("High Priority", (highResult as SpiceResult.Success).value.content)
+
+        // Test medium priority
+        val mediumMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("priority" to 50)
+            ))
+        val mediumResult = runner.execute(g, mediumMessage)
+        assertEquals("Medium Priority", (mediumResult as SpiceResult.Success).value.content)
+
+        // Test low priority (falls through to otherwise)
+        val lowMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("priority" to 10)
+            ))
+        val lowResult = runner.execute(g, lowMessage)
+        assertEquals("Low Priority", (lowResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolActionType routes based on action_type metadata`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("escalate", "escalation-handler")
+                    .whenToolActionType("escalate")
+                branch("cancel", "cancel-handler")
+                    .whenToolActionType("cancel")
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("escalation-handler") { "Escalated" }
+            output("cancel-handler") { "Cancelled" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test escalate
+        val escalateMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("action_type" to "escalate")
+            ))
+        val escalateResult = runner.execute(g, escalateMessage)
+        assertEquals("Escalated", (escalateResult as SpiceResult.Success).value.content)
+
+        // Test cancel
+        val cancelMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("action_type" to "cancel")
+            ))
+        val cancelResult = runner.execute(g, cancelMessage)
+        assertEquals("Cancelled", (cancelResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolName routes based on tool_name metadata`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("search", "search-handler")
+                    .whenToolName("web_search")
+                branch("calculator", "calc-handler")
+                    .whenToolName("calculator")
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("search-handler") { "Search Result" }
+            output("calc-handler") { "Calculation Result" }
+            output("default-handler") { "Default Result" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test web_search - tool_name is stored at top-level data, not in _tool.lastMetadata
+        val searchMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_name" to "web_search"))
+        val searchResult = runner.execute(g, searchMessage)
+        assertEquals("Search Result", (searchResult as SpiceResult.Success).value.content)
+
+        // Test calculator
+        val calcMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_name" to "calculator"))
+        val calcResult = runner.execute(g, calcMessage)
+        assertEquals("Calculation Result", (calcResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `tool metadata helpers with short syntax work`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "escalation-handler".whenToolActionType("escalate")
+                "normal-handler".otherwise()
+            }
+
+            output("escalation-handler") { "Escalated" }
+            output("normal-handler") { "Normal" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val escalateMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("action_type" to "escalate")
+            ))
+        val result = runner.execute(g, escalateMessage)
+        assertEquals("Escalated", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `tool metadata routing handles missing metadata gracefully`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("escalate", "escalation-handler")
+                    .whenToolActionType("escalate")
+                branch("fallback", "fallback-handler")
+                    .otherwise()
+            }
+
+            output("escalation-handler") { "Escalated" }
+            output("fallback-handler") { "Fallback" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test with no _tool.lastMetadata
+        val noMetadataMessage = SpiceMessage.create("test", "user")
+        val result = runner.execute(g, noMetadataMessage)
+        assertEquals("Fallback", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `tool metadata routing handles empty metadata map`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("escalate", "escalation-handler")
+                    .whenToolMetadata("action_type") { it != null }
+                branch("fallback", "fallback-handler")
+                    .otherwise()
+            }
+
+            output("escalation-handler") { "Escalated" }
+            output("fallback-handler") { "Fallback" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test with empty metadata map
+        val emptyMetadataMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to emptyMap<String, Any>()
+            ))
+        val result = runner.execute(g, emptyMetadataMessage)
+        assertEquals("Fallback", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolMetadataEquals with short syntax works`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "priority-handler".whenToolMetadataEquals("priority", "high")
+                "default-handler".otherwise()
+            }
+
+            output("priority-handler") { "High Priority" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val priorityMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "_tool.lastMetadata" to mapOf("priority" to "high")
+            ))
+        val result = runner.execute(g, priorityMessage)
+        assertEquals("High Priority", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolName with short syntax works`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "search-handler".whenToolName("search")
+                "default-handler".otherwise()
+            }
+
+            output("search-handler") { "Search" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // tool_name is stored at top-level data, not in _tool.lastMetadata
+        val searchMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_name" to "search"))
+        val result = runner.execute(g, searchMessage)
+        assertEquals("Search", (result as SpiceResult.Success).value.content)
+    }
+
+    // ==================== Tool Success/Failed Routing Tests ====================
+
+    @Test
+    fun `whenToolSuccess routes based on tool_success true`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("success", "success-handler")
+                    .whenToolSuccess()
+                branch("failed", "failed-handler")
+                    .whenToolFailed()
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("success-handler") { "Success" }
+            output("failed-handler") { "Failed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test with tool_success = true
+        val successMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_success" to true))
+        val successResult = runner.execute(g, successMessage)
+        assertEquals("Success", (successResult as SpiceResult.Success).value.content)
+
+        // Test with tool_success = false
+        val failedMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_success" to false))
+        val failedResult = runner.execute(g, failedMessage)
+        assertEquals("Failed", (failedResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolSuccess with short syntax works`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "success-handler".whenToolSuccess()
+                "failed-handler".whenToolFailed()
+                "default-handler".otherwise()
+            }
+
+            output("success-handler") { "Success" }
+            output("failed-handler") { "Failed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val successMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf("tool_success" to true))
+        val result = runner.execute(g, successMessage)
+        assertEquals("Success", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenToolFailed routes to fallback when tool_success is missing`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "success-handler".whenToolSuccess()
+                "failed-handler".whenToolFailed()
+                "default-handler".otherwise()
+            }
+
+            output("success-handler") { "Success" }
+            output("failed-handler") { "Failed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test with no tool_success - should fall through to default
+        val noStatusMessage = SpiceMessage.create("test", "user")
+        val result = runner.execute(g, noStatusMessage)
+        assertEquals("Default", (result as SpiceResult.Success).value.content)
+    }
 }

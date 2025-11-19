@@ -208,7 +208,9 @@ data class ToolContext(
             "subgraphPath", "subgraphEnteredAt",
             // Runtime state fields
             "authCheckedAt", "spanOperation", "lastNodeDuration",
-            "totalDuration", "traceCompleted"
+            "totalDuration", "traceCompleted",
+            // Tool metadata routing (used by DecisionNode)
+            "_tool.lastMetadata"
         )
     }
 

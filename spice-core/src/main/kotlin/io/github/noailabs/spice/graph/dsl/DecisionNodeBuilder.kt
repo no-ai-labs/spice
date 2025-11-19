@@ -104,6 +104,78 @@ class DecisionNodeBuilder(val id: String) {
         return this@DecisionNodeBuilder
     }
 
+    /**
+     * Shorthand: Define a branch based on last tool's metadata.
+     *
+     * ```kotlin
+     * "escalate".whenToolMetadata("action_type") { it == "escalate" }
+     * ```
+     */
+    fun String.whenToolMetadata(key: String, condition: (Any?) -> Boolean): DecisionNodeBuilder {
+        branch(this, this).whenToolMetadata(key, condition)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch based on last tool's metadata equality.
+     *
+     * ```kotlin
+     * "escalate".whenToolMetadataEquals("action_type", "escalate")
+     * ```
+     */
+    fun String.whenToolMetadataEquals(key: String, expected: Any?): DecisionNodeBuilder {
+        branch(this, this).whenToolMetadataEquals(key, expected)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch based on last tool's action_type.
+     *
+     * ```kotlin
+     * "escalate".whenToolActionType("escalate")
+     * ```
+     */
+    fun String.whenToolActionType(actionType: String): DecisionNodeBuilder {
+        branch(this, this).whenToolActionType(actionType)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch based on last executed tool name.
+     *
+     * ```kotlin
+     * "search_handler".whenToolName("search_tool")
+     * ```
+     */
+    fun String.whenToolName(toolName: String): DecisionNodeBuilder {
+        branch(this, this).whenToolName(toolName)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when last tool execution succeeded.
+     *
+     * ```kotlin
+     * "success_handler".whenToolSuccess()
+     * ```
+     */
+    fun String.whenToolSuccess(): DecisionNodeBuilder {
+        branch(this, this).whenToolSuccess()
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when last tool execution failed.
+     *
+     * ```kotlin
+     * "error_handler".whenToolFailed()
+     * ```
+     */
+    fun String.whenToolFailed(): DecisionNodeBuilder {
+        branch(this, this).whenToolFailed()
+        return this@DecisionNodeBuilder
+    }
+
     internal fun addBranch(branch: DecisionBranch, isOtherwise: Boolean = false) {
         if (isOtherwise) {
             require(!hasOtherwiseBranch) {
@@ -196,6 +268,134 @@ class DecisionNodeBuilder(val id: String) {
          */
         fun whenMetadataEquals(key: String, expected: Any?): DecisionNodeBuilder {
             return whenMetadata(key) { it == expected }
+        }
+
+        /**
+         * Route to target when last tool's metadata[key] matches condition.
+         *
+         * Looks up `_tool.lastMetadata` from message.data, which is populated
+         * after ToolNode execution.
+         *
+         * ```kotlin
+         * branch("escalate", "escalation_handler")
+         *     .whenToolMetadata("action_type") { it == "escalate" }
+         * ```
+         *
+         * @param key The metadata key to check within tool metadata
+         * @param condition Predicate to evaluate on the metadata value
+         */
+        fun whenToolMetadata(key: String, condition: (Any?) -> Boolean): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        @Suppress("UNCHECKED_CAST")
+                        val toolMetadata = message.getData<Map<String, Any>>("_tool.lastMetadata")
+                        if (toolMetadata != null) {
+                            condition(toolMetadata[key])
+                        } else {
+                            false
+                        }
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when last tool's metadata[key] equals expected value.
+         *
+         * ```kotlin
+         * branch("escalate", "escalation_handler")
+         *     .whenToolMetadataEquals("action_type", "escalate")
+         * ```
+         */
+        fun whenToolMetadataEquals(key: String, expected: Any?): DecisionNodeBuilder {
+            return whenToolMetadata(key) { it == expected }
+        }
+
+        /**
+         * Route to target when last tool's action_type matches.
+         *
+         * Sugar for `whenToolMetadataEquals("action_type", actionType)`.
+         *
+         * ```kotlin
+         * branch("escalate", "escalation_handler")
+         *     .whenToolActionType("escalate")
+         * ```
+         */
+        fun whenToolActionType(actionType: String): DecisionNodeBuilder {
+            return whenToolMetadataEquals("action_type", actionType)
+        }
+
+        /**
+         * Route to target when the last executed tool has the specified name.
+         *
+         * Looks up `tool_name` from message.data, which is set by ToolNode after execution.
+         *
+         * ```kotlin
+         * branch("search_result", "search_handler")
+         *     .whenToolName("search_tool")
+         * ```
+         */
+        fun whenToolName(toolName: String): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        message.getData<String>("tool_name") == toolName
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when the last tool execution succeeded.
+         *
+         * Looks up `tool_success` from message.data, which is set by ToolNode after execution.
+         *
+         * ```kotlin
+         * branch("success", "success_handler")
+         *     .whenToolSuccess()
+         * ```
+         */
+        fun whenToolSuccess(): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        message.getData<Boolean>("tool_success") == true
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when the last tool execution failed.
+         *
+         * Looks up `tool_success` from message.data, which is set by ToolNode after execution.
+         *
+         * ```kotlin
+         * branch("error", "error_handler")
+         *     .whenToolFailed()
+         * ```
+         */
+        fun whenToolFailed(): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        message.getData<Boolean>("tool_success") == false
+                    }
+                )
+            )
+            return parent
         }
 
         /**

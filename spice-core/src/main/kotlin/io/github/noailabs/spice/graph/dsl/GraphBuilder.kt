@@ -18,6 +18,8 @@ import io.github.noailabs.spice.graph.nodes.HumanOption
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.tool.ToolLifecycleListener
+import io.github.noailabs.spice.tool.ToolLifecycleListeners
 import kotlin.time.Duration
 
 /**
@@ -64,6 +66,7 @@ class GraphBuilder(val id: String) {
     private var toolCallEventBus: ToolCallEventBus? = null
     private var idempotencyStore: IdempotencyStore? = null
     private var checkpointStore: CheckpointStore? = null
+    private var toolLifecycleListeners: ToolLifecycleListeners? = null
 
     /**
      * Add an agent node
@@ -271,6 +274,44 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Configure tool lifecycle listeners for telemetry, metrics, and alerting
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("workflow") {
+     *     toolLifecycleListeners(
+     *         ToolLifecycleListeners.of(
+     *             MetricsListener(),
+     *             SlackAlertListener()
+     *         )
+     *     )
+     *     // ...
+     * }
+     * ```
+     */
+    fun toolLifecycleListeners(listeners: ToolLifecycleListeners) {
+        this.toolLifecycleListeners = listeners
+    }
+
+    /**
+     * Configure tool lifecycle listeners from vararg
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("workflow") {
+     *     toolLifecycleListeners(
+     *         MetricsListener(),
+     *         SlackAlertListener()
+     *     )
+     *     // ...
+     * }
+     * ```
+     */
+    fun toolLifecycleListeners(vararg listeners: ToolLifecycleListener) {
+        this.toolLifecycleListeners = ToolLifecycleListeners.of(*listeners)
+    }
+
+    /**
      * Build the graph
      */
     fun build(): Graph {
@@ -288,7 +329,8 @@ class GraphBuilder(val id: String) {
             eventBus = eventBus,
             toolCallEventBus = toolCallEventBus,
             idempotencyStore = idempotencyStore,
-            checkpointStore = checkpointStore
+            checkpointStore = checkpointStore,
+            toolLifecycleListeners = toolLifecycleListeners
         )
     }
 }

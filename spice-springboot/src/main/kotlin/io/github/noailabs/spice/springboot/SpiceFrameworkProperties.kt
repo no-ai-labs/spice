@@ -61,7 +61,8 @@ data class SpiceFrameworkProperties(
         val backend: ToolCallEventBackend = ToolCallEventBackend.IN_MEMORY,
         val redisStreams: RedisStreamsProperties = RedisStreamsProperties(),
         val kafka: KafkaProperties = KafkaProperties(),
-        val history: HistoryProperties = HistoryProperties()
+        val history: HistoryProperties = HistoryProperties(),
+        val filters: MetadataFiltersProperties = MetadataFiltersProperties()
     ) {
         enum class ToolCallEventBackend { IN_MEMORY, REDIS_STREAMS, KAFKA }
 
@@ -90,6 +91,32 @@ data class SpiceFrameworkProperties(
             val enabled: Boolean = true,
             val size: Int = 1000,
             val enableMetrics: Boolean = true
+        )
+
+        /**
+         * Metadata filter configuration for event bus.
+         *
+         * **Usage in YAML:**
+         * ```yaml
+         * spice:
+         *   tool-call-event-bus:
+         *     filters:
+         *       include:
+         *         - action_type
+         *         - tool_name
+         *         - status
+         *       exclude:
+         *         - password
+         *         - apiKey
+         *         - token
+         * ```
+         *
+         * @property include Whitelist of metadata keys to include (empty = all keys)
+         * @property exclude Blacklist of metadata keys to exclude
+         */
+        data class MetadataFiltersProperties(
+            val include: Set<String> = emptySet(),
+            val exclude: Set<String> = emptySet()
         )
     }
 

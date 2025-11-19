@@ -11,6 +11,7 @@ import io.github.noailabs.spice.cache.VectorCache
 import io.github.noailabs.spice.event.EventBusConfig
 import io.github.noailabs.spice.event.InMemoryToolCallEventBus
 import io.github.noailabs.spice.event.KafkaToolCallEventBus
+import io.github.noailabs.spice.event.MetadataFilterConfig
 import io.github.noailabs.spice.event.RedisToolCallEventBus
 import io.github.noailabs.spice.event.ToolCallEventBus
 import io.github.noailabs.spice.events.EventBus
@@ -24,6 +25,8 @@ import io.github.noailabs.spice.idempotency.InMemoryIdempotencyStore
 import io.github.noailabs.spice.idempotency.RedisIdempotencyStore
 import io.github.noailabs.spice.state.ExecutionStateMachine
 import io.github.noailabs.spice.springboot.GraphProvider
+import io.github.noailabs.spice.tool.ToolLifecycleListener
+import io.github.noailabs.spice.tool.ToolLifecycleListeners
 import io.github.noailabs.spice.validation.DeadLetterHandler
 import io.github.noailabs.spice.validation.SchemaValidationPipeline
 import kotlinx.coroutines.CoroutineScope
@@ -76,6 +79,36 @@ class SpiceAutoConfiguration {
         )
     }
 
+    /**
+     * Auto-wire all ToolLifecycleListener beans into a single ToolLifecycleListeners registry.
+     *
+     * This allows users to define individual listener beans and have them automatically
+     * aggregated for use in graph execution.
+     *
+     * **Usage:**
+     * ```kotlin
+     * @Bean
+     * fun metricsListener(): ToolLifecycleListener = MetricsListener()
+     *
+     * @Bean
+     * fun slackAlertListener(): ToolLifecycleListener = SlackAlertListener()
+     * ```
+     *
+     * These will be automatically combined into a ToolLifecycleListeners registry.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    fun toolLifecycleListeners(
+        listenersProvider: ObjectProvider<List<ToolLifecycleListener>>
+    ): ToolLifecycleListeners {
+        val listeners = listenersProvider.getIfAvailable() ?: emptyList()
+        return if (listeners.isEmpty()) {
+            ToolLifecycleListeners.EMPTY
+        } else {
+            ToolLifecycleListeners.of(listeners)
+        }
+    }
+
     @Bean
     @ConditionalOnMissingBean
     fun graphRunner(
@@ -83,17 +116,27 @@ class SpiceAutoConfiguration {
         schemaValidationPipeline: SchemaValidationPipeline,
         executionStateMachine: ExecutionStateMachine,
         cachePolicy: CachePolicy,
-        vectorCacheProvider: ObjectProvider<VectorCache>
+        vectorCacheProvider: ObjectProvider<VectorCache>,
+        toolLifecycleListeners: ToolLifecycleListeners
     ): GraphRunner {
         val vectorCache = vectorCacheProvider.getIfAvailable()
         val graphRunnerProps = properties.graphRunner
+
+        // Use ToolLifecycleListeners as fallback when graph doesn't define its own
+        val fallbackListeners = if (toolLifecycleListeners == ToolLifecycleListeners.EMPTY) {
+            null
+        } else {
+            toolLifecycleListeners
+        }
+
         return DefaultGraphRunner(
             enableIdempotency = graphRunnerProps.enableIdempotency,
             enableEvents = graphRunnerProps.enableEvents,
             validationPipeline = schemaValidationPipeline,
             stateMachine = executionStateMachine,
             cachePolicy = cachePolicy,
-            vectorCache = vectorCache
+            vectorCache = vectorCache,
+            fallbackToolLifecycleListeners = fallbackListeners
         )
     }
 
@@ -238,10 +281,18 @@ class SpiceAutoConfiguration {
         redisPoolProvider: ObjectProvider<JedisPool>
     ): ToolCallEventBus {
         val toolCallEventBus = properties.toolCallEventBus
+
+        // Build metadata filter config from properties
+        val filterConfig = MetadataFilterConfig(
+            includeMetadataKeys = toolCallEventBus.filters.include.takeIf { it.isNotEmpty() },
+            excludeMetadataKeys = toolCallEventBus.filters.exclude.takeIf { it.isNotEmpty() }
+        )
+
         val eventBusConfig = EventBusConfig(
             enableHistory = toolCallEventBus.history.enabled,
             historySize = toolCallEventBus.history.size,
-            enableMetrics = toolCallEventBus.history.enableMetrics
+            enableMetrics = toolCallEventBus.history.enableMetrics,
+            metadataFilter = filterConfig
         )
 
         return when (toolCallEventBus.backend) {
