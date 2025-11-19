@@ -2,7 +2,7 @@
 
 Modern Kotlin runtime for building AI-centric workflows with **SpiceMessage**, graph-based orchestration, Spring Boot integration, and production-grade observability.
 
-> **1.0.0 status**: Graph runner, ToolCall event bus, Redis/Kafka backends, and Spring state machine adapter are production ready. Pending recovery, DLQ, and metadata propagation are built-in.
+> **1.0.0 status**: Graph runner, ToolCall event bus, Redis/Kafka backends, and Spring state machine adapter are production-ready. Pending recovery, DLQ, and metadata propagation are built in.
 
 ---
 
@@ -44,11 +44,11 @@ Each module has a `build.gradle.kts` with exact coordinates. See [Installation](
 
 ---
 
-## 🚀 Quick Start (TL;DR)
+## 🚀 Quick Start
 
 ```kotlin
-implementation("io.github.noailabs:spice-core:1.0.0-beta-1")
-implementation("io.github.noailabs:spice-springboot:1.0.0-beta-1")
+implementation("io.github.noailabs:spice-core:1.0.0")
+implementation("io.github.noailabs:spice-springboot:1.0.0")
 ```
 
 1. Register your graph and tools using the Kotlin DSL (examples in [Quick Start](docs/QUICK_START_1.0.md)).
