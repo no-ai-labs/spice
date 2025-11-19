@@ -1,5 +1,9 @@
 package io.github.noailabs.spice.eventbus
 
+import io.github.noailabs.spice.AuthContext
+import io.github.noailabs.spice.GraphContext
+import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.TracingContext
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.KSerializer
@@ -146,11 +150,113 @@ data class EventMetadata(
     val ttl: Long? = null,
     val custom: Map<String, String> = emptyMap()
 ) {
+    /**
+     * Extract AuthContext from this metadata
+     */
+    fun toAuthContext(): AuthContext = AuthContext(
+        userId = userId,
+        tenantId = tenantId,
+        sessionToken = custom["sessionToken"],
+        isLoggedIn = custom["isLoggedIn"]?.toBoolean() ?: (userId != null)
+    )
+
+    /**
+     * Extract TracingContext from this metadata
+     */
+    fun toTracingContext(): TracingContext = TracingContext(
+        traceId = traceId,
+        spanId = spanId,
+        parentSpanId = custom["parentSpanId"]
+    )
+
+    /**
+     * Extract GraphContext from this metadata
+     */
+    fun toGraphContext(): GraphContext = GraphContext(
+        graphId = custom["graphId"],
+        runId = custom["runId"],
+        nodeId = custom["nodeId"],
+        subgraphDepth = custom["subgraphDepth"]?.toIntOrNull() ?: 0
+    )
+
     companion object {
         /**
          * Empty metadata (no context)
          */
         val EMPTY = EventMetadata()
+
+        /**
+         * Create EventMetadata from SpiceMessage
+         *
+         * Automatically extracts all context from message metadata
+         * for consistent event publishing.
+         *
+         * @param message The SpiceMessage to extract context from
+         * @param source The event source identifier
+         * @param priority Event priority (default: 0)
+         * @param ttl Optional time-to-live in milliseconds
+         * @return EventMetadata with all fields populated
+         */
+        fun from(
+            message: SpiceMessage,
+            source: String? = null,
+            priority: Int = 0,
+            ttl: Long? = null
+        ): EventMetadata = EventMetadata(
+            source = source,
+            userId = message.getMetadata("userId"),
+            tenantId = message.getMetadata("tenantId"),
+            traceId = message.getMetadata("traceId"),
+            spanId = message.getMetadata("spanId"),
+            priority = priority,
+            ttl = ttl,
+            custom = buildMap {
+                message.getMetadata<String>("sessionToken")?.let { put("sessionToken", it) }
+                message.getMetadata<String>("parentSpanId")?.let { put("parentSpanId", it) }
+                message.graphId?.let { put("graphId", it) }
+                message.runId?.let { put("runId", it) }
+                message.nodeId?.let { put("nodeId", it) }
+                message.getMetadata<Int>("subgraphDepth")?.let { put("subgraphDepth", it.toString()) }
+                message.getMetadata<Boolean>("isLoggedIn")?.let { put("isLoggedIn", it.toString()) }
+            }
+        )
+
+        /**
+         * Create EventMetadata from structured context objects
+         *
+         * @param auth Authentication context
+         * @param tracing Tracing context
+         * @param graph Graph execution context
+         * @param source Event source identifier
+         * @param priority Event priority
+         * @param ttl Time-to-live in milliseconds
+         * @return EventMetadata with context sections mapped
+         */
+        fun from(
+            auth: AuthContext = AuthContext(),
+            tracing: TracingContext = TracingContext(),
+            graph: GraphContext = GraphContext(),
+            source: String? = null,
+            priority: Int = 0,
+            ttl: Long? = null
+        ): EventMetadata = EventMetadata(
+            source = source,
+            userId = auth.userId,
+            tenantId = auth.tenantId,
+            traceId = tracing.traceId,
+            spanId = tracing.spanId,
+            priority = priority,
+            ttl = ttl,
+            custom = buildMap {
+                auth.sessionToken?.let { put("sessionToken", it) }
+                put("isLoggedIn", auth.isLoggedIn.toString())
+                tracing.parentSpanId?.let { put("parentSpanId", it) }
+                graph.graphId?.let { put("graphId", it) }
+                graph.runId?.let { put("runId", it) }
+                graph.nodeId?.let { put("nodeId", it) }
+                if (graph.subgraphDepth > 0) put("subgraphDepth", graph.subgraphDepth.toString())
+            }
+        )
     }
 }
 

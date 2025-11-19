@@ -77,14 +77,9 @@ class ToolNode(
         val nonNullParams: Map<String, Any> = params.filterValues { it != null }
             .mapValues { it.value!! }
 
-        // Create ToolContext from message metadata
-        val toolContext = ToolContext(
-            agentId = message.from,
-            userId = message.getMetadata("userId"),
-            tenantId = message.getMetadata("tenantId"),
-            correlationId = message.correlationId,
-            metadata = message.metadata.filterValues { it != null }.mapValues { it.value!! }
-        )
+        // Create ToolContext from message using factory method
+        // This automatically populates auth, tracing, and graph context sections
+        val toolContext = ToolContext.from(message, message.from)
 
         // Execute tool
         return when (val result = tool.execute(nonNullParams, toolContext)) {

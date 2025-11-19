@@ -1,6 +1,9 @@
 package io.github.noailabs.spice.event
 
+import io.github.noailabs.spice.AuthContext
+import io.github.noailabs.spice.GraphContext
 import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.TracingContext
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.toolspec.OAIToolCall
 import kotlinx.datetime.Clock
@@ -242,6 +245,57 @@ sealed class ToolCallEvent {
             is Failed -> originalEventId
             is Retrying -> previousEventId
             is Cancelled -> originalEventId
+        }
+
+        /**
+         * Extract AuthContext from the event's message
+         */
+        fun ToolCallEvent.getAuthContext(): AuthContext = AuthContext(
+            userId = message.getMetadata("userId"),
+            tenantId = message.getMetadata("tenantId"),
+            sessionToken = message.getMetadata("sessionToken"),
+            isLoggedIn = message.getMetadata("isLoggedIn") ?: false
+        )
+
+        /**
+         * Extract TracingContext from the event's message
+         */
+        fun ToolCallEvent.getTracingContext(): TracingContext = TracingContext(
+            traceId = message.getMetadata("traceId"),
+            spanId = message.getMetadata("spanId"),
+            parentSpanId = message.getMetadata("parentSpanId")
+        )
+
+        /**
+         * Extract GraphContext from the event's message
+         */
+        fun ToolCallEvent.getGraphContext(): GraphContext = GraphContext(
+            graphId = message.graphId,
+            runId = message.runId,
+            nodeId = message.nodeId,
+            subgraphDepth = message.getMetadata("subgraphDepth") ?: 0
+        )
+
+        /**
+         * Build standardized metadata map with context sections
+         * Useful for consistent logging and telemetry
+         */
+        fun buildStandardMetadata(message: SpiceMessage): Map<String, Any> = buildMap {
+            // Auth section
+            message.getMetadata<String>("userId")?.let { put("auth.userId", it) }
+            message.getMetadata<String>("tenantId")?.let { put("auth.tenantId", it) }
+            message.getMetadata<Boolean>("isLoggedIn")?.let { put("auth.isLoggedIn", it) }
+
+            // Tracing section
+            message.getMetadata<String>("traceId")?.let { put("tracing.traceId", it) }
+            message.getMetadata<String>("spanId")?.let { put("tracing.spanId", it) }
+            message.getMetadata<String>("parentSpanId")?.let { put("tracing.parentSpanId", it) }
+
+            // Graph section
+            message.graphId?.let { put("graph.graphId", it) }
+            message.runId?.let { put("graph.runId", it) }
+            message.nodeId?.let { put("graph.nodeId", it) }
+            message.getMetadata<Int>("subgraphDepth")?.let { put("graph.subgraphDepth", it) }
         }
     }
 }
