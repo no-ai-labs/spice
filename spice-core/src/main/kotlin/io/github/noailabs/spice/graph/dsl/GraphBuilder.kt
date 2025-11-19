@@ -12,6 +12,7 @@ import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
+import io.github.noailabs.spice.graph.nodes.DecisionNode
 import io.github.noailabs.spice.graph.nodes.HumanNode
 import io.github.noailabs.spice.graph.nodes.HumanOption
 import io.github.noailabs.spice.graph.nodes.OutputNode
@@ -122,6 +123,43 @@ class GraphBuilder(val id: String) {
         selector: (SpiceMessage) -> Any? = { it.content }
     ) {
         nodes[id] = OutputNode(id, selector)
+    }
+
+    /**
+     * Add a decision node for conditional routing
+     *
+     * **Example:**
+     * ```kotlin
+     * decision("check_payment") {
+     *     branch("has_payment", "payment_handler")
+     *         .whenData("paymentMethod") { it != null }
+     *     branch("no_payment", "default_handler")
+     *         .otherwise()
+     * }
+     * ```
+     *
+     * Or shorter syntax:
+     * ```kotlin
+     * decision("route") {
+     *     "handler_a".whenData("type") { it == "A" }
+     *     "handler_b".whenData("type") { it == "B" }
+     *     "default".otherwise()
+     * }
+     * ```
+     *
+     * @param id Node ID
+     * @param block DSL block for defining branches
+     */
+    fun decision(
+        id: String,
+        block: DecisionNodeBuilder.() -> Unit
+    ) {
+        val builder = DecisionNodeBuilder(id)
+        builder.block()
+        nodes[id] = builder.build()
+        // Add auto-generated edges from decision node to targets
+        edges.addAll(builder.generatedEdges)
+        if (entryPoint == null) entryPoint = id
     }
 
     /**

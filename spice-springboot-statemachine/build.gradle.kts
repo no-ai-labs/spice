@@ -52,7 +52,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-springboot-statemachine"
-            version = "1.0.0"
+            version = "1.0.1"
 
             pom {
                 name.set("Spice Spring Boot State Machine Extension")

@@ -112,7 +112,7 @@ publishing {
             from(components["java"])
             groupId = "io.github.noailabs"
             artifactId = "spice-core"
-            version = "1.0.0"
+            version = "1.0.1"
 
             pom {
                 name.set("Spice Core")
