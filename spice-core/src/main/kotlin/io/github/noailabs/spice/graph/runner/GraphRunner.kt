@@ -15,6 +15,7 @@ import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.middleware.Middleware
+import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.graph.nodes.ToolNode.Companion.buildOutputMessage
 import io.github.noailabs.spice.state.ExecutionStateMachine
@@ -313,13 +314,20 @@ class DefaultGraphRunner(
                 return beforeResult
             }
 
-            // Execute node (with lifecycle listeners for ToolNode)
+            // Execute node (with lifecycle listeners for ToolNode, runner injection for SubgraphNode)
             // Use graph-level listeners if available, otherwise fallback to runner-level listeners
             val effectiveListeners = graph.toolLifecycleListeners ?: fallbackToolLifecycleListeners
-            val result = if (node is ToolNode && effectiveListeners != null) {
-                executeToolNodeWithListeners(node, currentMessage, effectiveListeners)
-            } else {
-                node.run(currentMessage)
+            val result = when {
+                node is ToolNode && effectiveListeners != null -> {
+                    executeToolNodeWithListeners(node, currentMessage, effectiveListeners)
+                }
+                node is SubgraphNode -> {
+                    // Pass this runner to SubgraphNode for proper inheritance (thread-safe)
+                    node.runWithRunner(currentMessage, this)
+                }
+                else -> {
+                    node.run(currentMessage)
+                }
             }
 
             when (result) {

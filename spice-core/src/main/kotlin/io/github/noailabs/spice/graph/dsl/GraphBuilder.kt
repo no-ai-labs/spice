@@ -16,6 +16,7 @@ import io.github.noailabs.spice.graph.nodes.DecisionNode
 import io.github.noailabs.spice.graph.nodes.HumanNode
 import io.github.noailabs.spice.graph.nodes.HumanOption
 import io.github.noailabs.spice.graph.nodes.OutputNode
+import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 import io.github.noailabs.spice.tool.ToolLifecycleListener
@@ -175,6 +176,111 @@ class GraphBuilder(val id: String) {
         val nodeId = id ?: node.id
         nodes[nodeId] = node
         if (entryPoint == null) entryPoint = nodeId
+    }
+
+    /**
+     * Add a subgraph node that executes a child graph
+     *
+     * **Example:**
+     * ```kotlin
+     * graph("parent") {
+     *     agent("start", startAgent)
+     *
+     *     subgraph("child-workflow") {
+     *         agent("step1", agent1)
+     *         human("input", "Enter value")
+     *         output("result")
+     *
+     *         edge("step1", "input")
+     *         edge("input", "result")
+     *     }
+     *
+     *     agent("end", endAgent)
+     *
+     *     edge("start", "child-workflow")
+     *     edge("child-workflow", "end")
+     * }
+     * ```
+     *
+     * **Context Propagation:**
+     * - Metadata (userId, tenantId, traceId, etc.) flows to child
+     * - Child's subgraphDepth is parent's depth + 1
+     * - Child's result is available in parent's data as "subgraph_result"
+     *
+     * **HITL Support:**
+     * - If child pauses at HumanNode, parent also pauses
+     * - Resume propagates through parent → child
+     * - Checkpoints are namespaced: `{parentRunId}:subgraph:{childId}`
+     *
+     * @param id Subgraph node ID (also used as child graph ID)
+     * @param maxDepth Maximum nesting depth (default: 10)
+     * @param preserveKeys Metadata keys to preserve across boundaries
+     * @param block DSL block for defining child graph
+     */
+    fun subgraph(
+        id: String,
+        maxDepth: Int = 10,
+        preserveKeys: Set<String> = SubgraphNode.DEFAULT_PRESERVE_KEYS,
+        block: GraphBuilder.() -> Unit
+    ) {
+        // Build child graph using nested DSL
+        val childBuilder = GraphBuilder(id)
+        childBuilder.block()
+        val childGraph = childBuilder.build()
+
+        // Create SubgraphNode (runtime runner will be injected by GraphRunner)
+        val subgraphNode = SubgraphNode(
+            id = id,
+            childGraph = childGraph,
+            maxDepth = maxDepth,
+            preserveKeys = preserveKeys
+        )
+
+        nodes[id] = subgraphNode
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a subgraph node with an existing Graph instance
+     *
+     * **Example:**
+     * ```kotlin
+     * val childGraph = graph("child") {
+     *     agent("process", processor)
+     *     output("result")
+     *     edge("process", "result")
+     * }
+     *
+     * graph("parent") {
+     *     agent("start", startAgent)
+     *     subgraph("child-step", childGraph)
+     *     agent("end", endAgent)
+     *
+     *     edge("start", "child-step")
+     *     edge("child-step", "end")
+     * }
+     * ```
+     *
+     * @param id Subgraph node ID
+     * @param childGraph Pre-built child graph
+     * @param maxDepth Maximum nesting depth (default: 10)
+     * @param preserveKeys Metadata keys to preserve across boundaries
+     */
+    fun subgraph(
+        id: String,
+        childGraph: Graph,
+        maxDepth: Int = 10,
+        preserveKeys: Set<String> = SubgraphNode.DEFAULT_PRESERVE_KEYS
+    ) {
+        val subgraphNode = SubgraphNode(
+            id = id,
+            childGraph = childGraph,
+            maxDepth = maxDepth,
+            preserveKeys = preserveKeys
+        )
+
+        nodes[id] = subgraphNode
+        if (entryPoint == null) entryPoint = id
     }
 
     /**
