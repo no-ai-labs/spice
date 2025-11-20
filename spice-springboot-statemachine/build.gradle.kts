@@ -34,7 +34,7 @@ dependencies {
 }
 
 tasks.test {
-    enabled = false
+    useJUnitPlatform()
 }
 
 tasks.bootJar {

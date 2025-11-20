@@ -1,6 +1,7 @@
 package io.github.noailabs.spice.springboot.statemachine.config
 
 import io.github.noailabs.spice.ExecutionState
+import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.runner.GraphRunner
 import io.github.noailabs.spice.springboot.statemachine.actions.CheckpointSaveAction
@@ -171,8 +172,11 @@ class StateMachineAutoConfiguration {
         eventPublishAction: EventPublishAction,
         toolRetryAction: ToolRetryAction,
         retryableErrorGuard: RetryableErrorGuard,
+        graphRunner: GraphRunner,
+        checkpointStore: CheckpointStore,
         stateMachineDispatcher: CoroutineDispatcher,
-        @Autowired(required = false) transformers: List<MessageTransformer>?
+        @Autowired(required = false) transformers: List<MessageTransformer>?,
+        @Autowired(required = false) graphRegistry: Map<String, Graph>?
     ): GraphToStateMachineAdapter {
         return GraphToStateMachineAdapter(
             stateMachineFactory = stateMachineFactory,
@@ -181,6 +185,9 @@ class StateMachineAutoConfiguration {
             eventPublishAction = eventPublishAction,
             toolRetryAction = toolRetryAction,
             retryableErrorGuard = retryableErrorGuard,
+            graphRunner = graphRunner,
+            checkpointStore = checkpointStore,
+            graphRegistry = graphRegistry ?: emptyMap(),
             transformers = transformers ?: emptyList(),
             dispatcher = stateMachineDispatcher
         )
