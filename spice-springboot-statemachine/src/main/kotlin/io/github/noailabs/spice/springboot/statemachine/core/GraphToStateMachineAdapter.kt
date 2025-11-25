@@ -34,7 +34,7 @@ import org.slf4j.LoggerFactory
  * - afterNode: After each node completes (result transformation)
  * - afterExecution: After graph completes (cleanup, telemetry)
  *
- * **HITL Resume Support (since 1.0.4):**
+ * **HITL Resume Support (since 1.0.5):**
  * The adapter now supports direct HITL resume via `resume(runId, options)`:
  * ```kotlin
  * // Pause at HumanNode
@@ -243,7 +243,7 @@ class GraphToStateMachineAdapter(
      * @param options Resume options for fine-grained control
      * @return SpiceResult with final message (COMPLETED/FAILED/WAITING)
      *
-     * @since 1.0.4
+     * @since 1.0.5
      */
     suspend fun resume(
         runId: String,

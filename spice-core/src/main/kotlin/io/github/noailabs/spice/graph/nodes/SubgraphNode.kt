@@ -9,7 +9,7 @@ import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.runner.GraphRunner
 
 /**
- * Subgraph Node for Spice Framework 1.0.4
+ * Subgraph Node for Spice Framework 1.0.5
  *
  * Executes a child graph within a parent graph, managing context propagation
  * and checkpoint coordination.
@@ -63,7 +63,7 @@ import io.github.noailabs.spice.graph.runner.GraphRunner
  * @property childGraph The child graph to execute
  * @property maxDepth Maximum nesting depth (default: 10)
  * @property preserveKeys Metadata keys to preserve across boundaries
- * @since 1.0.4
+ * @since 1.0.5
  */
 class SubgraphNode(
     override val id: String,

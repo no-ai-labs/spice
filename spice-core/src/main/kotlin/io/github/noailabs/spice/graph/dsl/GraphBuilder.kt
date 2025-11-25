@@ -104,7 +104,7 @@ class GraphBuilder(val id: String) {
     }
 
     /**
-     * Add a tool node with dynamic tool resolution (1.0.4+)
+     * Add a tool node with dynamic tool resolution (1.0.5+)
      *
      * Supports both static and dynamic tool selection:
      * - Static: `tool("search", ToolResolver.static(searchTool))`
@@ -136,7 +136,7 @@ class GraphBuilder(val id: String) {
      * @param id Node ID
      * @param resolver ToolResolver for static or dynamic tool selection
      * @param paramMapper Function to extract tool parameters from message
-     * @since 1.0.4
+     * @since 1.0.5
      */
     fun tool(
         id: String,
@@ -483,7 +483,7 @@ class GraphBuilder(val id: String) {
      * }
      * ```
      *
-     * @since 1.0.4
+     * @since 1.0.5
      */
     fun skipResolverValidation() {
         this.validateResolvers = false

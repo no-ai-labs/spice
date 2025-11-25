@@ -39,7 +39,7 @@ import io.github.noailabs.spice.error.SpiceResult
  * ))
  * ```
  *
- * @since 1.0.4
+ * @since 1.0.5
  */
 sealed interface ToolResolver {
     /**

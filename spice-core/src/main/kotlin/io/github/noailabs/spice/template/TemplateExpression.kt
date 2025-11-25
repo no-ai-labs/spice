@@ -29,7 +29,7 @@ import io.github.noailabs.spice.SpiceMessage
  * val limit = numExpr.resolve(message)  // returns 10 as Int
  * ```
  *
- * @since 1.0.4
+ * @since 1.0.5
  */
 sealed class TemplateExpression<T> {
     /**

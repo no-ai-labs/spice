@@ -10,12 +10,12 @@ import io.github.noailabs.spice.tool.StaticToolResolver
 import io.github.noailabs.spice.tool.ToolResolver
 
 /**
- * 🔧 Tool Node for Spice Framework 1.0.4
+ * 🔧 Tool Node for Spice Framework 1.0.5
  *
  * Executes a Tool and integrates result into graph execution.
  * Supports both static and dynamic tool resolution via ToolResolver.
  *
- * **Dynamic Tool Selection (1.0.4+):**
+ * **Dynamic Tool Selection (1.0.5+):**
  * - Static tool: `tool("search", searchTool)` - existing pattern, 100% compatible
  * - Dynamic tool: `tool("fetch", ToolResolver.byRegistry { msg -> msg.getData("toolId")!! })`
  *
@@ -59,7 +59,7 @@ import io.github.noailabs.spice.tool.ToolResolver
  *
  * @property resolver ToolResolver for static or dynamic tool resolution
  * @property paramMapper Function to extract tool parameters from message
- * @since 1.0.0, enhanced in 1.0.4
+ * @since 1.0.0, enhanced in 1.0.5
  */
 class ToolNode(
     override val id: String,

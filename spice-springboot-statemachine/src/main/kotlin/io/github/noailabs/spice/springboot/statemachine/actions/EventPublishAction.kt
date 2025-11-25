@@ -17,7 +17,7 @@ class EventPublishAction(
     /**
      * Publish workflow resumed event when HITL checkpoint is resumed.
      *
-     * @since 1.0.4
+     * @since 1.0.5
      */
     fun publishWorkflowResumed(event: WorkflowResumedEvent) {
         publisher.publishEvent(event)
