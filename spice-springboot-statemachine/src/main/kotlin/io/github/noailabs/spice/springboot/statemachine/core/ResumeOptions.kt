@@ -38,7 +38,7 @@ import kotlin.time.Duration.Companion.hours
  * @property checkpointConfig Full checkpoint configuration for advanced scenarios (overrides individual settings)
  * @property userResponseMetadata Additional metadata to merge into user response message
  *
- * @since 1.0.3
+ * @since 1.0.4
  */
 data class ResumeOptions(
     val publishEvents: Boolean = true,

@@ -15,7 +15,7 @@ import kotlinx.datetime.Instant
  * @property timestamp When the resume was initiated
  * @property metadata Additional context (e.g., checkpoint age, user info)
  *
- * @since 1.0.3
+ * @since 1.0.4
  */
 data class WorkflowResumedEvent(
     val runId: String,

@@ -55,6 +55,7 @@ sealed class SpiceError {
         is SerializationError -> copy(context = context + pairs.toMap())
         is CheckpointError -> copy(context = context + pairs.toMap())
         is UnknownError -> copy(context = context + pairs.toMap())
+        is ToolLookupError -> copy(context = context + pairs.toMap())
     }
 
     // =========================================
@@ -207,6 +208,34 @@ sealed class SpiceError {
         override val code: String = "UNKNOWN_ERROR"
     }
 
+    /**
+     * Tool lookup/resolution errors (dynamic tool selection failures)
+     */
+    data class ToolLookupError(
+        override val message: String,
+        val toolName: String? = null,
+        val namespace: String? = null,
+        val availableTools: List<String>? = null,
+        override val cause: Throwable? = null,
+        override val context: Map<String, Any> = emptyMap()
+    ) : SpiceError() {
+        override val code: String = "TOOL_LOOKUP_ERROR"
+
+        /**
+         * Get detailed error message including available tools
+         */
+        fun toDetailedMessage(): String = buildString {
+            append(message)
+            if (!availableTools.isNullOrEmpty()) {
+                append("\n\nAvailable tools in namespace '${namespace ?: "global"}':")
+                availableTools.take(10).forEach { append("\n  - $it") }
+                if (availableTools.size > 10) {
+                    append("\n  ... and ${availableTools.size - 10} more")
+                }
+            }
+        }
+    }
+
     companion object {
         /**
          * Create error from exception
@@ -312,6 +341,17 @@ sealed class SpiceError {
          */
         fun rateLimitError(message: String, retryAfterMs: Long? = null, limitType: String? = null) =
             RateLimitError(message, retryAfterMs, limitType)
+
+        /**
+         * Create tool lookup error (dynamic tool resolution failure)
+         */
+        fun toolLookupError(
+            message: String,
+            toolName: String? = null,
+            namespace: String? = null,
+            availableTools: List<String>? = null,
+            cause: Throwable? = null
+        ) = ToolLookupError(message, toolName, namespace, availableTools, cause)
     }
 }
 

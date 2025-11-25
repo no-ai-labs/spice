@@ -2,6 +2,7 @@ package io.github.noailabs.spice.graph.runner
 
 import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
+import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.cache.CacheKind
 import io.github.noailabs.spice.cache.CachePolicy
 import io.github.noailabs.spice.cache.IdempotencyManager
@@ -318,8 +319,10 @@ class DefaultGraphRunner(
             // Use graph-level listeners if available, otherwise fallback to runner-level listeners
             val effectiveListeners = graph.toolLifecycleListeners ?: fallbackToolLifecycleListeners
             val result = when {
-                node is ToolNode && effectiveListeners != null -> {
-                    executeToolNodeWithListeners(node, currentMessage, effectiveListeners)
+                node is ToolNode -> {
+                    // Always resolve tool once in GraphRunner for consistency
+                    // This ensures the same tool is used regardless of listener presence
+                    executeToolNode(node, currentMessage, effectiveListeners)
                 }
                 node is SubgraphNode -> {
                     // Pass this runner to SubgraphNode for proper inheritance (thread-safe)
@@ -839,23 +842,65 @@ class DefaultGraphRunner(
     }
 
     /**
-     * Execute a ToolNode with lifecycle listener callbacks
+     * Execute a ToolNode with single resolution point.
+     *
+     * Always resolves the tool once in GraphRunner, then either:
+     * - Calls executeToolNodeWithListeners if listeners are present
+     * - Calls toolNode.executeWith() directly if no listeners
+     *
+     * This ensures consistent tool resolution regardless of listener presence,
+     * avoiding potential issues with non-deterministic selectors.
+     *
+     * @param toolNode The ToolNode to execute
+     * @param message The input message
+     * @param listeners Optional lifecycle listeners (may be null)
+     * @return SpiceResult with the output message
+     */
+    private suspend fun executeToolNode(
+        toolNode: ToolNode,
+        message: SpiceMessage,
+        listeners: ToolLifecycleListeners?
+    ): SpiceResult<SpiceMessage> {
+        // Single resolution point - resolve tool once here
+        val resolvedTool = when (val resolveResult = toolNode.resolver.resolve(message)) {
+            is SpiceResult.Success -> resolveResult.value
+            is SpiceResult.Failure -> return SpiceResult.failure(resolveResult.error)
+        }
+
+        // Execute with or without listeners
+        return if (listeners != null) {
+            executeToolNodeWithListeners(toolNode, message, resolvedTool, listeners)
+        } else {
+            // No listeners - execute directly using the resolved tool
+            toolNode.executeWith(resolvedTool, message)
+        }
+    }
+
+    /**
+     * Execute a ToolNode with lifecycle listener callbacks.
      *
      * Wraps tool execution with onInvoke/onSuccess/onFailure/onComplete callbacks.
      * Handles both SpiceResult.Success and SpiceResult.Failure from tool execution,
      * as well as ToolResult.success=false (tool returned error result).
+     *
+     * @param toolNode The ToolNode being executed
+     * @param message The input message
+     * @param resolvedTool The pre-resolved tool (resolved by executeToolNode)
+     * @param listeners Lifecycle listeners to notify
+     * @return SpiceResult with the output message
      */
     private suspend fun executeToolNodeWithListeners(
         toolNode: ToolNode,
         message: SpiceMessage,
+        resolvedTool: Tool,
         listeners: ToolLifecycleListeners
     ): SpiceResult<SpiceMessage> {
         // Prepare invocation using shared helper
         val (nonNullParams, toolContext) = toolNode.prepareInvocation(message)
 
-        // Create invocation context
+        // Create invocation context with resolved tool
         val invocationContext = ToolInvocationContext.create(
-            tool = toolNode.tool,
+            tool = resolvedTool,
             toolContext = toolContext,
             params = nonNullParams,
             attemptNumber = 1
@@ -867,8 +912,8 @@ class DefaultGraphRunner(
         val startTime = Clock.System.now()
 
         try {
-            // Execute tool
-            val result = toolNode.tool.execute(nonNullParams, toolContext)
+            // Execute resolved tool
+            val result = resolvedTool.execute(nonNullParams, toolContext)
             val durationMs = Clock.System.now().toEpochMilliseconds() - startTime.toEpochMilliseconds()
 
             return when (result) {
@@ -879,7 +924,7 @@ class DefaultGraphRunner(
                     listeners.onSuccess(invocationContext, toolResult, durationMs)
 
                     // Build output message using shared helper
-                    val output = buildOutputMessage(message, toolResult, toolNode.tool.name)
+                    val output = buildOutputMessage(message, toolResult, resolvedTool.name)
 
                     SpiceResult.success(output)
                 }

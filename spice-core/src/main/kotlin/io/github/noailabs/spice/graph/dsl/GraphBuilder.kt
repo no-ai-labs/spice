@@ -19,9 +19,15 @@ import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.ToolRegistry
 import io.github.noailabs.spice.tool.ToolLifecycleListener
 import io.github.noailabs.spice.tool.ToolLifecycleListeners
+import io.github.noailabs.spice.tool.ToolResolver
+import io.github.noailabs.spice.tool.ToolResolverValidation
+import mu.KotlinLogging
 import kotlin.time.Duration
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * 🏗️ GraphBuilder DSL for Spice Framework 1.0.0
@@ -68,6 +74,7 @@ class GraphBuilder(val id: String) {
     private var idempotencyStore: IdempotencyStore? = null
     private var checkpointStore: CheckpointStore? = null
     private var toolLifecycleListeners: ToolLifecycleListeners? = null
+    private var validateResolvers = true
 
     /**
      * Add an agent node
@@ -81,7 +88,7 @@ class GraphBuilder(val id: String) {
     }
 
     /**
-     * Add a tool node
+     * Add a tool node with static tool binding
      *
      * @param id Node ID
      * @param tool Tool instance
@@ -93,6 +100,50 @@ class GraphBuilder(val id: String) {
         paramMapper: (SpiceMessage) -> Map<String, Any?> = { it.data }
     ) {
         nodes[id] = ToolNode(id, tool, paramMapper)
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a tool node with dynamic tool resolution (1.0.4+)
+     *
+     * Supports both static and dynamic tool selection:
+     * - Static: `tool("search", ToolResolver.static(searchTool))`
+     * - Dynamic: `tool("fetch", ToolResolver.byRegistry { msg -> msg.getData("toolId")!! })`
+     * - Fallback: `tool("smart", ToolResolver.fallback(primary, secondary))`
+     *
+     * **Example:**
+     * ```kotlin
+     * graph("generic-workflow") {
+     *     // Dynamic tool selection from registry
+     *     tool("dynamic-fetch", ToolResolver.byRegistry(
+     *         nameSelector = { msg -> msg.getData<String>("toolId")!! },
+     *         namespace = "stayfolio",
+     *         expectedTools = setOf("list_reservations", "list_coupons"),
+     *         strict = false  // WARNING on missing (default)
+     *     )) { message ->
+     *         mapOf("userId" to message.getMetadata<String>("userId"))
+     *     }
+     *
+     *     // Custom dynamic selection
+     *     tool("smart-tool", ToolResolver.dynamic("complexity-based") { msg ->
+     *         val complexity = msg.getData<Int>("complexity") ?: 0
+     *         if (complexity > 50) SpiceResult.success(advancedTool)
+     *         else SpiceResult.success(simpleTool)
+     *     })
+     * }
+     * ```
+     *
+     * @param id Node ID
+     * @param resolver ToolResolver for static or dynamic tool selection
+     * @param paramMapper Function to extract tool parameters from message
+     * @since 1.0.4
+     */
+    fun tool(
+        id: String,
+        resolver: ToolResolver,
+        paramMapper: (SpiceMessage) -> Map<String, Any?> = { it.data }
+    ) {
+        nodes[id] = ToolNode(id, resolver, paramMapper)
         if (entryPoint == null) entryPoint = id
     }
 
@@ -418,12 +469,92 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Skip ToolResolver validation at build time.
+     *
+     * Use this when building graphs before the ToolRegistry is populated
+     * (e.g., in tests or early application wiring). By default, validation
+     * is enabled and will log warnings/errors for missing expected tools.
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("early-build") {
+     *     skipResolverValidation()  // Don't validate - registry not ready yet
+     *     tool("dynamic", ToolResolver.byRegistry(...))
+     * }
+     * ```
+     *
+     * @since 1.0.4
+     */
+    fun skipResolverValidation() {
+        this.validateResolvers = false
+    }
+
+    /**
+     * Validate all ToolNode resolvers at build time.
+     *
+     * Iterates through all nodes, finds ToolNodes, and validates their resolvers
+     * against the current ToolRegistry state.
+     *
+     * Validation is skipped if:
+     * - skipResolverValidation() was called
+     * - ToolRegistry is empty (tools not yet registered)
+     *
+     * @throws IllegalStateException if any resolver validation returns ERROR level
+     */
+    private fun validateToolResolvers() {
+        // Skip if explicitly disabled
+        if (!validateResolvers) {
+            logger.debug { "[Graph '$id'] ToolResolver validation skipped (explicitly disabled)" }
+            return
+        }
+
+        // Skip if registry is empty (tools not yet registered)
+        if (ToolRegistry.getAll().isEmpty()) {
+            logger.debug { "[Graph '$id'] ToolResolver validation skipped (registry empty)" }
+            return
+        }
+
+        val errors = mutableListOf<String>()
+
+        nodes.values.filterIsInstance<ToolNode>().forEach { toolNode ->
+            val validations = toolNode.resolver.validate(ToolRegistry)
+
+            validations.forEach { validation ->
+                val message = "[Graph '$id', Node '${toolNode.id}'] ${validation.message}"
+                when (validation.level) {
+                    ToolResolverValidation.Level.INFO -> logger.info { message }
+                    ToolResolverValidation.Level.WARNING -> logger.warn { message }
+                    ToolResolverValidation.Level.ERROR -> {
+                        logger.error { message }
+                        errors.add(message)
+                    }
+                }
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            throw IllegalStateException(
+                "ToolResolver validation failed with ${errors.size} error(s):\n" +
+                    errors.joinToString("\n") { "  - $it" }
+            )
+        }
+    }
+
+    /**
      * Build the graph
+     *
+     * Validates all ToolNode resolvers at build time:
+     * - INFO messages are logged for dynamic resolvers
+     * - WARNING messages are logged for missing expected tools (non-strict)
+     * - ERROR messages throw IllegalStateException (strict mode)
      */
     fun build(): Graph {
         require(nodes.isNotEmpty()) { "Graph must have at least one node" }
         require(entryPoint != null) { "Graph must have an entry point" }
         require(entryPoint in nodes) { "Entry point '$entryPoint' not found in nodes" }
+
+        // Validate ToolNode resolvers at build time
+        validateToolResolvers()
 
         return Graph(
             id = id,

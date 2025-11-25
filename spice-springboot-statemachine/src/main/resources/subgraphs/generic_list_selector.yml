@@ -1,0 +1,28 @@
+# generic_list_selector subgraph
+# Updated to use the static generic_list_dispatcher tool to avoid YAML parse errors from dynamic tool ids.
+id: generic_list_selector
+description: Dispatch list retrieval to a runtime-selected tool via GenericListDispatcher.
+version: 1
+
+nodes:
+  - id: fetch_items_from_api
+    type: TOOL
+    config:
+      toolId: generic_list_dispatcher
+      params:
+        targetToolId: "{{data.listToolId}}"
+        targetNamespace: "{{data.listToolNamespace | default('global')}}"
+        targetParams:
+          userId: "{{data.userId}}"
+          # Add additional target tool parameters here instead of a merged string map.
+
+  - id: confirm_selection
+    type: SUBGRAPH
+    config:
+      subgraphId: generic_confirmation
+      inputMapping:
+        items: "{{tool.fetch_items_from_api.result}}"
+
+edges:
+  - from: fetch_items_from_api
+    to: confirm_selection
