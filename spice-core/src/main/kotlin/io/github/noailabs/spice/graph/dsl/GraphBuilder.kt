@@ -13,11 +13,13 @@ import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
 import io.github.noailabs.spice.graph.nodes.DecisionNode
-import io.github.noailabs.spice.graph.nodes.HumanNode
-import io.github.noailabs.spice.graph.nodes.HumanOption
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
+import io.github.noailabs.spice.hitl.HITLMetadata
+import io.github.noailabs.spice.hitl.HITLOption
+import io.github.noailabs.spice.hitl.HitlEventEmitter
+import io.github.noailabs.spice.hitl.NoOpHitlEventEmitter
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 import io.github.noailabs.spice.retry.ExecutionRetryPolicy
 import io.github.noailabs.spice.ToolRegistry
@@ -25,6 +27,8 @@ import io.github.noailabs.spice.tool.ToolLifecycleListener
 import io.github.noailabs.spice.tool.ToolLifecycleListeners
 import io.github.noailabs.spice.tool.ToolResolver
 import io.github.noailabs.spice.tool.ToolResolverValidation
+import io.github.noailabs.spice.tools.HitlRequestInputTool
+import io.github.noailabs.spice.tools.HitlRequestSelectionTool
 import mu.KotlinLogging
 import kotlin.time.Duration
 
@@ -51,7 +55,10 @@ private val logger = KotlinLogging.logger {}
  *
  *     // Define nodes
  *     agent("search", searchAgent)
- *     human("select", "Please select a reservation")
+ *     hitlSelection("select", "Please select a reservation") {
+ *         option("res1", "Reservation 1")
+ *         option("res2", "Reservation 2")
+ *     }
  *     agent("confirm", confirmAgent)
  *     output("result")
  *
@@ -78,6 +85,7 @@ class GraphBuilder(val id: String) {
     private var retryPolicy: ExecutionRetryPolicy? = null
     private var retryEnabled: Boolean? = null
     private var validateResolvers = true
+    private var hitlEventEmitter: HitlEventEmitter = NoOpHitlEventEmitter
 
     /**
      * Add an agent node
@@ -151,22 +159,113 @@ class GraphBuilder(val id: String) {
     }
 
     /**
-     * Add a human-in-the-loop node
+     * Configure HITL event emitter for external system notification
      *
-     * @param id Node ID
-     * @param prompt Message to display to human
-     * @param options Multiple choice options (optional)
-     * @param timeout Timeout duration (optional)
-     * @param allowFreeText Allow free-form text input
+     * The emitter is used by HITL tools to notify external systems
+     * (UI, webhook, message queue) when user input is required.
+     *
+     * @param emitter Event emitter implementation
+     * @since 1.0.6
      */
-    fun human(
+    fun hitlEventEmitter(emitter: HitlEventEmitter) {
+        this.hitlEventEmitter = emitter
+    }
+
+    /**
+     * Add a HITL input node for free-form text input (1.0.6+)
+     *
+     * This creates a ToolNode with HitlRequestInputTool bound to it.
+     * When executed, it returns WAITING_HITL status and pauses graph execution.
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("form-flow") {
+     *     hitlInput("get-name", "What is your name?")
+     *     hitlInput("get-email", "What is your email?") {
+     *         validation("email", "pattern" to "^[\\w.-]+@[\\w.-]+\\.\\w+\$")
+     *         timeout(60_000)  // 60 seconds
+     *     }
+     *     output("result")
+     *
+     *     edge("get-name", "get-email")
+     *     edge("get-email", "result")
+     * }
+     * ```
+     *
+     * @param id Node ID (also used for stable tool_call_id generation)
+     * @param prompt Message displayed to the user
+     * @param config Optional configuration block
+     * @since 1.0.6
+     */
+    fun hitlInput(
         id: String,
         prompt: String,
-        options: List<HumanOption> = emptyList(),
-        timeout: Duration? = null,
-        allowFreeText: Boolean = options.isEmpty()
+        config: HitlInputConfigBuilder.() -> Unit = {}
     ) {
-        nodes[id] = HumanNode(id, prompt, options, timeout, allowFreeText = allowFreeText)
+        val configBuilder = HitlInputConfigBuilder().apply(config)
+        val tool = HitlRequestInputTool(hitlEventEmitter)
+
+        nodes[id] = ToolNode(id, tool) { message ->
+            // Get and increment invocation index for loop-safe ID generation
+            val currentIndex = (message.data[HITLMetadata.INVOCATION_INDEX_KEY] as? Number)?.toInt() ?: 0
+            val nextIndex = currentIndex + 1
+
+            HitlRequestInputTool.params(
+                prompt = prompt,
+                validationRules = configBuilder.validationRules,
+                timeout = configBuilder.timeout
+            ) + (HITLMetadata.INVOCATION_INDEX_KEY to nextIndex)
+        }
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a HITL selection node for predefined option selection (1.0.6+)
+     *
+     * This creates a ToolNode with HitlRequestSelectionTool bound to it.
+     * When executed, it returns WAITING_HITL status and pauses graph execution.
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("booking-flow") {
+     *     hitlSelection("select-room", "Select a room type") {
+     *         option("standard", "Standard Room", "Basic room with 1 bed")
+     *         option("deluxe", "Deluxe Room", "Premium room with 2 beds")
+     *         option("suite", "Suite", "Luxury suite with living area")
+     *         selectionType("single")  // or "multiple"
+     *         timeout(120_000)  // 2 minutes
+     *     }
+     *     output("result")
+     *
+     *     edge("select-room", "result")
+     * }
+     * ```
+     *
+     * @param id Node ID (also used for stable tool_call_id generation)
+     * @param prompt Message displayed to the user
+     * @param config Configuration block for options and settings
+     * @since 1.0.6
+     */
+    fun hitlSelection(
+        id: String,
+        prompt: String,
+        config: HitlSelectionConfigBuilder.() -> Unit
+    ) {
+        val configBuilder = HitlSelectionConfigBuilder().apply(config)
+        val tool = HitlRequestSelectionTool(hitlEventEmitter)
+
+        nodes[id] = ToolNode(id, tool) { message ->
+            // Get and increment invocation index for loop-safe ID generation
+            val currentIndex = (message.data[HITLMetadata.INVOCATION_INDEX_KEY] as? Number)?.toInt() ?: 0
+            val nextIndex = currentIndex + 1
+
+            HitlRequestSelectionTool.params(
+                prompt = prompt,
+                options = configBuilder.options,
+                selectionType = configBuilder.selectionType,
+                timeout = configBuilder.timeout
+            ) + (HITLMetadata.INVOCATION_INDEX_KEY to nextIndex)
+        }
         if (entryPoint == null) entryPoint = id
     }
 
@@ -242,7 +341,7 @@ class GraphBuilder(val id: String) {
      *
      *     subgraph("child-workflow") {
      *         agent("step1", agent1)
-     *         human("input", "Enter value")
+     *         hitlInput("input", "Enter value")
      *         output("result")
      *
      *         edge("step1", "input")
@@ -262,7 +361,7 @@ class GraphBuilder(val id: String) {
      * - Child's result is available in parent's data as "subgraph_result"
      *
      * **HITL Support:**
-     * - If child pauses at HumanNode, parent also pauses
+     * - If child pauses at HITL node, parent also pauses
      * - Resume propagates through parent → child
      * - Checkpoints are namespaced: `{parentRunId}:subgraph:{childId}`
      *
@@ -704,8 +803,157 @@ fun graph(id: String, block: GraphBuilder.() -> Unit): Graph {
  */
 
 /**
- * Helper: Create a human option
+ * Helper: Create a HITL option for selection
  */
-fun humanOption(id: String, label: String, description: String? = null): HumanOption {
-    return HumanOption(id, label, description)
+fun hitlOption(id: String, label: String, description: String? = null): HITLOption {
+    return HITLOption(id = id, label = label, description = description)
+}
+
+// ============================================================
+// HITL Configuration Builders (1.0.6+)
+// ============================================================
+
+/**
+ * Configuration builder for hitlInput()
+ *
+ * @since 1.0.6
+ */
+class HitlInputConfigBuilder {
+    internal var validationRules: Map<String, Any> = emptyMap()
+    internal var timeout: Long? = null
+
+    /**
+     * Add a validation rule
+     *
+     * Common validation rules:
+     * - "min_length" to 1
+     * - "max_length" to 1000
+     * - "pattern" to "^[\\w.-]+@[\\w.-]+\\.\\w+\$" (email regex)
+     * - "required" to true
+     *
+     * @param name Rule name
+     * @param value Rule configuration
+     */
+    fun validation(name: String, vararg value: Pair<String, Any>) {
+        validationRules = validationRules + (name to mapOf(*value))
+    }
+
+    /**
+     * Add simple validation rule
+     */
+    fun validation(name: String, value: Any) {
+        validationRules = validationRules + (name to value)
+    }
+
+    /**
+     * Set timeout in milliseconds
+     */
+    fun timeout(ms: Long) {
+        this.timeout = ms
+    }
+
+    /**
+     * Set timeout using Duration
+     */
+    fun timeout(duration: Duration) {
+        this.timeout = duration.inWholeMilliseconds
+    }
+}
+
+/**
+ * Configuration builder for hitlSelection()
+ *
+ * @since 1.0.6
+ */
+class HitlSelectionConfigBuilder {
+    internal val options = mutableListOf<HITLOption>()
+    internal var selectionType: String = "single"
+    internal var timeout: Long? = null
+
+    /**
+     * Add an option with id and label
+     */
+    fun option(id: String, label: String) {
+        options.add(HITLOption(id = id, label = label))
+    }
+
+    /**
+     * Add an option with id, label, and description
+     */
+    fun option(id: String, label: String, description: String) {
+        options.add(HITLOption(id = id, label = label, description = description))
+    }
+
+    /**
+     * Add an option with full configuration
+     */
+    fun option(
+        id: String,
+        label: String,
+        description: String? = null,
+        metadata: Map<String, Any> = emptyMap()
+    ) {
+        options.add(HITLOption(
+            id = id,
+            label = label,
+            description = description,
+            metadata = metadata
+        ))
+    }
+
+    /**
+     * Add a pre-built option
+     */
+    fun option(opt: HITLOption) {
+        options.add(opt)
+    }
+
+    /**
+     * Add multiple options at once
+     */
+    fun options(vararg opts: HITLOption) {
+        options.addAll(opts)
+    }
+
+    /**
+     * Add options from a list
+     */
+    fun options(opts: List<HITLOption>) {
+        options.addAll(opts)
+    }
+
+    /**
+     * Set selection type: "single" or "multiple"
+     */
+    fun selectionType(type: String) {
+        this.selectionType = type
+    }
+
+    /**
+     * Allow single selection (default)
+     */
+    fun singleSelection() {
+        this.selectionType = "single"
+    }
+
+    /**
+     * Allow multiple selection
+     */
+    fun multipleSelection() {
+        this.selectionType = "multiple"
+    }
+
+    /**
+     * Set timeout in milliseconds
+     */
+    fun timeout(ms: Long) {
+        this.timeout = ms
+    }
+
+    /**
+     * Set timeout using Duration
+     */
+    fun timeout(duration: Duration) {
+        this.timeout = duration.inWholeMilliseconds
+    }
 }

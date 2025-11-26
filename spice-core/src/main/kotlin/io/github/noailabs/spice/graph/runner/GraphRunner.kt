@@ -96,7 +96,7 @@ interface GraphRunner {
     /**
      * Resume graph execution from WAITING state (HITL pattern)
      *
-     * Used when a HumanNode paused execution and user provided input.
+     * Used when a HITL node paused execution and user provided input.
      *
      * @param graph Graph definition
      * @param message Message in WAITING state with human response data
@@ -926,7 +926,7 @@ class DefaultGraphRunner(
                 node.runWithRunner(message, this)
             }
             else -> {
-                // AgentNode, HumanNode, OutputNode, etc. - standard execution
+                // AgentNode, OutputNode, etc. - standard execution
                 node.run(message)
             }
         }

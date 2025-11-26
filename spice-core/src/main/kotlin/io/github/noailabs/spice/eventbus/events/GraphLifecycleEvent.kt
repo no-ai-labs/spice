@@ -121,7 +121,7 @@ sealed class GraphLifecycleEvent {
     /**
      * Graph execution paused (HITL)
      *
-     * Emitted when graph pauses for human input (HumanNode).
+     * Emitted when graph pauses for human input (HITL).
      *
      * @property graphId Graph identifier
      * @property runId Execution run ID

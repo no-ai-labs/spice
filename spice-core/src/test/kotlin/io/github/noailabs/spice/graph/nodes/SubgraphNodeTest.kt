@@ -329,7 +329,7 @@ class SubgraphNodeTest {
             agent("start", EchoAgent("start"))
 
             subgraph("child-with-hitl") {
-                human("user-input", "Please enter a value")
+                hitlInput("user-input", "Please enter a value")
                 output("result")
                 edge("user-input", "result")
             }

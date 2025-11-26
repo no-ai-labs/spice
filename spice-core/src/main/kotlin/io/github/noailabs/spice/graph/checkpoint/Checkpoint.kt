@@ -50,7 +50,7 @@ data class Checkpoint(
     val executionState: GraphExecutionState = GraphExecutionState.WAITING_FOR_HUMAN,
 
     // Spice 2.0: Tool call based HITL (event-first architecture)
-    val pendingToolCall: OAIToolCall? = null,      // REQUEST_USER_INPUT/SELECTION from HumanNode
+    val pendingToolCall: OAIToolCall? = null,      // REQUEST_USER_INPUT/SELECTION from HITL Tool
     val responseToolCall: OAIToolCall? = null,     // USER_RESPONSE from user
 
     // Timestamps

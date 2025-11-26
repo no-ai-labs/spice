@@ -1,9 +1,11 @@
 package io.github.noailabs.spice.graph.nodes
 
+import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolContext
 import io.github.noailabs.spice.ToolResult
+import io.github.noailabs.spice.ToolResultStatus
 import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.tool.StaticToolResolver
@@ -188,11 +190,20 @@ class ToolNode(
         ): SpiceMessage {
             val toolMetadata = toolResult.metadata.filterValues { it != null }.mapValues { it.value!! }
 
+            // Determine if tool is awaiting HITL response
+            val isAwaitingHitl = toolResult.status == ToolResultStatus.WAITING_HITL
+            val isSuccess = toolResult.status == ToolResultStatus.SUCCESS
+
             // Embed tool result in message
             val dataUpdates = buildMap<String, Any> {
                 toolResult.result?.let { put("tool_result", it) }
-                put("tool_success", toolResult.success)
+                put("tool_status", toolResult.status.name)
+                @Suppress("DEPRECATION")
+                put("tool_success", isSuccess) // Backward compatibility
                 put("tool_name", toolName)
+                // Store error info if present
+                toolResult.errorCode?.let { put("tool_error_code", it) }
+                toolResult.message?.let { put("tool_message", it) }
                 // Store metadata under namespaced key for DecisionNode routing
                 // Include tool_name for consistency with whenToolMetadata access pattern
                 val lastMetadata = if (toolMetadata.isNotEmpty()) {
@@ -207,15 +218,33 @@ class ToolNode(
             }
             val metadataUpdates = buildMap<String, Any> {
                 put("tool_executed", toolName)
-                put("tool_success", toolResult.success)
+                put("tool_status", toolResult.status.name)
+                @Suppress("DEPRECATION")
+                put("tool_success", isSuccess) // Backward compatibility
+                if (isAwaitingHitl) {
+                    put("hitl_awaiting_response", true)
+                    // Preserve HITL-specific metadata for checkpoint/resume
+                    toolResult.metadata["hitl_tool_call_id"]?.let { put("hitl_tool_call_id", it) }
+                    toolResult.metadata["hitl_type"]?.let { put("hitl_type", it) }
+                }
                 if (toolMetadata.isNotEmpty()) {
                     putAll(toolMetadata)
                 }
             }
 
+            // Set execution state based on tool result status
+            val executionState = when (toolResult.status) {
+                ToolResultStatus.WAITING_HITL -> ExecutionState.WAITING
+                ToolResultStatus.ERROR,
+                ToolResultStatus.TIMEOUT,
+                ToolResultStatus.CANCELLED -> ExecutionState.FAILED
+                ToolResultStatus.SUCCESS -> message.state // Keep current state (typically RUNNING)
+            }
+
             return message
                 .withData(dataUpdates)
                 .withMetadata(metadataUpdates)
+                .copy(state = executionState)
         }
     }
 }

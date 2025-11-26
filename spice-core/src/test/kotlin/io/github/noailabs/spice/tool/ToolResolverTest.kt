@@ -389,7 +389,7 @@ class ToolResolverTest {
     @Test
     fun `Graph DSL tool with ToolResolver works correctly`() = runTest {
         val tool = SimpleTool("dynamic_test", "Dynamic test") { _ ->
-            ToolResult.success("executed", mapOf("source" to "dynamic"))
+            ToolResult.success(result = "executed", metadata = mapOf("source" to "dynamic"))
         }
         ToolRegistry.register(tool, namespace = "test")
 

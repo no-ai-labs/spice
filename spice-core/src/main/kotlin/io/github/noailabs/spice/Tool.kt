@@ -227,33 +227,193 @@ data class ToolContext(
     fun hasMetadata(key: String): Boolean = metadata.containsKey(key)
 }
 
+/**
+ * Status of a tool execution result
+ *
+ * This is the single source of truth for tool execution outcomes.
+ * The deprecated `success` Boolean is derived from this status.
+ */
+@Serializable
+enum class ToolResultStatus {
+    /** Tool executed successfully */
+    SUCCESS,
+
+    /** Tool is waiting for Human-in-the-Loop response */
+    WAITING_HITL,
+
+    /** Tool execution timed out */
+    TIMEOUT,
+
+    /** Tool execution was cancelled */
+    CANCELLED,
+
+    /** Tool execution failed with an error */
+    ERROR
+}
+
+/**
+ * Result of a tool execution
+ *
+ * @property status Execution status (single source of truth)
+ * @property result Result value (nullable)
+ * @property errorCode Error code for ERROR/TIMEOUT/CANCELLED statuses
+ * @property message Human-readable message describing the result
+ * @property metadata Additional metadata for the result
+ */
 @Serializable
 data class ToolResult(
-    val result: @Contextual Any?,
-    val success: Boolean = true,
+    val status: ToolResultStatus = ToolResultStatus.SUCCESS,
+    val result: @Contextual Any? = null,
+    val errorCode: String? = null,
+    val message: String? = null,
     val metadata: Map<String, @Contextual Any> = emptyMap()
 ) {
+    /**
+     * Whether the tool execution was successful
+     *
+     * @deprecated Use status instead. This property is derived from status.
+     */
+    @Deprecated(
+        message = "Use status instead. This property is derived from status == SUCCESS",
+        replaceWith = ReplaceWith("status == ToolResultStatus.SUCCESS"),
+        level = DeprecationLevel.WARNING
+    )
+    val success: Boolean
+        get() = status == ToolResultStatus.SUCCESS
+
+    /**
+     * Check if the tool is awaiting HITL response
+     */
+    val isAwaitingHitl: Boolean
+        get() = status == ToolResultStatus.WAITING_HITL
+
+    /**
+     * Check if the execution failed (ERROR, TIMEOUT, or CANCELLED)
+     */
+    val isFailed: Boolean
+        get() = status in listOf(ToolResultStatus.ERROR, ToolResultStatus.TIMEOUT, ToolResultStatus.CANCELLED)
+
+    /**
+     * Check if the execution is terminal (SUCCESS or failed states)
+     */
+    val isTerminal: Boolean
+        get() = status != ToolResultStatus.WAITING_HITL
+
     companion object {
         /**
          * Create a successful tool result
          *
          * @param result Result value
+         * @param message Optional success message
          * @param metadata Optional metadata
-         * @return ToolResult with success = true
+         * @return ToolResult with status = SUCCESS
          */
-        fun success(result: Any?, metadata: Map<String, Any> = emptyMap()): ToolResult {
-            return ToolResult(result = result, success = true, metadata = metadata)
+        fun success(
+            result: Any?,
+            message: String? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.SUCCESS,
+                result = result,
+                message = message,
+                metadata = metadata
+            )
         }
 
         /**
          * Create a failed tool result
          *
          * @param error Error message or value
+         * @param errorCode Error code for categorization
          * @param metadata Optional metadata
-         * @return ToolResult with success = false
+         * @return ToolResult with status = ERROR
          */
-        fun error(error: Any?, metadata: Map<String, Any> = emptyMap()): ToolResult {
-            return ToolResult(result = error, success = false, metadata = metadata)
+        fun error(
+            error: Any?,
+            errorCode: String? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.ERROR,
+                result = error,
+                errorCode = errorCode,
+                message = error?.toString(),
+                metadata = metadata
+            )
+        }
+
+        /**
+         * Create a HITL waiting result
+         *
+         * Used by HITL tools to signal that the workflow should pause
+         * and wait for human input.
+         *
+         * @param toolCallId Unique identifier for this HITL request (format: hitl_{runId}_{nodeId})
+         * @param prompt Message to display to the user
+         * @param hitlType Type of HITL interaction ("input" or "selection")
+         * @param metadata Additional HITL metadata (options, validation rules, etc.)
+         * @return ToolResult with status = WAITING_HITL
+         */
+        fun waitingHitl(
+            toolCallId: String,
+            prompt: String,
+            hitlType: String,
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.WAITING_HITL,
+                result = mapOf(
+                    "tool_call_id" to toolCallId,
+                    "prompt" to prompt,
+                    "hitl_type" to hitlType
+                ),
+                message = prompt,
+                metadata = metadata + mapOf(
+                    "hitl_tool_call_id" to toolCallId,
+                    "hitl_type" to hitlType
+                )
+            )
+        }
+
+        /**
+         * Create a timeout result
+         *
+         * @param message Timeout message
+         * @param metadata Optional metadata
+         * @return ToolResult with status = TIMEOUT
+         */
+        fun timeout(
+            message: String = "Tool execution timed out",
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.TIMEOUT,
+                result = null,
+                errorCode = "TIMEOUT",
+                message = message,
+                metadata = metadata
+            )
+        }
+
+        /**
+         * Create a cancelled result
+         *
+         * @param message Cancellation message
+         * @param metadata Optional metadata
+         * @return ToolResult with status = CANCELLED
+         */
+        fun cancelled(
+            message: String = "Tool execution was cancelled",
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.CANCELLED,
+                result = null,
+                errorCode = "CANCELLED",
+                message = message,
+                metadata = metadata
+            )
         }
     }
 }

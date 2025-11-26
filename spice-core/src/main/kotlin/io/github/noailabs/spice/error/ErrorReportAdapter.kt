@@ -34,6 +34,7 @@ object ErrorReportAdapter {
                 "reason" to report.reason,
                 "recoverable" to report.recoverable,
                 "context" to report.context
-            )
+            ),
+            errorCode = report.code
         )
 }

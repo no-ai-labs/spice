@@ -140,9 +140,9 @@ data class AgentTool(
         context: ToolContext
     ): SpiceResult<ToolResult> {
         return SpiceResult.success(
-            ToolResult(
-                result = "AgentTool is a placeholder and not executable",
-                success = false
+            ToolResult.error(
+                error = "AgentTool is a placeholder and not executable",
+                errorCode = "NOT_EXECUTABLE"
             )
         )
     }

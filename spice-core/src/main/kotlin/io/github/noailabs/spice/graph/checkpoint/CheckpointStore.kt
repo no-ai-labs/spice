@@ -127,4 +127,55 @@ interface CheckpointStore {
      * @return SpiceResult with list of checkpoints (may be empty)
      */
     suspend fun listByToolCallId(toolCallId: String): SpiceResult<List<Checkpoint>>
+
+    // =========================================
+    // Spice 1.0.6+: HITL Idempotency Support
+    // =========================================
+
+    /**
+     * Check if a HITL response has already been processed
+     *
+     * Used to prevent duplicate processing of the same HITL response.
+     * The idempotency key is: (runId, toolCallId)
+     *
+     * @param runId Graph run identifier
+     * @param toolCallId HITL tool call identifier
+     * @return true if already processed, false otherwise
+     * @since 1.0.6
+     */
+    suspend fun isHitlProcessed(runId: String, toolCallId: String): Boolean {
+        // Default implementation: check if checkpoint exists with responseToolCallId
+        val result = loadByResponseToolCallId(toolCallId)
+        return result is SpiceResult.Success
+    }
+
+    /**
+     * Mark a HITL response as processed
+     *
+     * Called after successfully processing a HITL response to prevent
+     * duplicate processing on retry.
+     *
+     * @param runId Graph run identifier
+     * @param toolCallId HITL tool call identifier
+     * @return SpiceResult indicating success/failure
+     * @since 1.0.6
+     */
+    suspend fun markHitlProcessed(runId: String, toolCallId: String): SpiceResult<Unit> {
+        // Default implementation: no-op (checkpoint update handles this)
+        // Override in implementations that need explicit tracking
+        return SpiceResult.success(Unit)
+    }
+
+    /**
+     * Get the idempotency key for a HITL request
+     *
+     * Format: {runId}:{toolCallId}
+     *
+     * @param runId Graph run identifier
+     * @param toolCallId HITL tool call identifier
+     * @return Idempotency key string
+     * @since 1.0.6
+     */
+    fun getHitlIdempotencyKey(runId: String, toolCallId: String): String =
+        "$runId:$toolCallId"
 }

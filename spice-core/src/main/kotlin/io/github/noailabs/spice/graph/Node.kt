@@ -21,7 +21,7 @@ import io.github.noailabs.spice.error.SpiceResult
  * **Node Types:**
  * - **AgentNode**: Wraps Agent, processes with LLM
  * - **ToolNode**: Executes external tool calls
- * - **HumanNode**: Pauses for human input (state → WAITING)
+ * - **ToolNode (HITL)**: Pauses for human input (state → WAITING)
  * - **OutputNode**: Final output node (state → COMPLETED)
  * - **DecisionNode**: Conditional branching
  * - **MergeNode**: Merge multiple branches

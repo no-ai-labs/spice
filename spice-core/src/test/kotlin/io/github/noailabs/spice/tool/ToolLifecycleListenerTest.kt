@@ -46,7 +46,7 @@ class ToolLifecycleListenerTest {
             name = "test_tool",
             description = "Test tool"
         ) { _ ->
-            ToolResult.success("result", mapOf("key" to "value"))
+            ToolResult.success(result = "result", metadata = mapOf("key" to "value"))
         }
 
         val testGraph = graph("test") {

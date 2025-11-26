@@ -57,7 +57,7 @@ sealed class NodeLifecycleEvent {
      * @property runId Execution run ID
      * @property timestamp Event timestamp
      * @property message Input message to node
-     * @property nodeType Node type (e.g., "AgentNode", "ToolNode", "HumanNode")
+     * @property nodeType Node type (e.g., "AgentNode", "ToolNode")
      * @property metadata Additional context
      */
     @Serializable

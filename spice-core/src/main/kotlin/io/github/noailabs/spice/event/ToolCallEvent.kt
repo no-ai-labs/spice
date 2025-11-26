@@ -57,7 +57,7 @@ sealed class ToolCallEvent {
      * This is the start of the tool call lifecycle.
      *
      * **Examples:**
-     * - HumanNode emits REQUEST_USER_SELECTION
+     * - HITL Tool emits REQUEST_USER_SELECTION
      * - Agent emits REQUEST_USER_CONFIRMATION
      * - Tool node emits tool call result
      *

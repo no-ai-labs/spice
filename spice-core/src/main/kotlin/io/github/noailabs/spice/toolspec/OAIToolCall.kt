@@ -82,6 +82,10 @@ data class OAIToolCall(
             const val REQUEST_USER_CONFIRMATION = "request_user_confirmation"
             const val REQUEST_USER_INPUT = "request_user_input"
 
+            // HITL Tool requests (1.0.6+)
+            const val HITL_REQUEST_INPUT = "hitl_request_input"
+            const val HITL_REQUEST_SELECTION = "hitl_request_selection"
+
             // System events
             const val WORKFLOW_COMPLETED = "workflow_completed"
             const val TOOL_MESSAGE = "tool_message"
@@ -320,6 +324,128 @@ data class OAIToolCall(
                 )
             )
         }
+
+        // ============================================================
+        // HITL Tool Factory Methods (1.0.6+)
+        // ============================================================
+
+        /**
+         * Create HITL Input Request ToolCall
+         *
+         * Used by HitlRequestInputTool to request free-form text input from user.
+         * The tool_call_id is stable across retries (format: hitl_{runId}_{nodeId}).
+         *
+         * @param toolCallId Stable identifier for this HITL request
+         * @param prompt Message displayed to the user
+         * @param runId Graph run ID for checkpoint correlation
+         * @param nodeId Node ID that initiated this request
+         * @param graphId Optional graph ID for context
+         * @param validationRules Optional validation rules (e.g., min/max length, regex)
+         * @param timeout Optional timeout in milliseconds
+         * @param metadata Additional custom metadata
+         */
+        fun hitlInput(
+            toolCallId: String,
+            prompt: String,
+            runId: String,
+            nodeId: String,
+            graphId: String? = null,
+            validationRules: Map<String, Any> = emptyMap(),
+            timeout: Long? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): OAIToolCall {
+            return OAIToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = ToolNames.HITL_REQUEST_INPUT,
+                    arguments = buildMap {
+                        put("tool_call_id", toolCallId)
+                        put("prompt", prompt)
+                        put("hitl_type", "input")
+                        put("run_id", runId)
+                        put("node_id", nodeId)
+                        if (graphId != null) {
+                            put("graph_id", graphId)
+                        }
+                        if (validationRules.isNotEmpty()) {
+                            put("validation_rules", validationRules)
+                        }
+                        if (timeout != null) {
+                            put("timeout", timeout)
+                        }
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Create HITL Selection Request ToolCall
+         *
+         * Used by HitlRequestSelectionTool to request selection from predefined options.
+         * The tool_call_id is stable across retries (format: hitl_{runId}_{nodeId}).
+         *
+         * @param toolCallId Stable identifier for this HITL request
+         * @param prompt Message displayed to the user
+         * @param options List of selection options with id, label, description
+         * @param runId Graph run ID for checkpoint correlation
+         * @param nodeId Node ID that initiated this request
+         * @param graphId Optional graph ID for context
+         * @param selectionType Type of selection: "single" or "multiple"
+         * @param timeout Optional timeout in milliseconds
+         * @param metadata Additional custom metadata
+         */
+        fun hitlSelection(
+            toolCallId: String,
+            prompt: String,
+            options: List<Map<String, Any?>>,
+            runId: String,
+            nodeId: String,
+            graphId: String? = null,
+            selectionType: String = "single",
+            timeout: Long? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): OAIToolCall {
+            return OAIToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = ToolNames.HITL_REQUEST_SELECTION,
+                    arguments = buildMap {
+                        put("tool_call_id", toolCallId)
+                        put("prompt", prompt)
+                        put("hitl_type", "selection")
+                        put("options", options)
+                        put("selection_type", selectionType)
+                        put("run_id", runId)
+                        put("node_id", nodeId)
+                        if (graphId != null) {
+                            put("graph_id", graphId)
+                        }
+                        if (timeout != null) {
+                            put("timeout", timeout)
+                        }
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Generate a stable HITL tool_call_id
+         *
+         * Format: hitl_{runId}_{nodeId}
+         * This ensures the same ID is generated on retry.
+         *
+         * @param runId Current graph run ID
+         * @param nodeId Current node ID
+         * @return Stable tool_call_id for HITL requests
+         */
+        fun generateHitlToolCallId(runId: String, nodeId: String): String =
+            "hitl_${runId}_${nodeId}"
     }
 
     /**
