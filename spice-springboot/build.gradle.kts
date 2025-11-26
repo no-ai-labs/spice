@@ -45,9 +45,9 @@ publishing {
     publications {
         create<MavenPublication>("boot") {
             from(components["java"])
-            groupId = "io.github.noailabs"
+            groupId = project.group.toString()
             artifactId = "spice-springboot"
-            version = "1.0.1"
+            version = project.version.toString()
             
             pom {
                 name.set("Spice Spring Boot Starter")

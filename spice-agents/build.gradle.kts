@@ -35,9 +35,9 @@ publishing {
     publications {
         create<MavenPublication>("agents") {
             from(components["java"])
-            groupId = "io.github.noailabs"
+            groupId = project.group.toString()
             artifactId = "spice-agents"
-            version = "1.0.1"
+            version = project.version.toString()
 
             pom {
                 name.set("Spice Agents")

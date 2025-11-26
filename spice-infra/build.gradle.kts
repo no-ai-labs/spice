@@ -28,9 +28,9 @@ publishing {
     publications {
         create<MavenPublication>("infra") {
             from(components["java"])
-            groupId = "io.github.noailabs"
+            groupId = project.group.toString()
             artifactId = "spice-infra"
-            version = "1.0.6"
+            version = project.version.toString()
 
             pom {
                 name.set("Spice Infra")

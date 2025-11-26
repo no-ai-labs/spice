@@ -3,8 +3,7 @@ plugins {
     application
 }
 
-group = "io.github.no-ai-labs"
-version = "1.0.1"
+// Uses version from root build.gradle.kts (allprojects block)
 
 repositories {
     mavenCentral()
