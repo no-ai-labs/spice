@@ -15,10 +15,15 @@ import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
+import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.graph.nodes.ToolNode.Companion.buildOutputMessage
+import io.github.noailabs.spice.retry.ExecutionRetryPolicy
+import io.github.noailabs.spice.retry.RetryResult
+import io.github.noailabs.spice.retry.RetrySupervisor
+import io.github.noailabs.spice.retry.RetrySupervisorConfig
 import io.github.noailabs.spice.state.ExecutionStateMachine
 import io.github.noailabs.spice.tool.ToolInvocationContext
 import io.github.noailabs.spice.tool.ToolLifecycleListeners
@@ -123,7 +128,10 @@ class DefaultGraphRunner(
     private val stateMachine: ExecutionStateMachine = ExecutionStateMachine(),
     private val cachePolicy: CachePolicy = CachePolicy(),
     private val vectorCache: VectorCache? = null,
-    private val fallbackToolLifecycleListeners: ToolLifecycleListeners? = null
+    private val fallbackToolLifecycleListeners: ToolLifecycleListeners? = null,
+    private val retrySupervisor: RetrySupervisor = RetrySupervisor.default(),  // Zero-config: enabled by default
+    private val defaultRetryPolicy: ExecutionRetryPolicy = ExecutionRetryPolicy.DEFAULT,
+    private val enableRetryByDefault: Boolean = true  // Zero-config: retry enabled by default
 ) : GraphRunner {
 
     /**
@@ -315,23 +323,10 @@ class DefaultGraphRunner(
                 return beforeResult
             }
 
-            // Execute node (with lifecycle listeners for ToolNode, runner injection for SubgraphNode)
+            // Execute node with retry for ALL node types
             // Use graph-level listeners if available, otherwise fallback to runner-level listeners
             val effectiveListeners = graph.toolLifecycleListeners ?: fallbackToolLifecycleListeners
-            val result = when {
-                node is ToolNode -> {
-                    // Always resolve tool once in GraphRunner for consistency
-                    // This ensures the same tool is used regardless of listener presence
-                    executeToolNode(node, currentMessage, effectiveListeners)
-                }
-                node is SubgraphNode -> {
-                    // Pass this runner to SubgraphNode for proper inheritance (thread-safe)
-                    node.runWithRunner(currentMessage, this)
-                }
-                else -> {
-                    node.run(currentMessage)
-                }
-            }
+            val result = executeNodeWithRetry(node, currentMessage, effectiveListeners, graph)
 
             when (result) {
                 is SpiceResult.Success -> {
@@ -679,7 +674,8 @@ class DefaultGraphRunner(
         is SpiceError.ToolError,
         is SpiceError.NetworkError,
         is SpiceError.TimeoutError,
-        is SpiceError.RateLimitError -> true
+        is SpiceError.RateLimitError,
+        is SpiceError.RetryableError -> true
         else -> false
     }
 
@@ -842,34 +838,132 @@ class DefaultGraphRunner(
     }
 
     /**
-     * Execute a ToolNode with single resolution point.
+     * Execute ANY node with retry support.
      *
-     * Always resolves the tool once in GraphRunner, then either:
-     * - Calls executeToolNodeWithListeners if listeners are present
-     * - Calls toolNode.executeWith() directly if no listeners
+     * This is the unified retry handler for ALL node types:
+     * - ToolNode: with lifecycle listeners and tool resolution
+     * - SubgraphNode: with runner injection
+     * - AgentNode: standard execution
+     * - Custom Node: standard execution
      *
-     * This ensures consistent tool resolution regardless of listener presence,
-     * avoiding potential issues with non-deterministic selectors.
+     * Retry priority:
+     * 1. Graph.retryEnabled = false → No retry (explicit disable)
+     * 2. Graph.retryPolicy != null → Use graph policy (auto-enable)
+     * 3. Runner's enableRetryByDefault → Use defaultRetryPolicy
+     * 4. No retry
      *
-     * @param toolNode The ToolNode to execute
+     * @param node The Node to execute
      * @param message The input message
-     * @param listeners Optional lifecycle listeners (may be null)
+     * @param listeners Optional lifecycle listeners (for ToolNode)
+     * @param graph The graph being executed (for graph-level retry policy)
      * @return SpiceResult with the output message
+     */
+    private suspend fun executeNodeWithRetry(
+        node: Node,
+        message: SpiceMessage,
+        listeners: ToolLifecycleListeners?,
+        graph: Graph
+    ): SpiceResult<SpiceMessage> {
+        // Determine effective retry configuration
+        // Priority: Graph explicit > Graph implicit (retryPolicy set) > Runner default
+        val effectiveRetryEnabled = when {
+            graph.retryEnabled == false -> false  // Explicit disable
+            graph.retryEnabled == true -> true    // Explicit enable
+            graph.retryPolicy != null -> true     // Implicit enable (retryPolicy() called)
+            else -> enableRetryByDefault          // Use runner default (Zero-config)
+        }
+        val effectiveRetryPolicy = graph.retryPolicy ?: defaultRetryPolicy
+
+        // If retry is disabled, execute directly
+        if (!effectiveRetryEnabled) {
+            return executeNodeDirect(node, message, listeners, attemptNumber = 1)
+        }
+
+        // Execute with retry
+        val result = retrySupervisor.executeWithRetry(
+            message = message,
+            nodeId = node.id,
+            policy = effectiveRetryPolicy
+        ) { currentMessage, attemptNumber ->
+            executeNodeDirect(node, currentMessage, listeners, attemptNumber)
+        }
+
+        return when (result) {
+            is RetryResult.Success -> SpiceResult.success(result.value)
+            is RetryResult.Exhausted -> SpiceResult.failure(result.finalError)
+            is RetryResult.NotRetryable -> SpiceResult.failure(result.error)
+        }
+    }
+
+    /**
+     * Execute a node directly without retry wrapping.
+     *
+     * Dispatches to the appropriate execution method based on node type.
+     *
+     * @param node The Node to execute
+     * @param message The input message
+     * @param listeners Optional lifecycle listeners (for ToolNode)
+     * @param attemptNumber Current attempt number (1-based)
+     * @return SpiceResult with the output message
+     */
+    private suspend fun executeNodeDirect(
+        node: Node,
+        message: SpiceMessage,
+        listeners: ToolLifecycleListeners?,
+        attemptNumber: Int
+    ): SpiceResult<SpiceMessage> {
+        return when (node) {
+            is ToolNode -> {
+                // Resolve tool first
+                val resolvedTool = when (val resolveResult = node.resolver.resolve(message)) {
+                    is SpiceResult.Success -> resolveResult.value
+                    is SpiceResult.Failure -> return SpiceResult.failure(resolveResult.error)
+                }
+                executeToolNodeDirect(node, message, resolvedTool, listeners, attemptNumber)
+            }
+            is SubgraphNode -> {
+                // Pass this runner to SubgraphNode for proper inheritance (thread-safe)
+                node.runWithRunner(message, this)
+            }
+            else -> {
+                // AgentNode, HumanNode, OutputNode, etc. - standard execution
+                node.run(message)
+            }
+        }
+    }
+
+    /**
+     * @deprecated Use executeNodeWithRetry instead which handles all node types.
+     * This method is kept for backward compatibility with external callers.
      */
     private suspend fun executeToolNode(
         toolNode: ToolNode,
         message: SpiceMessage,
-        listeners: ToolLifecycleListeners?
+        listeners: ToolLifecycleListeners?,
+        graph: Graph
     ): SpiceResult<SpiceMessage> {
-        // Single resolution point - resolve tool once here
-        val resolvedTool = when (val resolveResult = toolNode.resolver.resolve(message)) {
-            is SpiceResult.Success -> resolveResult.value
-            is SpiceResult.Failure -> return SpiceResult.failure(resolveResult.error)
-        }
+        return executeNodeWithRetry(toolNode, message, listeners, graph)
+    }
 
-        // Execute with or without listeners
+    /**
+     * Direct tool execution without retry wrapping.
+     *
+     * @param toolNode The ToolNode being executed
+     * @param message The input message
+     * @param resolvedTool The pre-resolved tool
+     * @param listeners Optional lifecycle listeners
+     * @param attemptNumber Current attempt number (1-based)
+     * @return SpiceResult with the output message
+     */
+    private suspend fun executeToolNodeDirect(
+        toolNode: ToolNode,
+        message: SpiceMessage,
+        resolvedTool: Tool,
+        listeners: ToolLifecycleListeners?,
+        attemptNumber: Int
+    ): SpiceResult<SpiceMessage> {
         return if (listeners != null) {
-            executeToolNodeWithListeners(toolNode, message, resolvedTool, listeners)
+            executeToolNodeWithListeners(toolNode, message, resolvedTool, listeners, attemptNumber)
         } else {
             // No listeners - execute directly using the resolved tool
             toolNode.executeWith(resolvedTool, message)
@@ -887,23 +981,25 @@ class DefaultGraphRunner(
      * @param message The input message
      * @param resolvedTool The pre-resolved tool (resolved by executeToolNode)
      * @param listeners Lifecycle listeners to notify
+     * @param attemptNumber Current attempt number (1-based), for retry visibility
      * @return SpiceResult with the output message
      */
     private suspend fun executeToolNodeWithListeners(
         toolNode: ToolNode,
         message: SpiceMessage,
         resolvedTool: Tool,
-        listeners: ToolLifecycleListeners
+        listeners: ToolLifecycleListeners,
+        attemptNumber: Int
     ): SpiceResult<SpiceMessage> {
         // Prepare invocation using shared helper
         val (nonNullParams, toolContext) = toolNode.prepareInvocation(message)
 
-        // Create invocation context with resolved tool
+        // Create invocation context with resolved tool and attempt number
         val invocationContext = ToolInvocationContext.create(
             tool = resolvedTool,
             toolContext = toolContext,
             params = nonNullParams,
-            attemptNumber = 1
+            attemptNumber = attemptNumber
         )
 
         // Notify listeners: onInvoke

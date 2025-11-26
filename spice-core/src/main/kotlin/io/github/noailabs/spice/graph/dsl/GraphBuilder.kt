@@ -19,6 +19,7 @@ import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.retry.ExecutionRetryPolicy
 import io.github.noailabs.spice.ToolRegistry
 import io.github.noailabs.spice.tool.ToolLifecycleListener
 import io.github.noailabs.spice.tool.ToolLifecycleListeners
@@ -74,6 +75,8 @@ class GraphBuilder(val id: String) {
     private var idempotencyStore: IdempotencyStore? = null
     private var checkpointStore: CheckpointStore? = null
     private var toolLifecycleListeners: ToolLifecycleListeners? = null
+    private var retryPolicy: ExecutionRetryPolicy? = null
+    private var retryEnabled: Boolean? = null
     private var validateResolvers = true
 
     /**
@@ -490,6 +493,88 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Configure retry policy for automatic retry on retryable errors.
+     *
+     * When configured, ToolNodes that return retryable errors (5xx, 429, timeout, etc.)
+     * will be automatically retried according to this policy.
+     *
+     * **Default Behavior:**
+     * - If not configured, no automatic retry is performed
+     * - Use ExecutionRetryPolicy.DEFAULT for standard retry: 3 attempts, 200→400→800ms
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("resilient-workflow") {
+     *     // Use default retry policy
+     *     retryPolicy(ExecutionRetryPolicy.DEFAULT)
+     *
+     *     // Or customize
+     *     retryPolicy(ExecutionRetryPolicy(
+     *         maxAttempts = 5,
+     *         initialDelay = 500.milliseconds,
+     *         maxDelay = 30.seconds,
+     *         backoffMultiplier = 2.0
+     *     ))
+     *
+     *     tool("external-api", apiTool)
+     *     output("result")
+     *     edge("external-api", "result")
+     * }
+     * ```
+     *
+     * **Retryable Errors:**
+     * - HTTP 5xx (server errors)
+     * - HTTP 408 (Request Timeout)
+     * - HTTP 429 (Too Many Requests) - respects Retry-After header
+     * - Network exceptions (SocketException, ConnectException, etc.)
+     * - SpiceError.RetryableError
+     *
+     * **Non-Retryable Errors:**
+     * - HTTP 4xx (except 408, 429)
+     * - Validation errors
+     * - Authentication errors
+     *
+     * @param policy Retry policy to apply
+     * @since 1.0.4
+     */
+    fun retryPolicy(policy: ExecutionRetryPolicy) {
+        this.retryPolicy = policy
+    }
+
+    /**
+     * Enable default retry policy.
+     *
+     * Shorthand for `retryPolicy(ExecutionRetryPolicy.DEFAULT)`.
+     *
+     * @since 1.0.4
+     */
+    fun enableRetry() {
+        this.retryPolicy = ExecutionRetryPolicy.DEFAULT
+        this.retryEnabled = true
+    }
+
+    /**
+     * Disable retry for this graph.
+     *
+     * Explicitly disables retry even if the runner has a default policy.
+     * Equivalent to setting maxAttempts = 0 (single attempt, no retries).
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("no-retry-workflow") {
+     *     disableRetry()  // No automatic retry even if runner has default policy
+     *     tool("api", apiTool)
+     * }
+     * ```
+     *
+     * @since 1.0.4
+     */
+    fun disableRetry() {
+        this.retryPolicy = ExecutionRetryPolicy.NO_RETRY
+        this.retryEnabled = false
+    }
+
+    /**
      * Validate all ToolNode resolvers at build time.
      *
      * Iterates through all nodes, finds ToolNodes, and validates their resolvers
@@ -567,7 +652,9 @@ class GraphBuilder(val id: String) {
             toolCallEventBus = toolCallEventBus,
             idempotencyStore = idempotencyStore,
             checkpointStore = checkpointStore,
-            toolLifecycleListeners = toolLifecycleListeners
+            toolLifecycleListeners = toolLifecycleListeners,
+            retryPolicy = retryPolicy,
+            retryEnabled = retryEnabled
         )
     }
 }

@@ -1,5 +1,82 @@
 package io.github.noailabs.spice.error
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+
+/**
+ * 💡 Retry Hint
+ *
+ * Provides hints for retry policy override at the error level.
+ * Used by RetryableError to suggest specific retry behavior.
+ *
+ * **Usage:**
+ * - `retryAfterMs`: Specific delay before retry (from Retry-After header)
+ * - `maxAttempts`: Override max retry attempts for this error
+ * - `skipRetry`: Force skip retry even for retryable errors
+ * - `reason`: Human-readable reason for the hint
+ *
+ * @since 1.0.4
+ */
+data class RetryHint(
+    /**
+     * Suggested delay before retry in milliseconds.
+     * Typically from HTTP Retry-After header (429 responses).
+     */
+    val retryAfterMs: Long? = null,
+
+    /**
+     * Override maximum retry attempts for this specific error.
+     * null = use policy default
+     */
+    val maxAttempts: Int? = null,
+
+    /**
+     * Force skip retry even if error is classified as retryable.
+     */
+    val skipRetry: Boolean = false,
+
+    /**
+     * Human-readable reason for the hint (for logging/debugging).
+     */
+    val reason: String? = null
+) {
+    companion object {
+        /**
+         * Create hint from Retry-After header value (seconds)
+         */
+        fun fromRetryAfterSeconds(seconds: Long, reason: String? = null): RetryHint =
+            RetryHint(
+                retryAfterMs = seconds * 1000,
+                reason = reason ?: "Retry-After header: ${seconds}s"
+            )
+
+        /**
+         * Create hint from Duration
+         */
+        fun fromDuration(duration: Duration, reason: String? = null): RetryHint =
+            RetryHint(
+                retryAfterMs = duration.inWholeMilliseconds,
+                reason = reason
+            )
+
+        /**
+         * Create hint to skip retry
+         */
+        fun skipRetry(reason: String): RetryHint =
+            RetryHint(skipRetry = true, reason = reason)
+
+        /**
+         * Create hint with custom max attempts
+         */
+        fun withMaxAttempts(maxAttempts: Int, reason: String? = null): RetryHint =
+            RetryHint(maxAttempts = maxAttempts, reason = reason)
+    }
+
+    /**
+     * Get retry delay as Duration
+     */
+    fun getRetryAfterDuration(): Duration? = retryAfterMs?.milliseconds
+}
 
 /**
  * 🚨 Spice Error Hierarchy
@@ -56,6 +133,7 @@ sealed class SpiceError {
         is CheckpointError -> copy(context = context + pairs.toMap())
         is UnknownError -> copy(context = context + pairs.toMap())
         is ToolLookupError -> copy(context = context + pairs.toMap())
+        is RetryableError -> copy(context = context + pairs.toMap())
     }
 
     // =========================================
@@ -236,21 +314,107 @@ sealed class SpiceError {
         }
     }
 
+    /**
+     * 🔄 Retryable errors (network failures, 5xx, timeout, 429)
+     *
+     * Errors that can be automatically retried by the framework.
+     * Used by RetrySupervisor to determine retry behavior.
+     *
+     * **Retryable conditions:**
+     * - HTTP 5xx (server errors)
+     * - HTTP 408 (request timeout)
+     * - HTTP 429 (rate limit) - uses Retry-After header if available
+     * - Network exceptions (SocketException, ConnectException, etc.)
+     * - Timeout exceptions
+     *
+     * **Non-retryable conditions:**
+     * - HTTP 4xx (except 408, 429)
+     * - Validation errors
+     * - Authentication errors
+     *
+     * @property statusCode HTTP status code (if applicable)
+     * @property errorCode Application-specific error code
+     * @property retryHint Optional hint for retry policy override
+     * @since 1.0.4
+     */
+    data class RetryableError(
+        override val message: String,
+        override val cause: Throwable? = null,
+        val statusCode: Int? = null,
+        val errorCode: String? = null,
+        val retryHint: RetryHint? = null,
+        override val context: Map<String, Any> = emptyMap()
+    ) : SpiceError() {
+        override val code: String = "RETRYABLE_ERROR"
+
+        /**
+         * Check if this error has a specific retry delay hint (e.g., from Retry-After header)
+         */
+        fun hasRetryAfterHint(): Boolean = retryHint?.retryAfterMs != null
+
+        /**
+         * Get suggested retry delay in milliseconds
+         */
+        fun getSuggestedRetryDelayMs(): Long? = retryHint?.retryAfterMs
+    }
+
     companion object {
         /**
          * Create error from exception
+         *
+         * Network-related exceptions are converted to RetryableError for automatic retry support.
+         * - SocketException, ConnectException, UnknownHostException → RetryableError
+         * - SocketTimeoutException → RetryableError
          */
         fun fromException(throwable: Throwable): SpiceError {
             return when (throwable) {
                 is SpiceException -> throwable.error
-                is java.net.UnknownHostException -> NetworkError(
+
+                // Network exceptions → RetryableError (automatic retry)
+                is java.net.SocketException -> RetryableError(
+                    message = "Socket error: ${throwable.message}",
+                    cause = throwable,
+                    context = mapOf("exception" to "SocketException")
+                )
+                is java.net.ConnectException -> RetryableError(
+                    message = "Connection failed: ${throwable.message}",
+                    cause = throwable,
+                    context = mapOf("exception" to "ConnectException")
+                )
+                is java.net.UnknownHostException -> RetryableError(
                     message = "Unknown host: ${throwable.message}",
-                    cause = throwable
+                    cause = throwable,
+                    context = mapOf("exception" to "UnknownHostException")
                 )
-                is java.net.SocketTimeoutException -> TimeoutError(
+                is java.net.SocketTimeoutException -> RetryableError(
                     message = "Network timeout: ${throwable.message}",
-                    operation = "network_call"
+                    cause = throwable,
+                    context = mapOf("exception" to "SocketTimeoutException", "operation" to "network_call")
                 )
+                is java.io.IOException -> {
+                    // IO exceptions are often transient network issues
+                    val isRetryable = throwable.message?.let { msg ->
+                        msg.contains("reset", ignoreCase = true) ||
+                        msg.contains("refused", ignoreCase = true) ||
+                        msg.contains("timeout", ignoreCase = true) ||
+                        msg.contains("connection", ignoreCase = true)
+                    } ?: false
+
+                    if (isRetryable) {
+                        RetryableError(
+                            message = "IO error: ${throwable.message}",
+                            cause = throwable,
+                            context = mapOf("exception" to throwable::class.simpleName.orEmpty())
+                        )
+                    } else {
+                        NetworkError(
+                            message = "IO error: ${throwable.message}",
+                            cause = throwable
+                        )
+                    }
+                }
+
+                // Non-retryable errors
                 is kotlinx.serialization.SerializationException -> SerializationError(
                     message = "Serialization failed: ${throwable.message}",
                     cause = throwable
@@ -352,6 +516,72 @@ sealed class SpiceError {
             availableTools: List<String>? = null,
             cause: Throwable? = null
         ) = ToolLookupError(message, toolName, namespace, availableTools, cause)
+
+        /**
+         * Create retryable error (for automatic retry)
+         *
+         * Use this for errors that should be automatically retried by the framework.
+         * Common use cases: HTTP 5xx, 429, network failures, timeouts.
+         *
+         * @param message Error message
+         * @param statusCode HTTP status code (if applicable)
+         * @param errorCode Application-specific error code
+         * @param retryHint Optional hint for retry policy override
+         * @param cause Original exception
+         */
+        fun retryableError(
+            message: String,
+            statusCode: Int? = null,
+            errorCode: String? = null,
+            retryHint: RetryHint? = null,
+            cause: Throwable? = null
+        ) = RetryableError(message, cause, statusCode, errorCode, retryHint)
+
+        /**
+         * Create retryable error from HTTP status code
+         *
+         * Convenience method for HTTP error responses.
+         * Automatically extracts Retry-After header value if provided.
+         *
+         * @param statusCode HTTP status code
+         * @param message Error message
+         * @param retryAfterSeconds Retry-After header value in seconds (for 429)
+         * @param cause Original exception
+         */
+        fun retryableHttpError(
+            statusCode: Int,
+            message: String,
+            retryAfterSeconds: Long? = null,
+            cause: Throwable? = null
+        ): RetryableError {
+            val hint = retryAfterSeconds?.let {
+                RetryHint.fromRetryAfterSeconds(it, "HTTP $statusCode Retry-After")
+            }
+            return RetryableError(
+                message = message,
+                cause = cause,
+                statusCode = statusCode,
+                retryHint = hint,
+                context = mapOf("statusCode" to statusCode)
+            )
+        }
+
+        /**
+         * Check if an error is retryable
+         *
+         * Returns true for:
+         * - RetryableError
+         * - NetworkError with 5xx status
+         * - TimeoutError
+         * - RateLimitError
+         */
+        fun isRetryable(error: SpiceError): Boolean = when (error) {
+            is RetryableError -> !error.retryHint?.skipRetry.let { it == true }
+            is NetworkError -> error.statusCode?.let { it >= 500 || it == 408 || it == 429 } ?: true
+            is TimeoutError -> true
+            is RateLimitError -> true
+            else -> false
+        }
     }
 }
 

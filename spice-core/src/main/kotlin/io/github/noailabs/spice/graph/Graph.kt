@@ -5,6 +5,7 @@ import io.github.noailabs.spice.events.EventBus
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.idempotency.IdempotencyStore
+import io.github.noailabs.spice.retry.ExecutionRetryPolicy
 import io.github.noailabs.spice.tool.ToolLifecycleListeners
 
 /**
@@ -61,6 +62,8 @@ import io.github.noailabs.spice.tool.ToolLifecycleListeners
  * @property idempotencyStore Optional store for idempotent execution
  * @property checkpointStore Optional store for checkpoint persistence (HITL workflows)
  * @property toolLifecycleListeners Optional listeners for tool execution lifecycle events (telemetry, metrics, alerting)
+ * @property retryPolicy Optional retry policy for automatic retry on retryable errors (1.0.4+)
+ * @property retryEnabled Whether retry is enabled for this graph (default: null = use runner default)
  * @since 1.0.0
  */
 data class Graph(
@@ -74,7 +77,9 @@ data class Graph(
     val toolCallEventBus: ToolCallEventBus? = null,
     val idempotencyStore: IdempotencyStore? = null,
     val checkpointStore: CheckpointStore? = null,
-    val toolLifecycleListeners: ToolLifecycleListeners? = null
+    val toolLifecycleListeners: ToolLifecycleListeners? = null,
+    val retryPolicy: ExecutionRetryPolicy? = null,
+    val retryEnabled: Boolean? = null  // null = inherit from runner, true/false = explicit
 )
 
 /**

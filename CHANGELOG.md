@@ -9,6 +9,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2025-11-26
+
+### ✨ Added
+
+#### Automatic Retry System (Zero-Config)
+
+- **NEW**: Built-in retry support for all node types (ToolNode, AgentNode, SubgraphNode, CustomNode)
+- **Zero-Config**: Retry enabled by default - no configuration required
+- **DSL**: `retryPolicy()`, `disableRetry()`, `enableRetry()` graph-level configuration
+
+**Default Retry Policy:**
+| Parameter | Default Value | Description |
+|-----------|---------------|-------------|
+| `maxAttempts` | 3 | Total attempts (1 initial + 2 retries) |
+| `initialDelay` | 200ms | Delay before first retry |
+| `maxDelay` | 10s | Maximum delay cap |
+| `backoffMultiplier` | 2.0 | Exponential backoff multiplier |
+| `jitterFactor` | 0.1 | 10% randomization to prevent thundering herd |
+
+**Usage:**
+```kotlin
+// Zero-config: retry enabled by default
+val graph = graph("my-workflow") {
+    tool("api-call", myTool)
+}
+
+// Custom retry policy
+val graph = graph("custom-retry") {
+    retryPolicy(ExecutionRetryPolicy(
+        maxAttempts = 5,           // 5 total attempts
+        initialDelay = 500.milliseconds,
+        maxDelay = 30.seconds,
+        backoffMultiplier = 2.0
+    ))
+    tool("api-call", myTool)
+}
+
+// Disable retry for specific graph
+val graph = graph("no-retry") {
+    disableRetry()
+    tool("fast-fail", myTool)
+}
+```
+
+#### RetryableError & Error Classification
+
+- **NEW**: `SpiceError.RetryableError` for explicit retry signaling
+- **NEW**: `SpiceError.fromException()` auto-classifies network exceptions
+- **Retryable**: 429, 500, 502, 503, 504, 408, `SocketException`, `SocketTimeoutException`, `UnknownHostException`
+- **Non-Retryable**: 400, 401, 403, 404, `ValidationError`, `ConfigurationError`, `AuthenticationError`
+
+**Throwing RetryableError:**
+```kotlin
+// From Tool
+class MyApiTool : Tool {
+    override suspend fun execute(params: Map<String, Any>, context: ToolContext): SpiceResult<ToolResult> {
+        return try {
+            val response = httpClient.get(url)
+            SpiceResult.success(ToolResult(success = true, result = response))
+        } catch (e: Exception) {
+            // Auto-classify and wrap as SpiceError
+            SpiceResult.failure(SpiceError.fromException(e, "API call failed"))
+        }
+    }
+}
+
+// Explicit RetryableError with Retry-After
+throw SpiceError.retryableHttpError(
+    message = "Rate limited",
+    statusCode = 429,
+    retryAfterMs = 5000  // Respected by retry policy
+)
+```
+
+#### Retry Metrics (Spec-Compliant)
+
+- **Metrics**: `retry_attempts_total`, `retry_exhausted_total`, `retry_success_total`, `retry_delay_seconds`
+- **Labels**: `toolName`, `tenantId`, `statusCode`, `errorCode`
+
+**Micrometer Integration Example:**
+```kotlin
+class MicrometerRetryMetrics(private val registry: MeterRegistry) : RetryMetricsCollector {
+    override fun recordRetryAttempt(context: RetryContext, delayMs: Long) {
+        Counter.builder("retry_attempts_total")
+            .tags(context.toMetricLabels().toTags())
+            .register(registry)
+            .increment()
+    }
+}
+```
+
+### 🔧 Changed
+
+#### Breaking: maxAttempts Semantic Change
+
+- **CHANGED**: `maxAttempts` now means **total attempts** (not retries)
+- **Before**: `maxAttempts = 3` → 1 initial + 3 retries = 4 total
+- **After**: `maxAttempts = 3` → 3 total attempts (1 initial + 2 retries)
+- **NO_RETRY**: Changed from `maxAttempts = 0` to `maxAttempts = 1`
+
+#### DefaultGraphRunner Defaults
+
+- **CHANGED**: `retrySupervisor` defaults to `RetrySupervisor.default()` (was `null`)
+- **CHANGED**: `enableRetryByDefault` defaults to `true` (was `false`)
+- **Priority**: Graph explicit > Graph implicit (`retryPolicy()` called) > Runner default
+
+### 📊 Exhaustion Metadata
+
+When all retries are exhausted, `ExecutionError.context` includes:
+```kotlin
+mapOf(
+    "retriesExhausted" to true,
+    "totalAttempts" to 3,
+    "totalRetryDelayMs" to 600,
+    "elapsedMs" to 1250,
+    "lastError" to "Connection refused",
+    "lastStatusCode" to 503,
+    "lastErrorCode" to "NETWORK_ERROR",
+    "originalError" to "Connection refused",
+    "originalErrorCode" to "NETWORK_ERROR",
+    "errorHistory" to listOf(...)
+)
+```
+
+### 🏷️ Predefined Policies
+
+| Policy | maxAttempts | initialDelay | maxDelay | Use Case |
+|--------|-------------|--------------|----------|----------|
+| `DEFAULT` | 3 | 200ms | 10s | General purpose |
+| `NO_RETRY` | 1 | - | - | Disable retry |
+| `AGGRESSIVE` | 5 | 100ms | 5s | Fast recovery |
+| `CONSERVATIVE` | 3 | 1s | 30s | Slow backends |
+| `RATE_LIMIT_FRIENDLY` | 5 | 1s | 60s | API rate limits |
+
+### 🔄 Compatibility
+
+- ⚠️ **Breaking**: `maxAttempts` semantic changed (see above)
+- ✅ Retry enabled by default - existing graphs will retry on transient errors
+- ✅ Use `disableRetry()` to opt-out
+
+---
+
 ## [0.8.0] - 2025-11-11
 
 ### ✨ Added
