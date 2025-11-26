@@ -13,9 +13,12 @@ import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.middleware.Middleware
 import io.github.noailabs.spice.graph.nodes.AgentNode
 import io.github.noailabs.spice.graph.nodes.DecisionNode
+import io.github.noailabs.spice.graph.nodes.EngineDecisionNode
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
+import io.github.noailabs.spice.routing.DecisionEngine
+import io.github.noailabs.spice.routing.DecisionLifecycleListener
 import io.github.noailabs.spice.hitl.HITLMetadata
 import io.github.noailabs.spice.hitl.HITLOption
 import io.github.noailabs.spice.hitl.HitlEventEmitter
@@ -318,6 +321,57 @@ class GraphBuilder(val id: String) {
         edges.addAll(builder.generatedEdges)
         if (entryPoint == null) entryPoint = id
     }
+
+    /**
+     * Add a decision node powered by an external DecisionEngine (1.0.7+)
+     *
+     * Unlike [decision] which uses inline conditions, decisionNode delegates
+     * routing decisions to an external [DecisionEngine]. This enables:
+     * - ML/LLM-based routing decisions
+     * - External service consultation
+     * - Complex business logic encapsulation
+     * - Easy testing via engine mocking
+     *
+     * **Example:**
+     * ```kotlin
+     * graph("approval-flow") {
+     *     decisionNode("check-amount")
+     *         .by(amountClassifier)
+     *         .on(StandardResult.YES).to("auto-approve")
+     *         .on(StandardResult.NO).to("reject")
+     *         .on(DelegationResult.DELEGATE_TO_AGENT("supervisor")).to("supervisor-review")
+     *         .otherwise("manual-review")
+     *
+     *     agent("auto-approve", autoApproveAgent)
+     *     agent("reject", rejectAgent)
+     *     agent("supervisor-review", supervisorAgent)
+     *     agent("manual-review", manualAgent)
+     *     output("done")
+     *
+     *     edge("auto-approve", "done")
+     *     edge("reject", "done")
+     *     edge("supervisor-review", "done")
+     *     edge("manual-review", "done")
+     * }
+     * ```
+     *
+     * **Important:** Routing is based on [DecisionResult.resultId], not object equality.
+     * Two results with the same resultId will route to the same target.
+     *
+     * @param id Node ID
+     * @return EngineDecisionNodeBuilder for fluent configuration
+     * @since 1.0.7
+     */
+    fun decisionNode(id: String): EngineDecisionNodeBuilder {
+        val builder = EngineDecisionNodeBuilder(id)
+        // Store builder for deferred processing in build()
+        pendingEngineDecisionNodes[id] = builder
+        if (entryPoint == null) entryPoint = id
+        return builder
+    }
+
+    // Storage for deferred processing of engine decision nodes
+    private val pendingEngineDecisionNodes = mutableMapOf<String, EngineDecisionNodeBuilder>()
 
     /**
      * Add a custom node
@@ -674,6 +728,44 @@ class GraphBuilder(val id: String) {
     }
 
     /**
+     * Process pending engine decision nodes added via decisionNode() DSL.
+     *
+     * This method:
+     * 1. Builds each EngineDecisionNode from its builder
+     * 2. Adds the node to the nodes map
+     * 3. Adds auto-generated edges from the builder
+     * 4. Clears the pending map
+     */
+    private fun processPendingEngineDecisionNodes() {
+        if (pendingEngineDecisionNodes.isEmpty()) return
+
+        logger.debug { "[Graph '$id'] Processing ${pendingEngineDecisionNodes.size} pending engine decision nodes" }
+
+        for ((nodeId, builder) in pendingEngineDecisionNodes) {
+            try {
+                // Build the node
+                val node = builder.build()
+                nodes[nodeId] = node
+
+                // Add auto-generated edges
+                edges.addAll(builder.generatedEdges)
+
+                logger.debug {
+                    "[Graph '$id'] Added EngineDecisionNode '$nodeId' with engine '${node.engineId}' " +
+                    "and ${builder.generatedEdges.size} edges"
+                }
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Failed to build EngineDecisionNode '$nodeId': ${e.message}",
+                    e
+                )
+            }
+        }
+
+        pendingEngineDecisionNodes.clear()
+    }
+
+    /**
      * Validate all ToolNode resolvers at build time.
      *
      * Iterates through all nodes, finds ToolNodes, and validates their resolvers
@@ -733,6 +825,9 @@ class GraphBuilder(val id: String) {
      * - ERROR messages throw IllegalStateException (strict mode)
      */
     fun build(): Graph {
+        // Process pending engine decision nodes
+        processPendingEngineDecisionNodes()
+
         require(nodes.isNotEmpty()) { "Graph must have at least one node" }
         require(entryPoint != null) { "Graph must have an entry point" }
         require(entryPoint in nodes) { "Entry point '$entryPoint' not found in nodes" }

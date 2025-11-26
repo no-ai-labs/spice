@@ -134,6 +134,7 @@ sealed class SpiceError {
         is UnknownError -> copy(context = context + pairs.toMap())
         is ToolLookupError -> copy(context = context + pairs.toMap())
         is RetryableError -> copy(context = context + pairs.toMap())
+        is RoutingError -> copy(context = context + pairs.toMap())
     }
 
     // =========================================
@@ -358,6 +359,42 @@ sealed class SpiceError {
         fun getSuggestedRetryDelayMs(): Long? = retryHint?.retryAfterMs
     }
 
+    /**
+     * Routing/Decision engine errors
+     *
+     * Errors related to decision routing within graphs.
+     *
+     * @property engineId Decision engine identifier
+     * @property resultId The result ID that failed to match (if applicable)
+     * @property availableTargets Available target nodes (for debugging)
+     * @since 1.0.7
+     */
+    data class RoutingError(
+        override val message: String,
+        val engineId: String? = null,
+        val resultId: String? = null,
+        val nodeId: String? = null,
+        val availableTargets: List<String>? = null,
+        override val cause: Throwable? = null,
+        override val context: Map<String, Any> = emptyMap()
+    ) : SpiceError() {
+        override val code: String = "ROUTING_ERROR"
+
+        /**
+         * Get detailed error message including available targets.
+         */
+        fun toDetailedMessage(): String = buildString {
+            append(message)
+            if (resultId != null) {
+                append("\n\nResult ID: $resultId")
+            }
+            if (!availableTargets.isNullOrEmpty()) {
+                append("\n\nAvailable targets:")
+                availableTargets.forEach { append("\n  - $it") }
+            }
+        }
+    }
+
     companion object {
         /**
          * Create error from exception
@@ -565,6 +602,28 @@ sealed class SpiceError {
                 context = mapOf("statusCode" to statusCode)
             )
         }
+
+        /**
+         * Create routing error (for decision routing failures)
+         *
+         * Use this for errors in decision engine routing.
+         *
+         * @param message Error message
+         * @param engineId Decision engine ID
+         * @param resultId Result ID that failed to match
+         * @param nodeId Node ID where error occurred
+         * @param availableTargets List of available target nodes
+         * @param cause Original exception
+         * @since 1.0.7
+         */
+        fun routingError(
+            message: String,
+            engineId: String? = null,
+            resultId: String? = null,
+            nodeId: String? = null,
+            availableTargets: List<String>? = null,
+            cause: Throwable? = null
+        ) = RoutingError(message, engineId, resultId, nodeId, availableTargets, cause)
 
         /**
          * Check if an error is retryable

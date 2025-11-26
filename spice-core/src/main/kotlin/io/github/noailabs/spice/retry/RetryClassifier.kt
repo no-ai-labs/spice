@@ -130,6 +130,11 @@ internal class DefaultRetryClassifier : RetryClassifier {
                 reason = "Tool lookup errors are not retryable"
             )
 
+            is SpiceError.RoutingError -> RetryClassification(
+                shouldRetry = false,
+                reason = "Routing errors are not retryable"
+            )
+
             // Agent/Tool/Execution errors - check context for status code
             is SpiceError.AgentError -> classifyByContext(error, "AgentError")
             is SpiceError.ToolError -> classifyByContext(error, "ToolError")
