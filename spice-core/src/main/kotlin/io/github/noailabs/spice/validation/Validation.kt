@@ -84,9 +84,10 @@ class OAIToolCallValidator : Validator<OAIToolCall> {
     override fun validate(value: OAIToolCall): ValidationResult {
         val errors = mutableListOf<ValidationError>()
 
-        if (!value.id.startsWith("call_")) {
-            errors += ValidationError("id", "Tool call id must start with call_")
-        }
+        // NOTE: call_ prefix 검증 제거 (2025-11-27)
+        // HITL tool call ID (hitl_run_xxx), OpenAI (call_xxx), 커스텀 ID 모두 허용
+        // 기존 OpenAI 호환성보다 유연성 우선
+
         if (value.type != "function") {
             errors += ValidationError("type", "Only function tool calls are supported")
         }
