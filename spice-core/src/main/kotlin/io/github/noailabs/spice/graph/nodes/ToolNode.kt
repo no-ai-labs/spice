@@ -203,7 +203,14 @@ class ToolNode(
                 put("tool_name", toolName)
                 // Store error info if present
                 toolResult.errorCode?.let { put("tool_error_code", it) }
-                toolResult.message?.let { put("tool_message", it) }
+                toolResult.message?.let { msg ->
+                    put("tool_message", msg)
+                    // Add "prompt" key for HITL scenarios to ensure
+                    // downstream consumers can find the prompt text
+                    if (isAwaitingHitl) {
+                        put("prompt", msg)
+                    }
+                }
                 // Store metadata under namespaced key for DecisionNode routing
                 // Include tool_name for consistency with whenToolMetadata access pattern
                 val lastMetadata = if (toolMetadata.isNotEmpty()) {
