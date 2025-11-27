@@ -46,7 +46,7 @@ class GraphToStateMachineAdapterResumeIntegrationTest {
     private lateinit var capturedEvents: MutableList<Any>
 
     private val testGraph = graph("test-workflow") {
-        human("input", "Enter your name")
+        hitlInput("input", "Enter your name")
         output("result") { msg ->
             "Hello ${msg.getData<String>("response_text") ?: msg.content}"
         }
@@ -54,8 +54,8 @@ class GraphToStateMachineAdapterResumeIntegrationTest {
     }
 
     private val multiStepGraph = graph("multi-step") {
-        human("step1", "First input")
-        human("step2", "Second input")
+        hitlInput("step1", "First input")
+        hitlInput("step2", "Second input")
         output("result") { msg ->
             val first = msg.getData<String>("step1_value") ?: "?"
             val second = msg.getData<String>("response_text") ?: "?"
@@ -484,6 +484,47 @@ class GraphToStateMachineAdapterResumeIntegrationTest {
         // Checkpoint age should be approximately 5000ms
         val checkpointAge = event.metadata["checkpointAge"] as Long
         assertTrue(checkpointAge >= 5000)
+    }
+
+    @Test
+    fun `resume should merge userResponse data into message`() = runTest {
+        val runId = "data-merge-run"
+
+        // Create checkpoint (using testGraph which is in the registry)
+        // Note: checkpoint message typically doesn't have user-provided data yet
+        val checkpoint = Checkpoint(
+            id = "checkpoint-data-merge",
+            runId = runId,
+            graphId = "test-workflow",
+            currentNodeId = "input",
+            message = SpiceMessage.create("Enter your name", "system")
+                .copy(
+                    state = ExecutionState.WAITING,
+                    nodeId = "input",
+                    runId = runId,
+                    graphId = "test-workflow"
+                )
+        )
+        val saveResult = checkpointStore.save(checkpoint)
+        assertTrue(saveResult.isSuccess, "Checkpoint save should succeed: ${(saveResult as? SpiceResult.Failure)?.error?.message}")
+
+        // Resume with userResponse containing additional data (like selectedBookingId from HITL selection)
+        // This is the key test: userResponse.data should be merged into the resume message
+        val userResponse = SpiceMessage.create("Alice", "user")
+            .withData(mapOf(
+                "selectedBookingId" to "12345",
+                "newKey" to "newValue"
+            ))
+        val result = adapter.resume(runId, userResponse, testGraph)
+
+        assertTrue(result.isSuccess, "Resume should succeed: ${(result as? SpiceResult.Failure)?.error?.message}")
+        val finalMessage = (result as SpiceResult.Success).value
+
+        // Verify userResponse.data is merged into the final message
+        assertEquals("12345", finalMessage.getData<String>("selectedBookingId"), "userResponse.data should be merged")
+        assertEquals("newValue", finalMessage.getData<String>("newKey"), "userResponse.data should be merged")
+        // response_text comes from responseData extraction
+        assertTrue(finalMessage.getData<String>("response_text")?.isNotEmpty() == true, "responseData should be present")
     }
 
     private fun createStateMachineFactory(): SpiceStateMachineFactory {

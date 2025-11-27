@@ -537,9 +537,10 @@ class GraphToStateMachineAdapter(
             mapOf("response_text" to userResponse.content)
         }
 
-        // Merge data but keep in WAITING state for graphRunner.resume()
+        // Merge data: checkpoint.data + userResponse.data + responseData (later overrides earlier)
+        val mergedData = checkpointMessage.data + userResponse.data + responseData
         val msg = checkpointMessage
-            .withData(responseData)
+            .withData(mergedData)
             .withToolCalls(userResponse.toolCalls)
             .withMetadata(options.userResponseMetadata)
 
