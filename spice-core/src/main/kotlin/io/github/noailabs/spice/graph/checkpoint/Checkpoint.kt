@@ -79,11 +79,16 @@ data class Checkpoint(
 
             // Spice 2.0: Extract tool call from message (REQUEST_USER_INPUT or REQUEST_USER_SELECTION)
             // Use lastOrNull to get the most recent tool call (handles loops/retries where multiple tool calls accumulate)
+            // Supports both legacy names and Spice 1.0.6+ HITL Tool standard names
             val pendingToolCall = message.toolCalls.lastOrNull {
                 it.function.name in listOf(
+                    // Legacy names (backward compatibility)
                     "request_user_input",
                     "request_user_selection",
-                    "request_user_confirmation"
+                    "request_user_confirmation",
+                    // Spice 1.0.6+ HITL Tool standard names (from OAIToolCall.Companion.ToolNames)
+                    OAIToolCall.Companion.ToolNames.HITL_REQUEST_INPUT,      // "hitl_request_input"
+                    OAIToolCall.Companion.ToolNames.HITL_REQUEST_SELECTION   // "hitl_request_selection"
                 )
             }
 

@@ -241,10 +241,20 @@ class ToolNode(
                 ToolResultStatus.SUCCESS -> message.state // Keep current state (typically RUNNING)
             }
 
-            return message
+            var outputMessage = message
                 .withData(dataUpdates)
                 .withMetadata(metadataUpdates)
                 .copy(state = executionState)
+
+            // Add toolCall to message.toolCalls for checkpoint pendingToolCall extraction
+            // This enables Checkpoint.fromMessage() to extract the HITL tool call,
+            // which RedisCheckpointStore.saveIndex() uses to create the pending index.
+            // Without this, loadByPendingToolCallId() will fail on HITL resume.
+            if (toolResult.toolCall != null) {
+                outputMessage = outputMessage.withToolCall(toolResult.toolCall)
+            }
+
+            return outputMessage
         }
     }
 }

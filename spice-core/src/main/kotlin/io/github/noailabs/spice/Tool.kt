@@ -1,6 +1,7 @@
 package io.github.noailabs.spice
 
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.toolspec.OAIToolCall
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 
@@ -266,7 +267,17 @@ data class ToolResult(
     val result: @Contextual Any? = null,
     val errorCode: String? = null,
     val message: String? = null,
-    val metadata: Map<String, @Contextual Any> = emptyMap()
+    val metadata: Map<String, @Contextual Any> = emptyMap(),
+    /**
+     * HITL tool call for checkpoint pendingToolCall correlation.
+     *
+     * When set, ToolNode.buildOutputMessage() will add this to message.toolCalls,
+     * enabling Checkpoint.fromMessage() to extract it as pendingToolCall.
+     * This ensures proper checkpoint indexing for HITL resume operations.
+     *
+     * @since 1.1.1
+     */
+    val toolCall: OAIToolCall? = null
 ) {
     /**
      * Whether the tool execution was successful
@@ -413,6 +424,50 @@ data class ToolResult(
                 errorCode = "CANCELLED",
                 message = message,
                 metadata = metadata
+            )
+        }
+
+        /**
+         * Create a WAITING_HITL result with embedded tool call for checkpoint correlation.
+         *
+         * This method creates a ToolResult that includes the OAIToolCall object,
+         * which ToolNode.buildOutputMessage() will add to message.toolCalls.
+         * Checkpoint.fromMessage() can then extract it as pendingToolCall,
+         * enabling proper checkpoint indexing via RedisCheckpointStore.saveIndex().
+         *
+         * **Use this instead of waitingHitl() when checkpoint resume is needed.**
+         *
+         * Note: tool_call_id is stored in both result and metadata for compatibility:
+         * - result["tool_call_id"]: For downstream consumers
+         * - metadata["hitl_tool_call_id"]: For ToolNode metadata propagation
+         * - toolCall.id: For checkpoint pendingToolCall extraction
+         *
+         * @param toolCall OAIToolCall created via OAIToolCall.hitlInput() or OAIToolCall.hitlSelection()
+         * @param prompt Human-readable prompt message
+         * @param hitlType Type of HITL interaction ("input" or "selection")
+         * @param metadata Additional HITL metadata (options, validation rules, etc.)
+         * @return ToolResult with status = WAITING_HITL and embedded toolCall
+         * @since 1.1.1
+         */
+        fun waitingHitlWithToolCall(
+            toolCall: OAIToolCall,
+            prompt: String,
+            hitlType: String,
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            return ToolResult(
+                status = ToolResultStatus.WAITING_HITL,
+                result = mapOf(
+                    "tool_call_id" to toolCall.id,
+                    "prompt" to prompt,
+                    "hitl_type" to hitlType
+                ),
+                message = prompt,
+                metadata = metadata + mapOf(
+                    "hitl_tool_call_id" to toolCall.id,
+                    "hitl_type" to hitlType
+                ),
+                toolCall = toolCall
             )
         }
     }
