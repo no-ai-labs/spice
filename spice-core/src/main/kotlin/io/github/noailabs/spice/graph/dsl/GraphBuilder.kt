@@ -17,6 +17,7 @@ import io.github.noailabs.spice.graph.nodes.EngineDecisionNode
 import io.github.noailabs.spice.graph.nodes.OutputNode
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
+import io.github.noailabs.spice.template.TemplateResolver
 import io.github.noailabs.spice.routing.DecisionEngine
 import io.github.noailabs.spice.routing.DecisionLifecycleListener
 import io.github.noailabs.spice.hitl.HITLMetadata
@@ -484,6 +485,139 @@ class GraphBuilder(val id: String) {
             childGraph = childGraph,
             maxDepth = maxDepth,
             preserveKeys = preserveKeys
+        )
+
+        nodes[id] = subgraphNode
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a subgraph node with inputMapping and outputMapping (1.2.0+)
+     *
+     * **inputMapping (Parent → Child):**
+     * Maps parent context to child's initial data using template expressions.
+     * Format: `childKey → template/literal`
+     *
+     * **outputMapping (Child → Parent):**
+     * Maps child's output data to parent's context after subgraph completes.
+     * Format: `childKey → parentKey`
+     *
+     * **Example:**
+     * ```kotlin
+     * graph("reservation-cancel") {
+     *     tool("list_bookings", listTool)
+     *     hitlSelection("select_reservation", "Select booking to cancel") { ... }
+     *
+     *     // Subgraph with mapping
+     *     subgraph(
+     *         id = "confirm_cancel",
+     *         childGraph = genericConfirmationGraph,
+     *         inputMapping = mapOf(
+     *             "preselectedItemId" to "{{data.selectedBookingId}}",
+     *             "confirmationType" to "cancel"
+     *         ),
+     *         outputMapping = mapOf(
+     *             "confirmed" to "user_confirm"
+     *         )
+     *     )
+     *
+     *     decision("check_confirm") {
+     *         "execute_cancel".whenData("user_confirm") { it == "true" }
+     *         "cancel_aborted".otherwise()
+     *     }
+     *
+     *     edge("list_bookings", "select_reservation")
+     *     edge("select_reservation", "confirm_cancel")
+     *     edge("confirm_cancel", "check_confirm")
+     * }
+     * ```
+     *
+     * @param id Subgraph node ID
+     * @param childGraph Pre-built child graph
+     * @param inputMapping Parent → Child mapping (childKey → template)
+     * @param outputMapping Child → Parent mapping (childKey → parentKey)
+     * @param maxDepth Maximum nesting depth (default: 10)
+     * @param preserveKeys Metadata keys to preserve across boundaries
+     * @param templateResolver Custom template resolver (default: Spice's built-in)
+     * @since 1.2.0
+     */
+    fun subgraph(
+        id: String,
+        childGraph: Graph,
+        inputMapping: Map<String, Any> = emptyMap(),
+        outputMapping: Map<String, String> = emptyMap(),
+        maxDepth: Int = 10,
+        preserveKeys: Set<String> = SubgraphNode.DEFAULT_PRESERVE_KEYS,
+        templateResolver: TemplateResolver = TemplateResolver.DEFAULT
+    ) {
+        val subgraphNode = SubgraphNode(
+            id = id,
+            childGraph = childGraph,
+            maxDepth = maxDepth,
+            preserveKeys = preserveKeys,
+            inputMapping = inputMapping,
+            outputMapping = outputMapping,
+            templateResolver = templateResolver
+        )
+
+        nodes[id] = subgraphNode
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a subgraph node with DSL block, inputMapping, and outputMapping (1.2.0+)
+     *
+     * Combines inline child graph definition with data mapping.
+     *
+     * **Example:**
+     * ```kotlin
+     * graph("parent") {
+     *     subgraph(
+     *         id = "confirmation",
+     *         inputMapping = mapOf("itemId" to "{{data.selectedId}}"),
+     *         outputMapping = mapOf("result" to "confirmationResult")
+     *     ) {
+     *         hitlSelection("confirm", "Confirm action?") {
+     *             option("yes", "Yes")
+     *             option("no", "No")
+     *         }
+     *         output("done") { msg -> msg.getData<String>("user_response") }
+     *         edge("confirm", "done")
+     *     }
+     * }
+     * ```
+     *
+     * @param id Subgraph node ID (also used as child graph ID)
+     * @param inputMapping Parent → Child mapping (childKey → template)
+     * @param outputMapping Child → Parent mapping (childKey → parentKey)
+     * @param maxDepth Maximum nesting depth (default: 10)
+     * @param preserveKeys Metadata keys to preserve across boundaries
+     * @param templateResolver Custom template resolver (default: Spice's built-in)
+     * @param block DSL block for defining child graph
+     * @since 1.2.0
+     */
+    fun subgraph(
+        id: String,
+        inputMapping: Map<String, Any> = emptyMap(),
+        outputMapping: Map<String, String> = emptyMap(),
+        maxDepth: Int = 10,
+        preserveKeys: Set<String> = SubgraphNode.DEFAULT_PRESERVE_KEYS,
+        templateResolver: TemplateResolver = TemplateResolver.DEFAULT,
+        block: GraphBuilder.() -> Unit
+    ) {
+        // Build child graph using nested DSL
+        val childBuilder = GraphBuilder(id)
+        childBuilder.block()
+        val childGraph = childBuilder.build()
+
+        val subgraphNode = SubgraphNode(
+            id = id,
+            childGraph = childGraph,
+            maxDepth = maxDepth,
+            preserveKeys = preserveKeys,
+            inputMapping = inputMapping,
+            outputMapping = outputMapping,
+            templateResolver = templateResolver
         )
 
         nodes[id] = subgraphNode

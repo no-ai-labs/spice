@@ -4,6 +4,7 @@ import io.github.noailabs.spice.Agent
 import io.github.noailabs.spice.ExecutionState
 import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.error.SpiceResult
+import io.github.noailabs.spice.graph.checkpoint.SubgraphCheckpointContext
 import io.github.noailabs.spice.graph.dsl.graph
 import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
 import kotlinx.coroutines.test.runTest
@@ -385,5 +386,222 @@ class SubgraphNodeTest {
         // Custom keys should be preserved
         assertEquals("value1", output.getMetadata<String>("customKey1"))
         assertEquals("value2", output.getMetadata<String>("customKey2"))
+    }
+
+    // =====================================================================
+    // Subgraph HITL Resume Tests (Spice 1.3.0)
+    // =====================================================================
+
+    @Test
+    fun `subgraph HITL stores SubgraphCheckpointContext in metadata`() = runTest {
+        // Given - subgraph with HITL that will pause
+        val parentGraph = graph("parent") {
+            agent("start", EchoAgent("start"))
+
+            subgraph("confirm-child") {
+                hitlInput("ask-user", "Please confirm")
+                output("child-result")
+                edge("ask-user", "child-result")
+            }
+
+            output("end")
+
+            edge("start", "confirm-child")
+            edge("confirm-child", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "test-run-123")
+
+        // When
+        val result = runner.execute(parentGraph, message)
+
+        // Then - should pause at HITL with subgraph context
+        assertTrue(result.isSuccess)
+        val output = (result as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, output.state)
+
+        // Verify SubgraphCheckpointContext is in metadata
+        @Suppress("UNCHECKED_CAST")
+        val subgraphStack = output.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY] as? List<*>
+        assertNotNull(subgraphStack, "subgraphStack should be present in metadata")
+        assertTrue(subgraphStack.isNotEmpty(), "subgraphStack should not be empty")
+
+        // Verify context content
+        val context = subgraphStack.first()
+        assertTrue(context is SubgraphCheckpointContext || context is Map<*, *>,
+            "Context should be SubgraphCheckpointContext or Map")
+    }
+
+    @Test
+    fun `subgraph HITL resume applies outputMapping`() = runTest {
+        // Given - subgraph with outputMapping
+        val parentGraph = graph("parent") {
+            agent("start", EchoAgent("start"))
+
+            subgraph(
+                id = "confirm-child",
+                outputMapping = mapOf("confirmed" to "user_confirm")  // child.confirmed → parent.user_confirm
+            ) {
+                hitlInput("ask-user", "Please confirm")
+                agent("process", ConfirmAgent("process"))  // Sets data["confirmed"] = true
+                output("child-result")
+                edge("ask-user", "process")
+                edge("process", "child-result")
+            }
+
+            output("end")
+
+            edge("start", "confirm-child")
+            edge("confirm-child", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "test-run-123")
+
+        // Execute until WAITING
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // When - resume with user response
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf("user_response" to "yes")
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should complete with outputMapping applied
+        assertTrue(resumeResult.isSuccess, "Resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify outputMapping: child's "confirmed" → parent's "user_confirm"
+        val userConfirm = finalOutput.getData<Boolean>("user_confirm")
+        assertNotNull(userConfirm, "user_confirm should be present after outputMapping: ${finalOutput.data.keys}")
+        assertTrue(userConfirm, "user_confirm should be true")
+    }
+
+    @Test
+    fun `nested subgraph HITL resume works with stack`() = runTest {
+        // Given - parent → level1 → level2 (with HITL)
+        val parentGraph = graph("parent") {
+            subgraph("level1") {
+                subgraph("level2") {
+                    hitlInput("deep-hitl", "Deep confirm needed")
+                    agent("deep-process", EchoAgent("deep-process"))
+                    output("deep-result")
+                    edge("deep-hitl", "deep-process")
+                    edge("deep-process", "deep-result")
+                }
+                output("level1-result")
+                edge("level2", "level1-result")
+            }
+            output("end")
+            edge("level1", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Nested test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "nested-run-456")
+
+        // Execute until WAITING (at level2's HITL)
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // Verify stack has 2 entries (level1 and level2)
+        @Suppress("UNCHECKED_CAST")
+        val subgraphStack = waitingMessage.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY] as? List<*>
+        assertNotNull(subgraphStack, "subgraphStack should be present")
+        assertEquals(2, subgraphStack.size, "Stack should have 2 contexts for nested subgraphs")
+
+        // When - resume with user response
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf("user_response" to "confirmed")
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should complete successfully
+        assertTrue(resumeResult.isSuccess, "Nested resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify stack is cleaned up
+        val finalStack = finalOutput.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY]
+        assertTrue(finalStack == null || (finalStack as? List<*>)?.isEmpty() == true,
+            "subgraphStack should be empty after completion")
+    }
+
+    @Test
+    fun `subgraph HITL resume preserves parent data`() = runTest {
+        // Given - parent has data that should survive subgraph HITL
+        val parentGraph = graph("parent") {
+            agent("start", CounterAgent("start"))  // Sets counter = 1
+
+            subgraph("child") {
+                hitlInput("ask-user", "Need input")
+                agent("child-agent", EchoAgent("child-agent"))
+                output("child-result")
+                edge("ask-user", "child-agent")
+                edge("child-agent", "child-result")
+            }
+
+            agent("after", CounterAgent("after"))  // Should see counter from start
+            output("end")
+
+            edge("start", "child")
+            edge("child", "after")
+            edge("after", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Test", "user")
+            .withData(mapOf("counter" to 0))
+
+        // Execute until WAITING
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // Verify parent's counter is preserved
+        val counterBeforeResume = waitingMessage.getData<Int>("counter")
+        assertEquals(1, counterBeforeResume, "counter should be 1 from start agent")
+
+        // When - resume
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf("user_response" to "okay")
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then
+        assertTrue(resumeResult.isSuccess)
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Counter should be incremented by "after" agent: 1 → 2
+        val finalCounter = finalOutput.getData<Int>("counter")
+        assertEquals(2, finalCounter, "counter should be 2 after resume and 'after' agent")
+    }
+
+    // Test agent that sets confirmed = true
+    class ConfirmAgent(override val id: String) : Agent {
+        override val name = id
+        override val description = "Confirm agent"
+        override val capabilities = listOf("confirm")
+
+        override suspend fun processMessage(message: SpiceMessage): SpiceResult<SpiceMessage> {
+            return SpiceResult.success(
+                message.copy(
+                    content = "Confirmed!",
+                    from = id,
+                    data = message.data + mapOf("confirmed" to true)
+                )
+            )
+        }
     }
 }

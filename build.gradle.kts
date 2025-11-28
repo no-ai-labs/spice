@@ -7,8 +7,8 @@ plugins {
 }
 
 allprojects {
-    group = "io.github.noailabs"
-    version = "1.1.4"
+    group = "com.github.no-ai-labs.spice"
+    version = "1.3.2"
 
     repositories {
         mavenCentral()
@@ -30,10 +30,9 @@ subprojects {
             repositories {
                 maven {
                     name = "Nexus"
-                    val releasesRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-releases")
-                    val snapshotsRepoUrl = uri("https://dev.questy.life/nexus/repository/maven-snapshots")
+                    val releasesRepoUrl = uri("https://registry.kjai.kr/repository/maven-releases")
+                    val snapshotsRepoUrl = uri("https://registry.kjai.kr/repository/maven-snapshots")
                     url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
-                    isAllowInsecureProtocol = true
                     credentials {
                         username = findProperty("nexusUsername") as String? ?: System.getenv("NEXUS_USERNAME")
                         password = findProperty("nexusPassword") as String? ?: System.getenv("NEXUS_PASSWORD")

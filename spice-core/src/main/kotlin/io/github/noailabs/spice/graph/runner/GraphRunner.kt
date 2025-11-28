@@ -17,6 +17,7 @@ import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.Node
 import io.github.noailabs.spice.graph.middleware.Middleware
+import io.github.noailabs.spice.graph.checkpoint.SubgraphCheckpointContext
 import io.github.noailabs.spice.graph.nodes.SubgraphNode
 import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.graph.nodes.ToolNode.Companion.buildOutputMessage
@@ -32,6 +33,9 @@ import io.github.noailabs.spice.validation.SchemaValidationPipeline
 import io.github.noailabs.spice.validation.ValidationError
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import mu.KotlinLogging
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * 🚀 GraphRunner for Spice Framework 1.0.0
@@ -214,6 +218,15 @@ class DefaultGraphRunner(
 
     /**
      * Resume execution from WAITING state
+     *
+     * **Spice 1.3.0 Subgraph HITL Support:**
+     * When resuming from a subgraph HITL, the message contains a subgraphStack
+     * (stored by SubgraphNode.handleWaitingState). This method:
+     * 1. Detects subgraphStack in message metadata
+     * 2. Re-enters the subgraph chain (innermost first)
+     * 3. Resumes child graph execution
+     * 4. Applies outputMapping when child completes
+     * 5. Continues parent execution
      */
     override suspend fun resume(graph: Graph, message: SpiceMessage): SpiceResult<SpiceMessage> {
         val validatedMessage = when (val guard = guardMessage(message, graph, "resume:init")) {
@@ -231,6 +244,18 @@ class DefaultGraphRunner(
                 )
             )
         }
+
+        // ===============================================================
+        // Spice 1.3.0: Check for subgraph HITL resume
+        // ===============================================================
+        val subgraphStack = extractSubgraphStack(validatedMessage)
+        if (subgraphStack.isNotEmpty()) {
+            return resumeSubgraphHitl(graph, validatedMessage, subgraphStack)
+        }
+
+        // ===============================================================
+        // Normal resume: no subgraph context
+        // ===============================================================
 
         // Transition back to RUNNING
         val runningMessage = when (
@@ -268,6 +293,330 @@ class DefaultGraphRunner(
             startNodeId = nextNodeId,
             idempotencyManager = idempotencyManager
         )
+    }
+
+    /**
+     * Resume from subgraph HITL
+     *
+     * **Algorithm:**
+     * 1. Pop the outermost context from the stack
+     * 2. Find the SubgraphNode in the parent graph
+     * 3. Resume the child graph with user response
+     * 4. If child completes: apply outputMapping, continue parent
+     * 5. If child is WAITING again: update stack, return WAITING
+     *
+     * @param parentGraph The graph containing the SubgraphNode
+     * @param message The WAITING message with user response data
+     * @param subgraphStack Stack of subgraph contexts (outermost first)
+     */
+    private suspend fun resumeSubgraphHitl(
+        parentGraph: Graph,
+        message: SpiceMessage,
+        subgraphStack: List<SubgraphCheckpointContext>
+    ): SpiceResult<SpiceMessage> {
+        if (subgraphStack.isEmpty()) {
+            return SpiceResult.failure(
+                SpiceError.executionError(
+                    "resumeSubgraphHitl called with empty stack",
+                    graphId = parentGraph.id
+                )
+            )
+        }
+
+        // Pop outermost context (index 0)
+        val currentContext = subgraphStack.first()
+        val remainingStack = subgraphStack.drop(1)
+
+        logger.info {
+            "[GraphRunner] Resuming subgraph HITL: " +
+            "parentNode=${currentContext.parentNodeId}, " +
+            "childGraph=${currentContext.childGraphId}, " +
+            "childNode=${currentContext.childNodeId}, " +
+            "depth=${currentContext.depth}, " +
+            "remainingStack=${remainingStack.size}"
+        }
+
+        // Find the SubgraphNode in parent graph
+        val subgraphNode = parentGraph.nodes[currentContext.parentNodeId] as? SubgraphNode
+            ?: return SpiceResult.failure(
+                SpiceError.executionError(
+                    "SubgraphNode not found: ${currentContext.parentNodeId}",
+                    graphId = parentGraph.id,
+                    nodeId = currentContext.parentNodeId
+                )
+            )
+
+        // Get the child graph from the SubgraphNode
+        val childGraph = subgraphNode.childGraph
+
+        // Prepare message for child graph resume
+        // - Set child graph context
+        // - Keep user response data
+        // - Attach remaining stack (for nested subgraphs)
+        val childMetadata = message.metadata
+            .minus(SubgraphCheckpointContext.STACK_METADATA_KEY)
+            .minus(SubgraphCheckpointContext.METADATA_KEY)
+            .let { baseMetadata ->
+                if (remainingStack.isNotEmpty()) {
+                    baseMetadata + (SubgraphCheckpointContext.STACK_METADATA_KEY to remainingStack)
+                } else {
+                    baseMetadata
+                }
+            }
+
+        val childResumeMessage = message.copy(
+            graphId = currentContext.childGraphId,
+            nodeId = currentContext.childNodeId,
+            runId = currentContext.childRunId,
+            // Keep WAITING state - resume() will transition to RUNNING
+            state = ExecutionState.WAITING,
+            // Remove our context from metadata, keep remaining stack
+            metadata = childMetadata
+        )
+
+        // Resume child graph (recursive call for nested subgraphs)
+        val childResult = resume(childGraph, childResumeMessage)
+
+        return when (childResult) {
+            is SpiceResult.Success -> {
+                val childOutput = childResult.value
+
+                // Check if child is WAITING again (another HITL in the subgraph)
+                if (childOutput.state == ExecutionState.WAITING) {
+                    logger.debug {
+                        "[GraphRunner] Child graph still WAITING after resume. " +
+                        "Re-attaching subgraph context."
+                    }
+
+                    // Rebuild the stack with current context
+                    @Suppress("UNCHECKED_CAST")
+                    val childStack = (childOutput.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY]
+                        as? List<SubgraphCheckpointContext>) ?: emptyList()
+
+                    // Update current context with new child node
+                    val updatedContext = currentContext.copy(
+                        childNodeId = childOutput.nodeId ?: currentContext.childNodeId
+                    )
+
+                    val newStack = listOf(updatedContext) + childStack
+
+                    // Return WAITING with updated stack
+                    return SpiceResult.success(
+                        childOutput.copy(
+                            // Parent graph context
+                            graphId = currentContext.parentGraphId,
+                            nodeId = currentContext.parentNodeId,
+                            runId = currentContext.parentRunId,
+                            metadata = childOutput.metadata
+                                .minus(SubgraphCheckpointContext.STACK_METADATA_KEY)
+                                .plus(SubgraphCheckpointContext.STACK_METADATA_KEY to newStack)
+                        )
+                    )
+                }
+
+                // Child completed - apply outputMapping
+                logger.debug {
+                    "[GraphRunner] Child graph completed. Applying outputMapping: ${currentContext.outputMapping}"
+                }
+
+                val mappedData = applyOutputMapping(
+                    childOutput = childOutput,
+                    outputMapping = currentContext.outputMapping,
+                    parentData = message.data
+                )
+
+                // Create RUNNING message for parent continuation
+                // Note: We create a new message with RUNNING state directly,
+                // because childOutput.state is COMPLETED and we can't transition COMPLETED → RUNNING.
+                // This is valid because we're starting a new execution phase in the parent graph.
+                val cleanedMetadata = childOutput.metadata
+                    .minus(SubgraphCheckpointContext.STACK_METADATA_KEY)
+                    .minus(SubgraphCheckpointContext.METADATA_KEY)
+                    .minus("waitingInSubgraph")
+                    .minus("waitingSubgraphId")
+                    .minus("waitingChildNodeId")
+
+                val runningMessage = childOutput.copy(
+                    graphId = currentContext.parentGraphId,
+                    nodeId = currentContext.parentNodeId,
+                    runId = currentContext.parentRunId,
+                    state = ExecutionState.RUNNING,  // Directly set RUNNING state
+                    data = mappedData,
+                    metadata = cleanedMetadata
+                )
+
+                // Validate the message
+                when (val guard = guardMessage(runningMessage, parentGraph, "resumeSubgraphHitl:continue", currentContext.parentNodeId)) {
+                    is SpiceResult.Failure -> return guard
+                    is SpiceResult.Success -> Unit
+                }
+
+                // Find next node in parent graph after the SubgraphNode
+                val nextNodeId = findNextNode(
+                    currentNodeId = currentContext.parentNodeId,
+                    message = runningMessage,
+                    graph = parentGraph
+                )
+
+                val idempotencyManager = if (enableIdempotency) {
+                    parentGraph.idempotencyStore?.let { IdempotencyManager(it, cachePolicy) }
+                } else {
+                    null
+                }
+
+                // Continue parent execution
+                executeNodes(
+                    graph = parentGraph,
+                    message = runningMessage,
+                    startNodeId = nextNodeId,
+                    idempotencyManager = idempotencyManager
+                )
+            }
+            is SpiceResult.Failure -> {
+                // Child failed - wrap error with context
+                SpiceResult.failure(
+                    childResult.error.withContext(
+                        "resumeSubgraphHitl" to "true",
+                        "childGraphId" to currentContext.childGraphId,
+                        "parentNodeId" to currentContext.parentNodeId
+                    )
+                )
+            }
+        }
+    }
+
+    /**
+     * Extract subgraph stack from message metadata
+     *
+     * **JSON Deserialization Note (Spice 1.3.2):**
+     * When checkpoint is serialized/deserialized via JSON (e.g., Redis),
+     * SubgraphCheckpointContext objects become Map<String, Any?>.
+     * This method handles both native objects and Map representations.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun extractSubgraphStack(message: SpiceMessage): List<SubgraphCheckpointContext> {
+        val stackRaw = message.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY]
+
+        logger.debug {
+            "[GraphRunner] extractSubgraphStack: " +
+            "stackRaw type=${stackRaw?.javaClass?.name}, " +
+            "stackRaw=$stackRaw"
+        }
+
+        if (stackRaw is List<*>) {
+            val result = stackRaw.mapIndexedNotNull { index, item ->
+                logger.debug {
+                    "[GraphRunner] extractSubgraphStack: " +
+                    "item[$index] type=${item?.javaClass?.name}"
+                }
+
+                when (item) {
+                    is SubgraphCheckpointContext -> item
+                    is Map<*, *> -> deserializeSubgraphContext(item as Map<String, Any?>)
+                    else -> {
+                        logger.warn {
+                            "[GraphRunner] extractSubgraphStack: " +
+                            "Unknown item type at index $index: ${item?.javaClass?.name}"
+                        }
+                        null
+                    }
+                }
+            }
+
+            logger.debug {
+                "[GraphRunner] extractSubgraphStack: " +
+                "extracted ${result.size} contexts from stack"
+            }
+
+            return result
+        }
+
+        // Try single context for backward compatibility
+        val singleRaw = message.metadata[SubgraphCheckpointContext.METADATA_KEY]
+        if (singleRaw != null) {
+            logger.debug {
+                "[GraphRunner] extractSubgraphStack: " +
+                "trying single context, type=${singleRaw.javaClass.name}"
+            }
+
+            val context = when (singleRaw) {
+                is SubgraphCheckpointContext -> singleRaw
+                is Map<*, *> -> deserializeSubgraphContext(singleRaw as Map<String, Any?>)
+                else -> null
+            }
+            if (context != null) {
+                logger.debug {
+                    "[GraphRunner] extractSubgraphStack: " +
+                    "extracted single context: childGraphId=${context.childGraphId}"
+                }
+                return listOf(context)
+            }
+        }
+
+        logger.debug { "[GraphRunner] extractSubgraphStack: no subgraph context found" }
+        return emptyList()
+    }
+
+    /**
+     * Deserialize SubgraphCheckpointContext from Map
+     */
+    private fun deserializeSubgraphContext(map: Map<String, Any?>): SubgraphCheckpointContext? {
+        return try {
+            SubgraphCheckpointContext(
+                parentNodeId = map["parentNodeId"] as? String ?: return null,
+                parentGraphId = map["parentGraphId"] as? String ?: return null,
+                parentRunId = map["parentRunId"] as? String ?: return null,
+                childGraphId = map["childGraphId"] as? String ?: return null,
+                childNodeId = map["childNodeId"] as? String ?: return null,
+                childRunId = map["childRunId"] as? String ?: return null,
+                outputMapping = (map["outputMapping"] as? Map<*, *>)
+                    ?.mapNotNull { (k, v) ->
+                        if (k is String && v is String) k to v else null
+                    }?.toMap() ?: emptyMap(),
+                depth = (map["depth"] as? Number)?.toInt() ?: 1
+            )
+        } catch (e: Exception) {
+            logger.warn(e) { "[GraphRunner] Failed to deserialize SubgraphCheckpointContext" }
+            null
+        }
+    }
+
+    /**
+     * Apply outputMapping: rename child keys to parent keys
+     */
+    private fun applyOutputMapping(
+        childOutput: SpiceMessage,
+        outputMapping: Map<String, String>,
+        parentData: Map<String, Any>
+    ): Map<String, Any> {
+        if (outputMapping.isEmpty()) {
+            return parentData + childOutput.data
+        }
+
+        val mapped = mutableMapOf<String, Any>()
+        val mappedChildKeys = mutableSetOf<String>()
+
+        // Apply outputMapping: childKey → parentKey
+        outputMapping.forEach { (childKey, parentKey) ->
+            val childValue = childOutput.data[childKey]
+            if (childValue != null) {
+                mapped[parentKey] = childValue
+                mappedChildKeys.add(childKey)
+                logger.debug {
+                    "[GraphRunner] outputMapping: child.$childKey → parent.$parentKey = $childValue"
+                }
+            }
+        }
+
+        // Include unmapped child keys
+        childOutput.data.forEach { (key, value) ->
+            if (key !in mappedChildKeys && key !in mapped) {
+                mapped[key] = value
+            }
+        }
+
+        // Merge with parent data (child takes precedence)
+        return parentData + mapped
     }
 
     /**
@@ -469,21 +818,32 @@ class DefaultGraphRunner(
         message: SpiceMessage,
         graph: Graph
     ): String? {
+        // Debug: Log all edges in graph
+        logger.debug("[findNextNode] Graph '{}' has {} total edges", graph.id, graph.edges.size)
+        graph.edges.forEachIndexed { idx, edge ->
+            logger.debug("[findNextNode] Edge[{}]: {} → {} (fallback={}, priority={})", idx, edge.from, edge.to, edge.isFallback, edge.priority)
+        }
+
         // Get all edges from current node
         val edges = graph.edges.filter { it.from == currentNodeId || it.from == "*" }
+        logger.debug("[findNextNode] Looking for edges from '{}', found {} matching edges", currentNodeId, edges.size)
 
         // Separate regular and fallback edges
         val regularEdges = edges.filter { !it.isFallback }.sortedBy { it.priority }
         val fallbackEdges = edges.filter { it.isFallback }.sortedBy { it.priority }
+        logger.debug("[findNextNode] Regular edges: {}, Fallback edges: {}", regularEdges.size, fallbackEdges.size)
 
         // Try regular edges first
         val matchingEdge = regularEdges.firstOrNull { it.condition(message) }
         if (matchingEdge != null) {
+            logger.debug("[findNextNode] Found matching regular edge: {} → {}", matchingEdge.from, matchingEdge.to)
             return matchingEdge.to
         }
 
         // Try fallback edges
-        return fallbackEdges.firstOrNull()?.to
+        val fallbackResult = fallbackEdges.firstOrNull()?.to
+        logger.debug("[findNextNode] No regular edge matched, fallback result: {}", fallbackResult)
+        return fallbackResult
     }
 
     /**

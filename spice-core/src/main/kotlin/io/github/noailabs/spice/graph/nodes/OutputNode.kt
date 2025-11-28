@@ -39,6 +39,20 @@ import io.github.noailabs.spice.graph.Node
  * }
  * ```
  *
+ * **Map Output (1.2.0+):**
+ * When selector returns a Map, the map is merged into message.data.
+ * This is useful for subgraph EXIT nodes that need to export data to parent.
+ *
+ * ```kotlin
+ * output("exit") { message ->
+ *     mapOf(
+ *         "confirmed" to message.getData<Boolean>("user_confirmed"),
+ *         "exitCode" to "SUCCESS"
+ *     )
+ * }
+ * // Result: message.data = {...existing..., confirmed: true, exitCode: "SUCCESS"}
+ * ```
+ *
  * @property selector Function to extract final output from message
  * @since 1.0.0
  */
@@ -53,8 +67,9 @@ class OutputNode(
      * **Flow:**
      * 1. Extract final result using selector
      * 2. Transition message to COMPLETED state
-     * 3. Embed final result in message.content
-     * 4. Return completed message
+     * 3. If output is Map: merge into message.data (1.2.0+)
+     * 4. Set content (Map → JSON string, otherwise toString())
+     * 5. Return completed message
      *
      * **State Transition:**
      * - RUNNING → COMPLETED (graph execution finished)
@@ -73,9 +88,27 @@ class OutputNode(
             nodeId = id
         )
 
-        // Set final result in content
+        // Handle output based on type (1.2.0+: Map merges into data)
+        val (finalData, finalContent) = when (output) {
+            is Map<*, *> -> {
+                // Merge map output into message.data for SubgraphNode outputMapping
+                @Suppress("UNCHECKED_CAST")
+                val mapOutput = output.filterKeys { it != null }
+                    .mapKeys { it.key.toString() } as Map<String, Any>
+                val mergedData = completedMessage.data + mapOutput
+                // Content is the map as string for debugging
+                mergedData to mapOutput.toString()
+            }
+            else -> {
+                // Default behavior: output goes to content only
+                completedMessage.data to (output?.toString() ?: "")
+            }
+        }
+
+        // Set final result
         val result = completedMessage.copy(
-            content = output?.toString() ?: ""
+            content = finalContent,
+            data = finalData
         )
 
         // Mark as output in metadata

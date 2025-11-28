@@ -315,7 +315,15 @@ class GraphToStateMachineAdapter(
         }
 
         // 3. Resolve graph (from parameter or registry)
+        logger.debug("[resume] GraphRegistry has {} graphs: {}", graphRegistry.size, graphRegistry.keys)
+        logger.debug("[resume] Looking for graphId='{}' from checkpoint", checkpoint.graphId)
         val resolvedGraph = graph ?: graphRegistry[checkpoint.graphId]
+        if (resolvedGraph != null) {
+            logger.debug("[resume] Found graph '{}' with {} nodes, {} edges", resolvedGraph.id, resolvedGraph.nodes.size, resolvedGraph.edges.size)
+            resolvedGraph.edges.forEachIndexed { idx, edge ->
+                logger.debug("[resume] Graph '{}' Edge[{}]: {} → {}", resolvedGraph.id, idx, edge.from, edge.to)
+            }
+        }
         if (resolvedGraph == null) {
             val error = SpiceError.executionError(
                 "Graph not found: ${checkpoint.graphId}. Provide graph parameter or configure graphRegistry."
@@ -342,9 +350,23 @@ class GraphToStateMachineAdapter(
             }
         }
 
+        // 4.5 Restore subgraphStack to checkpointMessage.metadata (Spice 1.3.2)
+        // JSON serialization/deserialization may lose SubgraphCheckpointContext type info
+        // in message.metadata, so we restore it from checkpoint.subgraphStack field
+        val restoredCheckpointMessage = if (checkpoint.subgraphStack.isNotEmpty()) {
+            logger.debug("Restoring subgraphStack to checkpointMessage.metadata: {} contexts", checkpoint.subgraphStack.size)
+            checkpointMessage.withMetadata(
+                checkpointMessage.metadata + mapOf(
+                    io.github.noailabs.spice.graph.checkpoint.SubgraphCheckpointContext.STACK_METADATA_KEY to checkpoint.subgraphStack
+                )
+            )
+        } else {
+            checkpointMessage
+        }
+
         // 5. Build resume message with user response
         val (resumeMessage, responseToolCall) = buildResumeMessage(
-            checkpointMessage = checkpointMessage,
+            checkpointMessage = restoredCheckpointMessage,
             userResponse = userResponse,
             options = options
         )
@@ -539,10 +561,15 @@ class GraphToStateMachineAdapter(
 
         // Merge data: checkpoint.data + userResponse.data + responseData (later overrides earlier)
         val mergedData = checkpointMessage.data + userResponse.data + responseData
+
+        // IMPORTANT: Preserve checkpoint metadata (including __subgraphStack for Subgraph HITL resume)
+        // and merge with userResponseMetadata (userResponseMetadata takes precedence)
+        val mergedMetadata = checkpointMessage.metadata + options.userResponseMetadata
+
         val msg = checkpointMessage
             .withData(mergedData)
             .withToolCalls(userResponse.toolCalls)
-            .withMetadata(options.userResponseMetadata)
+            .withMetadata(mergedMetadata)
 
         return Pair(msg, toolCall)
     }
