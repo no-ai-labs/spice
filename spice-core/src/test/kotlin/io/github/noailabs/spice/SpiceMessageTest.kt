@@ -181,4 +181,135 @@ class SpiceMessageTest {
         assertTrue(toolCall1.id.startsWith("call_"))
         assertTrue(toolCall2.id.startsWith("call_"))
     }
+
+    // ========== getData() Nested Path Tests (1.5.2) ==========
+
+    @Test
+    fun `getData should support nested path`() {
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "hitl" to mapOf(
+                    "canonical" to "confirm_no",
+                    "kind" to "SELECTION"
+                )
+            )
+        )
+
+        // Nested path support
+        assertEquals("confirm_no", message.getData<String>("hitl.canonical"))
+        assertEquals("SELECTION", message.getData<String>("hitl.kind"))
+        assertNull(message.getData<String>("hitl.nonexistent"))
+    }
+
+    @Test
+    fun `getData should preserve flat key behavior`() {
+        // Regression prevention: existing single key behavior should work
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "simpleKey" to "simpleValue",
+                "count" to 42
+            )
+        )
+
+        assertEquals("simpleValue", message.getData<String>("simpleKey"))
+        assertEquals(42, message.getData<Int>("count"))
+        assertNull(message.getData<String>("nonexistent"))
+    }
+
+    @Test
+    fun `getData should return null when intermediate is not Map`() {
+        // When intermediate value is not a Map, return null
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "hitl" to "not_a_map",  // String, not Map
+                "count" to 42
+            )
+        )
+
+        // hitl is not Map, so hitl.canonical is null
+        assertNull(message.getData<String>("hitl.canonical"))
+        // count is not Map, so count.value is null
+        assertNull(message.getData<String>("count.value"))
+    }
+
+    @Test
+    fun `getData should prioritize flat dot-key over nested path`() {
+        // Backward compatibility: if "foo.bar" exists as flat key, don't do nested lookup
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "foo.bar" to "flat_value",           // flat dot key
+                "foo" to mapOf("bar" to "nested_value")  // nested structure
+            )
+        )
+
+        // Flat key takes priority → "flat_value"
+        assertEquals("flat_value", message.getData<String>("foo.bar"))
+
+        // When only nested exists, do nested lookup
+        val message2 = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "foo" to mapOf("bar" to "nested_value")
+            )
+        )
+        assertEquals("nested_value", message2.getData<String>("foo.bar"))
+    }
+
+    @Test
+    fun `getData should return null for malformed keys`() {
+        // Malformed keys: blank segments
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = mapOf(
+                "hitl" to mapOf("canonical" to "confirm_no")
+            )
+        )
+
+        // Blank segments → null
+        assertNull(message.getData<String>("foo..bar"))
+        assertNull(message.getData<String>(".foo.bar"))
+        assertNull(message.getData<String>("foo.bar."))
+    }
+
+    @Test
+    fun `getData should work with LinkedHashMap from deserialization`() {
+        // Simulate what happens after JSON deserialization:
+        // - Nested maps become LinkedHashMap<String, Any>
+        // - This tests that getData() works with runtime map types
+        val deserializedData: Map<String, Any> = LinkedHashMap<String, Any>().apply {
+            put("hitl", LinkedHashMap<String, Any>().apply {
+                put("canonical", "confirm_no")
+                put("kind", "SELECTION")
+            })
+            put("simple", "value")
+        }
+
+        val message = SpiceMessage(
+            content = "test",
+            from = "test",
+            correlationId = "test",
+            data = deserializedData
+        )
+
+        // Nested lookup should work with LinkedHashMap
+        assertEquals("confirm_no", message.getData<String>("hitl.canonical"))
+        assertEquals("SELECTION", message.getData<String>("hitl.kind"))
+        assertEquals("value", message.getData<String>("simple"))
+    }
 }

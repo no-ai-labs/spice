@@ -424,8 +424,42 @@ data class SpiceMessage(
 
     /**
      * Get data value by key with type safety
+     *
+     * Supports both flat keys and nested paths:
+     * - Flat key: `getData("foo")` → `data["foo"]`
+     * - Nested path: `getData("hitl.canonical")` → `data["hitl"]["canonical"]`
+     *
+     * **Backward Compatibility:**
+     * - If a flat key with dots exists (e.g., `data["foo.bar"]`), it takes priority
+     * - Nested path lookup only happens if flat key doesn't exist
+     *
+     * @param key The key or dot-separated path to look up
+     * @return The value cast to type T, or null if not found or wrong type
+     * @since 1.5.2
      */
     inline fun <reified T> getData(key: String): T? {
-        return data[key] as? T
+        // 1. Try flat key first (backward compatibility)
+        //    - If "foo.bar" exists as a flat key, return it
+        data[key]?.let { return it as? T }
+
+        // 2. No dot = no nested path, return null
+        if (!key.contains('.')) {
+            return null
+        }
+
+        // 3. Try nested path: "hitl.canonical" → data["hitl"]["canonical"]
+        val parts = key.split('.')
+
+        // 4. Defense: reject malformed keys with blank segments ("foo..bar", ".foo", "foo.")
+        if (parts.any { it.isBlank() }) {
+            return null
+        }
+
+        var current: Any? = data
+        for (part in parts) {
+            current = (current as? Map<*, *>)?.get(part)
+            if (current == null) return null
+        }
+        return current as? T
     }
 }
