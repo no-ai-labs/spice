@@ -7,6 +7,7 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.checkpoint.SubgraphCheckpointContext
 import io.github.noailabs.spice.graph.dsl.graph
 import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
+import io.github.noailabs.spice.hitl.HitlResult
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -603,5 +604,307 @@ class SubgraphNodeTest {
                 )
             )
         }
+    }
+
+    // =====================================================================
+    // Subgraph HITL + DecisionNode Tests (Spice 1.3.4 - P0 Mission)
+    // =====================================================================
+
+    @Test
+    fun `subgraph HITL resume with DecisionNode routes by hitl canonical - yes branch`() = runTest {
+        // Given - subgraph with HITL + DecisionNode routing
+        val parentGraph = graph("parent") {
+            agent("start", EchoAgent("start"))
+
+            subgraph("confirm-child") {
+                hitlSelection("ask-confirm", "Please confirm") {
+                    option("confirm_yes", "Yes", "Confirm action")
+                    option("confirm_no", "No", "Cancel action")
+                }
+
+                decision("route-by-hitl") {
+                    "yes-handler".whenHitl("confirm_yes")
+                    "no-handler".whenHitl("confirm_no")
+                    "default".otherwise()
+                }
+
+                agent("yes-handler", EchoAgent("yes-handler", "YES"))
+                agent("no-handler", EchoAgent("no-handler", "NO"))
+                agent("default", EchoAgent("default", "DEFAULT"))
+
+                output("child-result")
+
+                edge("ask-confirm", "route-by-hitl")
+                edge("yes-handler", "child-result")
+                edge("no-handler", "child-result")
+                edge("default", "child-result")
+            }
+
+            output("end")
+
+            edge("start", "confirm-child")
+            edge("confirm-child", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "hitl-decision-test-1")
+
+        // Execute until WAITING at HITL
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // When - resume with HitlResult for "confirm_yes"
+        val hitlResult = HitlResult.single("confirm_yes", "Yes, I confirm")
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf(
+                HitlResult.DATA_KEY to hitlResult.toMap(),
+                "user_response" to hitlResult.canonical  // Backward compatibility
+            )
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should route to yes-handler branch
+        assertTrue(resumeResult.isSuccess, "Resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify routing: DecisionNode should have selected yes-handler
+        val selectedBranch = finalOutput.getData<String>("_selectedBranch")
+        assertEquals("yes-handler", selectedBranch, "DecisionNode should route to yes-handler")
+
+        // Verify the yes-handler agent was executed
+        val agentId = finalOutput.getData<String>("agent_id")
+        assertEquals("yes-handler", agentId, "yes-handler agent should have been executed")
+
+        // Content should contain YES prefix from EchoAgent
+        assertTrue(finalOutput.content.contains("YES"), "Content should contain YES: ${finalOutput.content}")
+    }
+
+    @Test
+    fun `subgraph HITL resume with DecisionNode routes by hitl canonical - no branch`() = runTest {
+        // Given - same graph as above
+        val parentGraph = graph("parent") {
+            agent("start", EchoAgent("start"))
+
+            subgraph("confirm-child") {
+                hitlSelection("ask-confirm", "Please confirm") {
+                    option("confirm_yes", "Yes", "Confirm action")
+                    option("confirm_no", "No", "Cancel action")
+                }
+
+                decision("route-by-hitl") {
+                    "yes-handler".whenHitl("confirm_yes")
+                    "no-handler".whenHitl("confirm_no")
+                    "default".otherwise()
+                }
+
+                agent("yes-handler", EchoAgent("yes-handler", "YES"))
+                agent("no-handler", EchoAgent("no-handler", "NO"))
+                agent("default", EchoAgent("default", "DEFAULT"))
+
+                output("child-result")
+
+                edge("ask-confirm", "route-by-hitl")
+                edge("yes-handler", "child-result")
+                edge("no-handler", "child-result")
+                edge("default", "child-result")
+            }
+
+            output("end")
+
+            edge("start", "confirm-child")
+            edge("confirm-child", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "hitl-decision-test-2")
+
+        // Execute until WAITING
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // When - resume with HitlResult for "confirm_no"
+        val hitlResult = HitlResult.single("confirm_no", "No, cancel it")
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf(
+                HitlResult.DATA_KEY to hitlResult.toMap(),
+                "user_response" to hitlResult.canonical
+            )
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should route to no-handler branch
+        assertTrue(resumeResult.isSuccess, "Resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify routing: DecisionNode should have selected no-handler
+        val selectedBranch = finalOutput.getData<String>("_selectedBranch")
+        assertEquals("no-handler", selectedBranch, "DecisionNode should route to no-handler")
+
+        // Verify the no-handler agent was executed
+        val agentId = finalOutput.getData<String>("agent_id")
+        assertEquals("no-handler", agentId, "no-handler agent should have been executed")
+
+        // Content should contain NO prefix from EchoAgent
+        assertTrue(finalOutput.content.contains("NO"), "Content should contain NO: ${finalOutput.content}")
+    }
+
+    @Test
+    fun `nested subgraph HITL resume with DecisionNode routes correctly`() = runTest {
+        // Given - parent → level1 → level2 (with HITL + DecisionNode)
+        val parentGraph = graph("parent") {
+            subgraph("level1") {
+                subgraph("level2") {
+                    hitlSelection("deep-hitl", "Deep confirm needed") {
+                        option("option_a", "Option A", "First choice")
+                        option("option_b", "Option B", "Second choice")
+                    }
+
+                    decision("deep-route") {
+                        "handler-a".whenHitl("option_a")
+                        "handler-b".whenHitl("option_b")
+                        "handler-default".otherwise()
+                    }
+
+                    agent("handler-a", EchoAgent("handler-a", "HANDLER_A"))
+                    agent("handler-b", EchoAgent("handler-b", "HANDLER_B"))
+                    agent("handler-default", EchoAgent("handler-default", "DEFAULT"))
+
+                    output("deep-result")
+
+                    edge("deep-hitl", "deep-route")
+                    edge("handler-a", "deep-result")
+                    edge("handler-b", "deep-result")
+                    edge("handler-default", "deep-result")
+                }
+                output("level1-result")
+                edge("level2", "level1-result")
+            }
+            output("end")
+            edge("level1", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Nested test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "nested-hitl-decision-test")
+
+        // Execute until WAITING (at level2's HITL)
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // Verify stack has 2 entries (level1 and level2)
+        @Suppress("UNCHECKED_CAST")
+        val subgraphStack = waitingMessage.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY] as? List<*>
+        assertNotNull(subgraphStack, "subgraphStack should be present")
+        assertEquals(2, subgraphStack.size, "Stack should have 2 contexts for nested subgraphs")
+
+        // When - resume with HitlResult for "option_b"
+        val hitlResult = HitlResult.single("option_b", "I choose B")
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf(
+                HitlResult.DATA_KEY to hitlResult.toMap(),
+                "user_response" to hitlResult.canonical
+            )
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should complete with HANDLER_B routing
+        assertTrue(resumeResult.isSuccess, "Nested resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify routing: DecisionNode should have selected handler-b
+        val selectedBranch = finalOutput.getData<String>("_selectedBranch")
+        assertEquals("handler-b", selectedBranch, "DecisionNode should route to handler-b")
+
+        // Verify the handler-b agent was executed
+        val agentId = finalOutput.getData<String>("agent_id")
+        assertEquals("handler-b", agentId, "handler-b agent should have been executed")
+
+        // Content should contain HANDLER_B prefix from EchoAgent
+        assertTrue(finalOutput.content.contains("HANDLER_B"), "Content should contain HANDLER_B: ${finalOutput.content}")
+
+        // Verify stack is cleaned up
+        val finalStack = finalOutput.metadata[SubgraphCheckpointContext.STACK_METADATA_KEY]
+        assertTrue(finalStack == null || (finalStack as? List<*>)?.isEmpty() == true,
+            "subgraphStack should be empty after completion")
+    }
+
+    @Test
+    fun `subgraph HITL with multi selection DecisionNode routes correctly`() = runTest {
+        // Given - HITL with multi-selection + DecisionNode using whenHitlContains
+        val parentGraph = graph("parent") {
+            subgraph("multi-select-child") {
+                hitlSelection("multi-select", "Select options") {
+                    option("feature_a", "Feature A", "Enable A")
+                    option("feature_b", "Feature B", "Enable B")
+                    option("feature_c", "Feature C", "Enable C")
+                    selectionType = "multiple"
+                }
+
+                decision("route-by-features") {
+                    branch("has-feature-a", "feature-a-handler")
+                        .whenHitlContains("feature_a")
+                    branch("no-feature-a", "default-handler")
+                        .otherwise()
+                }
+
+                agent("feature-a-handler", EchoAgent("feature-a-handler", "HAS_FEATURE_A"))
+                agent("default-handler", EchoAgent("default-handler", "NO_FEATURE_A"))
+
+                output("child-result")
+
+                edge("multi-select", "route-by-features")
+                edge("feature-a-handler", "child-result")
+                edge("default-handler", "child-result")
+            }
+            output("end")
+            edge("multi-select-child", "end")
+        }
+
+        val runner = DefaultGraphRunner()
+        val message = SpiceMessage.create("Multi test", "user")
+            .withGraphContext(graphId = "parent", nodeId = null, runId = "multi-select-test")
+
+        // Execute until WAITING
+        val initialResult = runner.execute(parentGraph, message)
+        assertTrue(initialResult.isSuccess)
+        val waitingMessage = (initialResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.WAITING, waitingMessage.state)
+
+        // When - resume with HitlResult.multi containing feature_a and feature_c
+        val hitlResult = HitlResult.multi(listOf("feature_a", "feature_c"), "I want A and C")
+        val resumeMessage = waitingMessage.copy(
+            data = waitingMessage.data + mapOf(
+                HitlResult.DATA_KEY to hitlResult.toMap(),
+                "user_response" to hitlResult.canonical  // "feature_a,feature_c"
+            )
+        )
+        val resumeResult = runner.resume(parentGraph, resumeMessage)
+
+        // Then - should route to feature-a-handler (contains "feature_a")
+        assertTrue(resumeResult.isSuccess, "Resume should succeed but got: ${(resumeResult as? SpiceResult.Failure)?.error?.message}")
+        val finalOutput = (resumeResult as SpiceResult.Success).value
+        assertEquals(ExecutionState.COMPLETED, finalOutput.state)
+
+        // Verify routing: DecisionNode should have selected feature-a-handler
+        val selectedBranch = finalOutput.getData<String>("_selectedBranch")
+        assertEquals("feature-a-handler", selectedBranch, "DecisionNode should route to feature-a-handler")
+
+        // Verify the feature-a-handler agent was executed
+        val agentId = finalOutput.getData<String>("agent_id")
+        assertEquals("feature-a-handler", agentId, "feature-a-handler agent should have been executed")
+
+        // Content should contain HAS_FEATURE_A prefix from EchoAgent
+        assertTrue(finalOutput.content.contains("HAS_FEATURE_A"), "Content should contain HAS_FEATURE_A: ${finalOutput.content}")
     }
 }

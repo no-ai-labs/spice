@@ -7,6 +7,8 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.runner.GraphRunner
+import io.github.noailabs.spice.hitl.HitlResult
+import io.github.noailabs.spice.hitl.HitlResultParser
 import kotlinx.datetime.Clock
 
 /**
@@ -159,10 +161,11 @@ suspend fun GraphRunner.resumeFromCheckpoint(
         SpiceError.executionError("Checkpoint has no message: $checkpointId")
     )
 
-    // Spice 2.0: Handle USER_RESPONSE tool call
+    // Spice 2.0 + 1.3.4: Handle USER_RESPONSE tool call with HitlResult
     val (resumeMessage, responseToolCall) = if (userResponse != null) {
         val toolCall = userResponse.findToolCall("user_response")
 
+        // Extract response data from tool call
         val responseData = if (toolCall != null) {
             buildMap<String, Any> {
                 toolCall.function.getArgumentString("text")?.let {
@@ -178,16 +181,36 @@ suspend fun GraphRunner.resumeFromCheckpoint(
             mapOf("response_text" to userResponse.content)
         }
 
+        // Spice 1.3.4: Parse and normalize HITL response
+        val hitlResult = HitlResultParser.parse(userResponse.data + responseData, toolCall?.id)
+            ?: userResponse.content.takeIf { it.isNotBlank() }?.let { HitlResult.text(it, toolCall?.id) }
+
+        // CRITICAL: Merge data (checkpoint.data + userResponse.data + responseData + hitl)
+        // Previous bug: withData(responseData) overwrote all existing data
+        val mergedData = buildMap<String, Any> {
+            putAll(message.data)           // 1. Preserve checkpoint data
+            putAll(userResponse.data)      // 2. Add caller's data (selectedBookingId, etc.)
+            putAll(responseData)           // 3. Add extracted response data
+
+            // 4. Add normalized HitlResult
+            hitlResult?.let { result ->
+                put(HitlResult.DATA_KEY, result.toMap())
+                put("user_response", result.canonical)  // Backward compatibility
+            }
+        }
+
+        // CRITICAL: Keep WAITING state - GraphRunner.resume requires it
+        // Previous bug: transitionTo(RUNNING) violated resume protocol
         val msg = message
-            .withData(responseData)
+            .withData(mergedData)
             .withToolCalls(userResponse.toolCalls)
-            .transitionTo(ExecutionState.RUNNING, "Resuming after user response")
+            // DO NOT transition to RUNNING - resume() expects WAITING
 
         Pair(msg, toolCall)
     } else {
-        // No response - just resume
-        val msg = message.transitionTo(ExecutionState.RUNNING, "Resuming from checkpoint")
-        Pair(msg, null)
+        // No response - just resume with existing state
+        // DO NOT transition to RUNNING
+        Pair(message, null)
     }
 
     // Spice 2.0: Update checkpoint with responseToolCall for replay/debugging

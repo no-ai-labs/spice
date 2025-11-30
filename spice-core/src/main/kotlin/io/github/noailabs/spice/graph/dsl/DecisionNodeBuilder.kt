@@ -4,6 +4,7 @@ import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.nodes.DecisionBranch
 import io.github.noailabs.spice.graph.nodes.DecisionNode
+import io.github.noailabs.spice.hitl.HitlResult
 
 /**
  * DSL builder for creating DecisionNode with fluent branch definitions.
@@ -464,5 +465,122 @@ class DecisionNodeBuilder(val id: String) {
             )
             return parent
         }
+
+        // ============================================================
+        // HITL Canonical-based Routing (Spice 1.3.4+)
+        // ============================================================
+
+        /**
+         * Route to target when HITL canonical value matches expected.
+         *
+         * This is the **recommended** way to route based on HITL responses.
+         * Uses `data["hitl"]["canonical"]` for reliable branching.
+         *
+         * ```kotlin
+         * decision("check_confirm") {
+         *     branch("confirmed", "proceed_handler")
+         *         .whenHitlCanonical("confirm_yes")
+         *
+         *     branch("declined", "cancel_handler")
+         *         .whenHitlCanonical("confirm_no")
+         *
+         *     branch("default", "fallback")
+         *         .otherwise()
+         * }
+         * ```
+         *
+         * @param expected The expected canonical value (e.g., "confirm_yes", "option_a")
+         * @since Spice 1.3.4
+         */
+        fun whenHitlCanonical(expected: String): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.canonical == expected
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when HITL canonical value contains substring.
+         *
+         * Useful for multi-selection where canonical is comma-separated.
+         *
+         * ```kotlin
+         * branch("has_premium", "premium_handler")
+         *     .whenHitlContains("premium")
+         * ```
+         *
+         * @param substring Substring to check in canonical value
+         * @since Spice 1.3.4
+         */
+        fun whenHitlContains(substring: String): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.canonical?.contains(substring) == true
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when HITL kind matches expected.
+         *
+         * ```kotlin
+         * branch("text_response", "text_handler")
+         *     .whenHitlKind(HitlResponseKind.TEXT)
+         *
+         * branch("selection_response", "selection_handler")
+         *     .whenHitlKind(HitlResponseKind.SINGLE)
+         * ```
+         *
+         * @param kind Expected HITL response kind
+         * @since Spice 1.3.4
+         */
+        fun whenHitlKind(kind: io.github.noailabs.spice.hitl.HitlResponseKind): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.kind == kind
+                    }
+                )
+            )
+            return parent
+        }
+    }
+
+    // ============================================================
+    // Shorthand Extensions for HITL (Spice 1.3.4+)
+    // ============================================================
+
+    /**
+     * Shorthand: Define a branch when HITL canonical matches.
+     *
+     * ```kotlin
+     * decision("route") {
+     *     "yes_handler".whenHitl("confirm_yes")
+     *     "no_handler".whenHitl("confirm_no")
+     *     "default".otherwise()
+     * }
+     * ```
+     *
+     * @since Spice 1.3.4
+     */
+    fun String.whenHitl(expectedCanonical: String): DecisionNodeBuilder {
+        branch(this, this).whenHitlCanonical(expectedCanonical)
+        return this@DecisionNodeBuilder
     }
 }
