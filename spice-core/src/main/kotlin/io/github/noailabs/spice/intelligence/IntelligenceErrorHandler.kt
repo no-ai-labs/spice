@@ -1,7 +1,7 @@
 package io.github.noailabs.spice.intelligence
 
 import io.github.noailabs.spice.error.SpiceError
-import io.github.noailabs.spice.hitl.HITLOption
+import io.github.noailabs.spice.hitl.result.HITLOption
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 

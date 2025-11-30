@@ -20,10 +20,10 @@ import io.github.noailabs.spice.graph.nodes.ToolNode
 import io.github.noailabs.spice.template.TemplateResolver
 import io.github.noailabs.spice.routing.DecisionEngine
 import io.github.noailabs.spice.routing.DecisionLifecycleListener
-import io.github.noailabs.spice.hitl.HITLMetadata
-import io.github.noailabs.spice.hitl.HITLOption
-import io.github.noailabs.spice.hitl.HitlEventEmitter
-import io.github.noailabs.spice.hitl.NoOpHitlEventEmitter
+import io.github.noailabs.spice.hitl.result.HITLMetadata
+import io.github.noailabs.spice.hitl.result.HITLOption
+import io.github.noailabs.spice.hitl.result.HitlEventEmitter
+import io.github.noailabs.spice.hitl.result.NoOpHitlEventEmitter
 import io.github.noailabs.spice.idempotency.IdempotencyStore
 import io.github.noailabs.spice.retry.ExecutionRetryPolicy
 import io.github.noailabs.spice.ToolRegistry
@@ -33,6 +33,11 @@ import io.github.noailabs.spice.tool.ToolResolver
 import io.github.noailabs.spice.tool.ToolResolverValidation
 import io.github.noailabs.spice.tools.HitlRequestInputTool
 import io.github.noailabs.spice.tools.HitlRequestSelectionTool
+import io.github.noailabs.spice.tools.HitlRequestTemplateTool
+import io.github.noailabs.spice.hitl.template.HitlTemplate
+import io.github.noailabs.spice.hitl.template.HitlTemplateEngine
+import io.github.noailabs.spice.hitl.template.HitlTemplateRegistry
+import io.github.noailabs.spice.ToolContext
 import mu.KotlinLogging
 import kotlin.time.Duration
 
@@ -269,6 +274,114 @@ class GraphBuilder(val id: String) {
                 selectionType = configBuilder.selectionType,
                 timeout = configBuilder.timeout
             ) + (HITLMetadata.INVOCATION_INDEX_KEY to nextIndex)
+        }
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a HITL template node using HitlTemplate (1.3.5+)
+     *
+     * This creates a ToolNode with HitlRequestTemplateTool bound to it.
+     * Templates provide reusable HITL patterns with Handlebars templating.
+     *
+     * **Usage with inline template:**
+     * ```kotlin
+     * graph("workflow") {
+     *     hitlTemplate("confirm", HitlTemplate.confirm(
+     *         id = "order-confirm",
+     *         prompt = "Confirm order for {{itemCount}} items?"
+     *     )) {
+     *         context { ctx -> mapOf("itemCount" to ctx.getMetadata<Int>("items")) }
+     *     }
+     *
+     *     decision("route") {
+     *         "proceed".whenHitl("yes")
+     *         "cancel".whenHitl("no")
+     *     }
+     * }
+     * ```
+     *
+     * **Usage with registry template:**
+     * ```kotlin
+     * graph("workflow") {
+     *     hitlTemplate("confirm", "order-confirm") {
+     *         registry(myRegistry)
+     *         context { ctx -> mapOf("itemCount" to ctx.getMetadata<Int>("items")) }
+     *     }
+     * }
+     * ```
+     *
+     * @param id Node ID (also used for stable tool_call_id generation)
+     * @param template The HitlTemplate to use
+     * @param config Optional configuration block
+     * @since 1.3.5
+     */
+    fun hitlTemplate(
+        id: String,
+        template: HitlTemplate,
+        config: HitlTemplateConfigBuilder.() -> Unit = {}
+    ) {
+        val configBuilder = HitlTemplateConfigBuilder().apply(config)
+        val tool = HitlRequestTemplateTool(
+            nodeId = id,
+            template = template,
+            contextExtractor = configBuilder.contextExtractor,
+            emitter = hitlEventEmitter,
+            engine = configBuilder.engine
+        )
+
+        nodes[id] = ToolNode(id, tool) { message ->
+            // Get and increment invocation index for loop-safe ID generation
+            val currentIndex = (message.data[HITLMetadata.INVOCATION_INDEX_KEY] as? Number)?.toInt() ?: 0
+            val nextIndex = currentIndex + 1
+            mapOf(
+                HITLMetadata.INVOCATION_INDEX_KEY to nextIndex,
+                "invocation_index" to currentIndex
+            )
+        }
+        if (entryPoint == null) entryPoint = id
+    }
+
+    /**
+     * Add a HITL template node by template ID from registry (1.3.5+)
+     *
+     * **Usage:**
+     * ```kotlin
+     * graph("workflow") {
+     *     hitlTemplate("confirm", "order-confirm") {
+     *         registry(myRegistry)  // Optional: defaults to global registry
+     *         context { ctx -> mapOf("itemCount" to ctx.getMetadata<Int>("items")) }
+     *     }
+     * }
+     * ```
+     *
+     * @param id Node ID
+     * @param templateId Template ID to resolve from registry
+     * @param config Configuration block
+     * @since 1.3.5
+     */
+    fun hitlTemplate(
+        id: String,
+        templateId: String,
+        config: HitlTemplateConfigBuilder.() -> Unit = {}
+    ) {
+        val configBuilder = HitlTemplateConfigBuilder().apply(config)
+        val tool = HitlRequestTemplateTool.fromRegistry(
+            nodeId = id,
+            templateId = templateId,
+            registry = configBuilder.registry,
+            tenantId = configBuilder.tenantId,
+            contextExtractor = configBuilder.contextExtractor,
+            emitter = hitlEventEmitter
+        )
+
+        nodes[id] = ToolNode(id, tool) { message ->
+            val currentIndex = (message.data[HITLMetadata.INVOCATION_INDEX_KEY] as? Number)?.toInt() ?: 0
+            val nextIndex = currentIndex + 1
+            mapOf(
+                HITLMetadata.INVOCATION_INDEX_KEY to nextIndex,
+                "invocation_index" to currentIndex
+            )
         }
         if (entryPoint == null) entryPoint = id
     }
@@ -1184,5 +1297,70 @@ class HitlSelectionConfigBuilder {
      */
     fun timeout(duration: Duration) {
         this.timeout = duration.inWholeMilliseconds
+    }
+}
+
+/**
+ * Configuration builder for hitlTemplate()
+ *
+ * @since 1.3.5
+ */
+class HitlTemplateConfigBuilder {
+    internal var contextExtractor: (ToolContext) -> Map<String, Any> = { emptyMap() }
+    internal var registry: HitlTemplateRegistry = HitlTemplateRegistry.global
+    internal var tenantId: String? = null
+    internal var engine: HitlTemplateEngine = HitlTemplateEngine.default
+
+    /**
+     * Set the context extractor function
+     *
+     * The context extractor converts ToolContext to a Map for template rendering.
+     *
+     * ```kotlin
+     * hitlTemplate("confirm", template) {
+     *     context { ctx ->
+     *         mapOf(
+     *             "itemCount" to ctx.getMetadata<Int>("items"),
+     *             "userName" to ctx.auth.userId
+     *         )
+     *     }
+     * }
+     * ```
+     *
+     * @param extractor Function to extract context from ToolContext
+     */
+    fun context(extractor: (ToolContext) -> Map<String, Any>) {
+        this.contextExtractor = extractor
+    }
+
+    /**
+     * Set the template registry
+     *
+     * Defaults to HitlTemplateRegistry.global if not specified.
+     *
+     * @param registry Template registry to use
+     */
+    fun registry(registry: HitlTemplateRegistry) {
+        this.registry = registry
+    }
+
+    /**
+     * Set the tenant ID for multi-tenant template resolution
+     *
+     * @param tenantId Tenant identifier
+     */
+    fun tenantId(tenantId: String?) {
+        this.tenantId = tenantId
+    }
+
+    /**
+     * Set the template engine
+     *
+     * Defaults to HitlTemplateEngine.default if not specified.
+     *
+     * @param engine Template engine to use
+     */
+    fun engine(engine: HitlTemplateEngine) {
+        this.engine = engine
     }
 }

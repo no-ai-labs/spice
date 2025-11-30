@@ -8,8 +8,8 @@ import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.checkpoint.CheckpointStore
 import io.github.noailabs.spice.graph.runner.GraphRunner
-import io.github.noailabs.spice.hitl.HitlResult
-import io.github.noailabs.spice.hitl.HitlResultParser
+import io.github.noailabs.spice.hitl.result.HitlResult
+import io.github.noailabs.spice.hitl.result.HitlResultParser
 import io.github.noailabs.spice.springboot.statemachine.actions.CheckpointSaveAction
 import io.github.noailabs.spice.springboot.statemachine.actions.EventPublishAction
 import io.github.noailabs.spice.springboot.statemachine.actions.NodeExecutionAction
@@ -530,10 +530,9 @@ class GraphToStateMachineAdapter(
     /**
      * Build resume message by merging checkpoint message with user response
      *
-     * **Spice 1.3.4 HitlResult Integration:**
+     * **Spice 1.3.4+ HitlResult Integration:**
      * - Normalizes all HITL response formats into a unified HitlResult
      * - Stores result at `data["hitl"]` for consistent DECISION node access
-     * - Sets `user_response` for backward compatibility (will be removed in future)
      *
      * Note: The message must remain in WAITING state as graphRunner.resume()
      * expects to receive a WAITING message and handles the state transition internally.
@@ -595,8 +594,6 @@ class GraphToStateMachineAdapter(
             // Spice 1.3.4: Add normalized HitlResult
             hitlResult?.let { result ->
                 put(HitlResult.DATA_KEY, result.toMap())
-                // Backward compatibility: set user_response to canonical value
-                put("user_response", result.canonical)
 
                 logger.debug(
                     "[buildResumeMessage] HitlResult: kind={}, canonical={}, toolCallId={}",

@@ -1,4 +1,4 @@
-package io.github.noailabs.spice.hitl
+package io.github.noailabs.spice.hitl.result
 
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
  * @property id Unique identifier for this option
  * @property label Display label for the option
  * @property description Optional detailed description
+ * @property icon Optional icon identifier for UI rendering
  * @property metadata Additional option-specific metadata
  */
 @Serializable
@@ -18,6 +19,7 @@ data class HITLOption(
     val id: String,
     val label: String,
     val description: String? = null,
+    val icon: String? = null,
     val metadata: Map<String, @Contextual Any> = emptyMap()
 ) {
     companion object {
@@ -32,6 +34,12 @@ data class HITLOption(
          */
         fun withDescription(id: String, label: String, description: String): HITLOption =
             HITLOption(id = id, label = label, description = description)
+
+        /**
+         * Create an option with icon
+         */
+        fun withIcon(id: String, label: String, icon: String, description: String? = null): HITLOption =
+            HITLOption(id = id, label = label, description = description, icon = icon)
     }
 }
 

@@ -470,5 +470,41 @@ data class ToolResult(
                 toolCall = toolCall
             )
         }
+
+        /**
+         * Create a WAITING_HITL result with embedded tool call (simplified version)
+         *
+         * This is a convenience overload that extracts prompt and type from the toolCall.
+         * Useful for HitlTemplate-based workflows where the toolCall contains all needed info.
+         *
+         * @param toolCall OAIToolCall created via OAIToolCall.hitlInput() or OAIToolCall.hitlSelection()
+         * @param message Optional custom message (defaults to toolCall prompt argument)
+         * @param metadata Additional HITL metadata
+         * @return ToolResult with status = WAITING_HITL and embedded toolCall
+         * @since 1.3.5
+         */
+        fun waitingHitl(
+            toolCall: OAIToolCall,
+            message: String? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): ToolResult {
+            val prompt = message ?: toolCall.function.getArgumentString("prompt") ?: ""
+            val hitlType = toolCall.function.getArgumentString("hitl_type") ?: "input"
+
+            return ToolResult(
+                status = ToolResultStatus.WAITING_HITL,
+                result = mapOf(
+                    "tool_call_id" to toolCall.id,
+                    "prompt" to prompt,
+                    "hitl_type" to hitlType
+                ),
+                message = prompt,
+                metadata = metadata + mapOf(
+                    "hitl_tool_call_id" to toolCall.id,
+                    "hitl_type" to hitlType
+                ),
+                toolCall = toolCall
+            )
+        }
     }
 }

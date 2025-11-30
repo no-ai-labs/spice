@@ -7,8 +7,8 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.event.ToolCallEvent
 import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.runner.GraphRunner
-import io.github.noailabs.spice.hitl.HitlResult
-import io.github.noailabs.spice.hitl.HitlResultParser
+import io.github.noailabs.spice.hitl.result.HitlResult
+import io.github.noailabs.spice.hitl.result.HitlResultParser
 import kotlinx.datetime.Clock
 
 /**
@@ -195,7 +195,6 @@ suspend fun GraphRunner.resumeFromCheckpoint(
             // 4. Add normalized HitlResult
             hitlResult?.let { result ->
                 put(HitlResult.DATA_KEY, result.toMap())
-                put("user_response", result.canonical)  // Backward compatibility
             }
         }
 

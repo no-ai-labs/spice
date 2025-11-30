@@ -2,10 +2,10 @@ package io.github.noailabs.spice.infra.hitl
 
 import io.github.noailabs.spice.error.SpiceError
 import io.github.noailabs.spice.error.SpiceResult
-import io.github.noailabs.spice.hitl.HITLMetadata
-import io.github.noailabs.spice.hitl.HITLResponseEvent
-import io.github.noailabs.spice.hitl.HITLEventStatus
-import io.github.noailabs.spice.hitl.HitlEventEmitter
+import io.github.noailabs.spice.hitl.result.HITLMetadata
+import io.github.noailabs.spice.hitl.result.HITLResponseEvent
+import io.github.noailabs.spice.hitl.result.HITLEventStatus
+import io.github.noailabs.spice.hitl.result.HitlEventEmitter
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first

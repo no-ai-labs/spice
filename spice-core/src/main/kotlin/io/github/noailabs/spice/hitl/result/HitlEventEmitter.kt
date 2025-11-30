@@ -1,4 +1,4 @@
-package io.github.noailabs.spice.hitl
+package io.github.noailabs.spice.hitl.result
 
 import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.ToolResultStatus

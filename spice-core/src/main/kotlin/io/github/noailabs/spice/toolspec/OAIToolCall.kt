@@ -85,6 +85,9 @@ data class OAIToolCall(
             // HITL Tool requests (1.0.6+)
             const val HITL_REQUEST_INPUT = "hitl_request_input"
             const val HITL_REQUEST_SELECTION = "hitl_request_selection"
+            const val HITL_REQUEST_QUANTITY = "hitl_request_quantity"
+            const val HITL_REQUEST_INFO = "hitl_request_info"
+            const val HITL_REQUEST_ESCALATE = "hitl_request_escalate"
 
             // System events
             const val WORKFLOW_COMPLETED = "workflow_completed"
@@ -422,6 +425,176 @@ data class OAIToolCall(
                         put("node_id", nodeId)
                         if (graphId != null) {
                             put("graph_id", graphId)
+                        }
+                        if (timeout != null) {
+                            put("timeout", timeout)
+                        }
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Create HITL Quantity Request ToolCall (1.3.5+)
+         *
+         * Used for requesting quantity selection from the user.
+         * Supports both single quantity and multi-quantity (per-item) selection.
+         *
+         * @param toolCallId Stable identifier for this HITL request
+         * @param prompt Message displayed to the user
+         * @param runId Graph run ID for checkpoint correlation
+         * @param nodeId Node ID that initiated this request
+         * @param graphId Optional graph ID for context
+         * @param quantityType "single" for one quantity, "multiple" for per-item quantities
+         * @param min Minimum allowed quantity
+         * @param max Maximum allowed quantity
+         * @param defaultValue Default quantity value
+         * @param step Step increment for quantity selection
+         * @param items List of items for multi-quantity (each with id, label, optional description)
+         * @param timeout Optional timeout in milliseconds
+         * @param metadata Additional custom metadata
+         */
+        fun hitlQuantity(
+            toolCallId: String,
+            prompt: String,
+            runId: String,
+            nodeId: String,
+            graphId: String? = null,
+            quantityType: String = "single",
+            min: Int = 0,
+            max: Int = 100,
+            defaultValue: Int = 1,
+            step: Int = 1,
+            items: List<Map<String, Any?>>? = null,
+            timeout: Long? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): OAIToolCall {
+            return OAIToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = ToolNames.HITL_REQUEST_QUANTITY,
+                    arguments = buildMap {
+                        put("tool_call_id", toolCallId)
+                        put("prompt", prompt)
+                        put("hitl_type", "quantity")
+                        put("quantity_type", quantityType)
+                        put("min", min)
+                        put("max", max)
+                        put("default", defaultValue)
+                        put("step", step)
+                        put("run_id", runId)
+                        put("node_id", nodeId)
+                        if (graphId != null) {
+                            put("graph_id", graphId)
+                        }
+                        if (items != null) {
+                            put("items", items)
+                        }
+                        if (timeout != null) {
+                            put("timeout", timeout)
+                        }
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Create HITL Info Request ToolCall (1.3.5+)
+         *
+         * Used for displaying information to the user (acknowledgment only).
+         *
+         * @param toolCallId Stable identifier for this HITL request
+         * @param prompt Message displayed to the user
+         * @param runId Graph run ID for checkpoint correlation
+         * @param nodeId Node ID that initiated this request
+         * @param graphId Optional graph ID for context
+         * @param autoProceed Whether to auto-proceed after display
+         * @param timeout Optional timeout in milliseconds
+         * @param metadata Additional custom metadata
+         */
+        fun hitlInfo(
+            toolCallId: String,
+            prompt: String,
+            runId: String,
+            nodeId: String,
+            graphId: String? = null,
+            autoProceed: Boolean = false,
+            timeout: Long? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): OAIToolCall {
+            return OAIToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = ToolNames.HITL_REQUEST_INFO,
+                    arguments = buildMap {
+                        put("tool_call_id", toolCallId)
+                        put("prompt", prompt)
+                        put("hitl_type", "info")
+                        put("auto_proceed", autoProceed)
+                        put("run_id", runId)
+                        put("node_id", nodeId)
+                        if (graphId != null) {
+                            put("graph_id", graphId)
+                        }
+                        if (timeout != null) {
+                            put("timeout", timeout)
+                        }
+                        if (metadata.isNotEmpty()) {
+                            put("metadata", metadata)
+                        }
+                    }
+                )
+            )
+        }
+
+        /**
+         * Create HITL Escalate Request ToolCall (1.3.5+)
+         *
+         * Used for escalating to human agent with optional reason.
+         *
+         * @param toolCallId Stable identifier for this HITL request
+         * @param prompt Message displayed to the user/agent
+         * @param runId Graph run ID for checkpoint correlation
+         * @param nodeId Node ID that initiated this request
+         * @param graphId Optional graph ID for context
+         * @param reason Optional escalation reason
+         * @param priority Escalation priority (low, normal, high, urgent)
+         * @param timeout Optional timeout in milliseconds
+         * @param metadata Additional custom metadata
+         */
+        fun hitlEscalate(
+            toolCallId: String,
+            prompt: String,
+            runId: String,
+            nodeId: String,
+            graphId: String? = null,
+            reason: String? = null,
+            priority: String = "normal",
+            timeout: Long? = null,
+            metadata: Map<String, Any> = emptyMap()
+        ): OAIToolCall {
+            return OAIToolCall(
+                id = toolCallId,
+                function = ToolCallFunction(
+                    name = ToolNames.HITL_REQUEST_ESCALATE,
+                    arguments = buildMap {
+                        put("tool_call_id", toolCallId)
+                        put("prompt", prompt)
+                        put("hitl_type", "escalate")
+                        put("priority", priority)
+                        put("run_id", runId)
+                        put("node_id", nodeId)
+                        if (graphId != null) {
+                            put("graph_id", graphId)
+                        }
+                        if (reason != null) {
+                            put("reason", reason)
                         }
                         if (timeout != null) {
                             put("timeout", timeout)

@@ -4,7 +4,7 @@ import io.github.noailabs.spice.SpiceMessage
 import io.github.noailabs.spice.graph.Edge
 import io.github.noailabs.spice.graph.nodes.DecisionBranch
 import io.github.noailabs.spice.graph.nodes.DecisionNode
-import io.github.noailabs.spice.hitl.HitlResult
+import io.github.noailabs.spice.hitl.result.HitlResult
 
 /**
  * DSL builder for creating DecisionNode with fluent branch definitions.
@@ -547,7 +547,7 @@ class DecisionNodeBuilder(val id: String) {
          * @param kind Expected HITL response kind
          * @since Spice 1.3.4
          */
-        fun whenHitlKind(kind: io.github.noailabs.spice.hitl.HitlResponseKind): DecisionNodeBuilder {
+        fun whenHitlKind(kind: io.github.noailabs.spice.hitl.result.HitlResponseKind): DecisionNodeBuilder {
             parent.addBranch(
                 DecisionBranch(
                     name = name,
@@ -555,6 +555,120 @@ class DecisionNodeBuilder(val id: String) {
                     condition = { message ->
                         val hitlResult = HitlResult.fromData(message.data)
                         hitlResult?.kind == kind
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when HITL canonical value is in the given set.
+         *
+         * ```kotlin
+         * branch("valid_option", "valid_handler")
+         *     .whenHitlIn("option_a", "option_b", "option_c")
+         * ```
+         *
+         * @param values Expected canonical values (vararg)
+         * @since Spice 1.3.5
+         */
+        fun whenHitlIn(vararg values: String): DecisionNodeBuilder {
+            val valueSet = values.toSet()
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.canonical in valueSet
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when HITL quantity matches condition.
+         *
+         * For QUANTITY kind responses, checks the quantity value against a condition.
+         *
+         * ```kotlin
+         * branch("high_quantity", "bulk_handler")
+         *     .whenHitlQuantity { it >= 10 }
+         *
+         * branch("low_quantity", "single_handler")
+         *     .whenHitlQuantity { it < 10 }
+         * ```
+         *
+         * @param condition Condition to check against the quantity value
+         * @since Spice 1.3.5
+         */
+        fun whenHitlQuantity(condition: (Int) -> Boolean): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        val quantity = hitlResult?.quantities?.values?.firstOrNull()
+                            ?: hitlResult?.canonical?.toIntOrNull()
+                        quantity != null && condition(quantity)
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when HITL quantity for specific item matches condition.
+         *
+         * ```kotlin
+         * branch("many_items", "bulk_handler")
+         *     .whenHitlQuantityFor("item_a") { it >= 5 }
+         * ```
+         *
+         * @param itemId Item ID in the quantities map
+         * @param condition Condition to check against the quantity value
+         * @since Spice 1.3.5
+         */
+        fun whenHitlQuantityFor(itemId: String, condition: (Int) -> Boolean): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        val quantity = hitlResult?.quantities?.get(itemId)
+                        quantity != null && condition(quantity)
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Route to target when any HITL selected ID is in the given set.
+         *
+         * Useful for multi-selection responses where you want to check
+         * if any of the selected options match.
+         *
+         * ```kotlin
+         * branch("has_premium", "premium_handler")
+         *     .whenHitlAnyIn("premium_a", "premium_b", "premium_c")
+         * ```
+         *
+         * @param values Values to check in the selected IDs
+         * @since Spice 1.3.5
+         */
+        fun whenHitlAnyIn(vararg values: String): DecisionNodeBuilder {
+            val valueSet = values.toSet()
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.selected?.any { it in valueSet } == true
                     }
                 )
             )
@@ -581,6 +695,57 @@ class DecisionNodeBuilder(val id: String) {
      */
     fun String.whenHitl(expectedCanonical: String): DecisionNodeBuilder {
         branch(this, this).whenHitlCanonical(expectedCanonical)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when HITL canonical is in set.
+     *
+     * ```kotlin
+     * decision("route") {
+     *     "valid".whenHitlIn("a", "b", "c")
+     *     "invalid".otherwise()
+     * }
+     * ```
+     *
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlIn(vararg values: String): DecisionNodeBuilder {
+        branch(this, this).whenHitlIn(*values)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when HITL quantity meets condition.
+     *
+     * ```kotlin
+     * decision("quantity_check") {
+     *     "bulk".whenHitlQuantity { it >= 10 }
+     *     "single".whenHitlQuantity { it < 10 }
+     * }
+     * ```
+     *
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlQuantity(condition: (Int) -> Boolean): DecisionNodeBuilder {
+        branch(this, this).whenHitlQuantity(condition)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when any HITL selection is in set.
+     *
+     * ```kotlin
+     * decision("feature_check") {
+     *     "has_premium".whenHitlAnyIn("premium_a", "premium_b")
+     *     "basic".otherwise()
+     * }
+     * ```
+     *
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlAnyIn(vararg values: String): DecisionNodeBuilder {
+        branch(this, this).whenHitlAnyIn(*values)
         return this@DecisionNodeBuilder
     }
 }

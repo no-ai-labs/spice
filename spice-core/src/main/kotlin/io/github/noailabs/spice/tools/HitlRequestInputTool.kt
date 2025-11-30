@@ -4,9 +4,9 @@ import io.github.noailabs.spice.Tool
 import io.github.noailabs.spice.ToolContext
 import io.github.noailabs.spice.ToolResult
 import io.github.noailabs.spice.error.SpiceResult
-import io.github.noailabs.spice.hitl.HITLMetadata
-import io.github.noailabs.spice.hitl.HitlEventEmitter
-import io.github.noailabs.spice.hitl.NoOpHitlEventEmitter
+import io.github.noailabs.spice.hitl.result.HITLMetadata
+import io.github.noailabs.spice.hitl.result.HitlEventEmitter
+import io.github.noailabs.spice.hitl.result.NoOpHitlEventEmitter
 import io.github.noailabs.spice.toolspec.OAIToolCall
 
 /**

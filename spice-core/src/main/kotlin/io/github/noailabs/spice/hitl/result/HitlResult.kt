@@ -1,4 +1,4 @@
-package io.github.noailabs.spice.hitl
+package io.github.noailabs.spice.hitl.result
 
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable

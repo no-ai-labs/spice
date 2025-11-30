@@ -7,7 +7,7 @@ import io.github.noailabs.spice.error.SpiceResult
 import io.github.noailabs.spice.graph.checkpoint.SubgraphCheckpointContext
 import io.github.noailabs.spice.graph.dsl.graph
 import io.github.noailabs.spice.graph.runner.DefaultGraphRunner
-import io.github.noailabs.spice.hitl.HitlResult
+import io.github.noailabs.spice.hitl.result.HitlResult
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -469,8 +469,9 @@ class SubgraphNodeTest {
         assertEquals(ExecutionState.WAITING, waitingMessage.state)
 
         // When - resume with user response
+        val hitlResult = HitlResult.text("yes")
         val resumeMessage = waitingMessage.copy(
-            data = waitingMessage.data + mapOf("user_response" to "yes")
+            data = waitingMessage.data + mapOf(HitlResult.DATA_KEY to hitlResult.toMap())
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
 
@@ -521,8 +522,9 @@ class SubgraphNodeTest {
         assertEquals(2, subgraphStack.size, "Stack should have 2 contexts for nested subgraphs")
 
         // When - resume with user response
+        val hitlResult = HitlResult.text("confirmed")
         val resumeMessage = waitingMessage.copy(
-            data = waitingMessage.data + mapOf("user_response" to "confirmed")
+            data = waitingMessage.data + mapOf(HitlResult.DATA_KEY to hitlResult.toMap())
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
 
@@ -574,8 +576,9 @@ class SubgraphNodeTest {
         assertEquals(1, counterBeforeResume, "counter should be 1 from start agent")
 
         // When - resume
+        val hitlResult = HitlResult.text("okay")
         val resumeMessage = waitingMessage.copy(
-            data = waitingMessage.data + mapOf("user_response" to "okay")
+            data = waitingMessage.data + mapOf(HitlResult.DATA_KEY to hitlResult.toMap())
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
 
@@ -660,8 +663,7 @@ class SubgraphNodeTest {
         val hitlResult = HitlResult.single("confirm_yes", "Yes, I confirm")
         val resumeMessage = waitingMessage.copy(
             data = waitingMessage.data + mapOf(
-                HitlResult.DATA_KEY to hitlResult.toMap(),
-                "user_response" to hitlResult.canonical  // Backward compatibility
+                HitlResult.DATA_KEY to hitlResult.toMap()
             )
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
@@ -733,8 +735,7 @@ class SubgraphNodeTest {
         val hitlResult = HitlResult.single("confirm_no", "No, cancel it")
         val resumeMessage = waitingMessage.copy(
             data = waitingMessage.data + mapOf(
-                HitlResult.DATA_KEY to hitlResult.toMap(),
-                "user_response" to hitlResult.canonical
+                HitlResult.DATA_KEY to hitlResult.toMap()
             )
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
@@ -811,8 +812,7 @@ class SubgraphNodeTest {
         val hitlResult = HitlResult.single("option_b", "I choose B")
         val resumeMessage = waitingMessage.copy(
             data = waitingMessage.data + mapOf(
-                HitlResult.DATA_KEY to hitlResult.toMap(),
-                "user_response" to hitlResult.canonical
+                HitlResult.DATA_KEY to hitlResult.toMap()
             )
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)
@@ -885,8 +885,7 @@ class SubgraphNodeTest {
         val hitlResult = HitlResult.multi(listOf("feature_a", "feature_c"), "I want A and C")
         val resumeMessage = waitingMessage.copy(
             data = waitingMessage.data + mapOf(
-                HitlResult.DATA_KEY to hitlResult.toMap(),
-                "user_response" to hitlResult.canonical  // "feature_a,feature_c"
+                HitlResult.DATA_KEY to hitlResult.toMap()
             )
         )
         val resumeResult = runner.resume(parentGraph, resumeMessage)

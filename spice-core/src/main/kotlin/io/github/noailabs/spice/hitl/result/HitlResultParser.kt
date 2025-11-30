@@ -1,4 +1,4 @@
-package io.github.noailabs.spice.hitl
+package io.github.noailabs.spice.hitl.result
 
 import mu.KotlinLogging
 
@@ -93,7 +93,6 @@ object HitlResultParser {
         // Case 2: selected_option (LLM/Legacy single selection)
         val selectedOption = data["selected_option"] as? String
             ?: data["selectedOption"] as? String
-            ?: data["user_response"] as? String  // Legacy backward compatibility
         if (!selectedOption.isNullOrBlank()) {
             val rawText = extractText(data)
             logger.debug { "[HitlResultParser] Parsed as SINGLE from selected_option: $selectedOption" }
