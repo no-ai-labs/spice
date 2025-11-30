@@ -1,5 +1,7 @@
 package io.github.noailabs.spice.hitl.result
 
+import io.github.noailabs.spice.hitl.validation.HitlLogLevelMapper
+import io.github.noailabs.spice.hitl.validation.HitlResultParserConfig
 import mu.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
@@ -54,14 +56,23 @@ object HitlResultParser {
      */
     @Suppress("UNCHECKED_CAST")
     fun parse(data: Map<String, Any?>, toolCallId: String? = null): HitlResult? {
-        logger.debug { "[HitlResultParser] Parsing data: ${data.keys}" }
+        val options = HitlResultParserConfig.options
+
+        HitlLogLevelMapper.log(logger, options.successLogLevel) {
+            "[HitlResultParser] Parsing data: ${data.keys}"
+        }
 
         // Case 0: Already a HitlResult
         if (isHitlResultMap(data)) {
             return try {
                 HitlResult.fromMap(data)
             } catch (e: Exception) {
-                logger.warn { "[HitlResultParser] Failed to parse existing HitlResult: ${e.message}" }
+                // Check if it's an empty canonical validation error
+                val isEmptyCanonical = e.message?.contains("blank") == true
+                val logLevel = if (isEmptyCanonical) options.emptyCanonicalLogLevel else options.parseFailureLogLevel
+                HitlLogLevelMapper.log(logger, logLevel) {
+                    "[HitlResultParser] Failed to parse existing HitlResult: ${e.message}"
+                }
                 null
             }
         }
@@ -72,8 +83,32 @@ object HitlResultParser {
             return try {
                 HitlResult.fromMap(nestedHitl)
             } catch (e: Exception) {
-                logger.warn { "[HitlResultParser] Failed to parse nested HitlResult: ${e.message}" }
+                val isEmptyCanonical = e.message?.contains("blank") == true
+                val logLevel = if (isEmptyCanonical) options.emptyCanonicalLogLevel else options.parseFailureLogLevel
+                HitlLogLevelMapper.log(logger, logLevel) {
+                    "[HitlResultParser] Failed to parse nested HitlResult: ${e.message}"
+                }
                 null
+            }
+        }
+
+        // Check for unknown fields (only for non-HitlResult data)
+        val knownFields = setOf(
+            // HitlResult.toMap() fields
+            "kind", "canonical", "selected", "rawText", "toolCallId", "structured", "timestamp", "metadata", "quantities",
+            // UI selection fields
+            "selected_ids", "selectedIds", "selectedOptions",
+            // LLM/Legacy fields
+            "selected_option", "selectedOption",
+            // Text fields
+            "text", "response_text", "responseText", "input", "value",
+            // Common wrapper/metadata fields
+            HitlResult.DATA_KEY, "structured_response", "user_response_tool_call"
+        )
+        val unknownFields = data.keys.filter { it !in knownFields }
+        if (unknownFields.isNotEmpty()) {
+            HitlLogLevelMapper.log(logger, options.unknownFieldLogLevel) {
+                "[HitlResultParser] Unknown fields detected: $unknownFields"
             }
         }
 
@@ -81,12 +116,23 @@ object HitlResultParser {
         val selectedIds = extractSelectedIds(data)
         if (selectedIds != null && selectedIds.isNotEmpty()) {
             val rawText = extractText(data)
-            return if (selectedIds.size == 1) {
-                logger.debug { "[HitlResultParser] Parsed as SINGLE: ${selectedIds.first()}" }
-                HitlResult.single(selectedIds.first(), rawText, toolCallId)
-            } else {
-                logger.debug { "[HitlResultParser] Parsed as MULTI: $selectedIds" }
-                HitlResult.multi(selectedIds, rawText, toolCallId)
+            return try {
+                if (selectedIds.size == 1) {
+                    HitlLogLevelMapper.log(logger, options.successLogLevel) {
+                        "[HitlResultParser] Parsed as SINGLE: ${selectedIds.first()}"
+                    }
+                    HitlResult.single(selectedIds.first(), rawText, toolCallId)
+                } else {
+                    HitlLogLevelMapper.log(logger, options.successLogLevel) {
+                        "[HitlResultParser] Parsed as MULTI: $selectedIds"
+                    }
+                    HitlResult.multi(selectedIds, rawText, toolCallId)
+                }
+            } catch (e: IllegalArgumentException) {
+                HitlLogLevelMapper.log(logger, options.emptyCanonicalLogLevel) {
+                    "[HitlResultParser] Validation failed for selected_ids: ${e.message}"
+                }
+                null
             }
         }
 
@@ -95,26 +141,55 @@ object HitlResultParser {
             ?: data["selectedOption"] as? String
         if (!selectedOption.isNullOrBlank()) {
             val rawText = extractText(data)
-            logger.debug { "[HitlResultParser] Parsed as SINGLE from selected_option: $selectedOption" }
-            return HitlResult.single(selectedOption, rawText, toolCallId)
+            return try {
+                HitlLogLevelMapper.log(logger, options.successLogLevel) {
+                    "[HitlResultParser] Parsed as SINGLE from selected_option: $selectedOption"
+                }
+                HitlResult.single(selectedOption, rawText, toolCallId)
+            } catch (e: IllegalArgumentException) {
+                HitlLogLevelMapper.log(logger, options.emptyCanonicalLogLevel) {
+                    "[HitlResultParser] Validation failed for selected_option: ${e.message}"
+                }
+                null
+            }
         }
 
         // Case 3: quantities (UI quantity selection)
         val quantities = extractQuantities(data)
         if (quantities != null && quantities.isNotEmpty()) {
             val rawText = extractText(data)
-            logger.debug { "[HitlResultParser] Parsed as QUANTITY: $quantities" }
-            return HitlResult.quantity(quantities, rawText, toolCallId)
+            return try {
+                HitlLogLevelMapper.log(logger, options.successLogLevel) {
+                    "[HitlResultParser] Parsed as QUANTITY: $quantities"
+                }
+                HitlResult.quantity(quantities, rawText, toolCallId)
+            } catch (e: IllegalArgumentException) {
+                HitlLogLevelMapper.log(logger, options.emptyCanonicalLogLevel) {
+                    "[HitlResultParser] Validation failed for quantities: ${e.message}"
+                }
+                null
+            }
         }
 
         // Case 4: text only
         val text = extractText(data)
         if (!text.isNullOrBlank()) {
-            logger.debug { "[HitlResultParser] Parsed as TEXT: ${text.take(50)}..." }
-            return HitlResult.text(text, toolCallId)
+            return try {
+                HitlLogLevelMapper.log(logger, options.successLogLevel) {
+                    "[HitlResultParser] Parsed as TEXT: ${text.take(50)}..."
+                }
+                HitlResult.text(text, toolCallId)
+            } catch (e: IllegalArgumentException) {
+                HitlLogLevelMapper.log(logger, options.emptyCanonicalLogLevel) {
+                    "[HitlResultParser] Validation failed for text: ${e.message}"
+                }
+                null
+            }
         }
 
-        logger.warn { "[HitlResultParser] Failed to parse data, no recognized format: ${data.keys}" }
+        HitlLogLevelMapper.log(logger, options.parseFailureLogLevel) {
+            "[HitlResultParser] Failed to parse data, no recognized format: ${data.keys}"
+        }
         return null
     }
 

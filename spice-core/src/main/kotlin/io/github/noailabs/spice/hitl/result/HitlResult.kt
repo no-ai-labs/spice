@@ -1,5 +1,6 @@
 package io.github.noailabs.spice.hitl.result
 
+import io.github.noailabs.spice.hitl.validation.HitlResultValidators
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -79,9 +80,10 @@ data class HitlResult(
     val metadata: Map<String, @Contextual Any?> = emptyMap()
 ) {
     init {
-        require(canonical.isNotBlank()) {
-            "HitlResult.canonical must not be blank. Kind=$kind"
-        }
+        // Use configurable validator SPI (default: DefaultHitlCanonicalValidator)
+        HitlResultValidators.canonicalValidator
+            .validate(canonical, kind)
+            .throwIfInvalid()
     }
 
     companion object {

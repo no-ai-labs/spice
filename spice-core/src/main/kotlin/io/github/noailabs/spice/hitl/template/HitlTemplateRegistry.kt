@@ -28,6 +28,20 @@ private val logger = KotlinLogging.logger {}
  * val template = HitlTemplateRegistry.global.resolve("confirm-order", tenantId = "acme")
  * ```
  *
+ * **Cache Configuration:**
+ *
+ * The registry has a built-in cache (`enableCaching=true` by default).
+ * When using [CachingHitlTemplateLoader], disable the built-in cache
+ * to avoid double caching:
+ *
+ * ```kotlin
+ * // Recommended: Use CachingHitlTemplateLoader with TTL control
+ * val registry = HitlTemplateRegistry(
+ *     loader = CachingHitlTemplateLoader(myLoader, ttl = 30.minutes),
+ *     enableCaching = false  // Use CachingHitlTemplateLoader's cache only
+ * )
+ * ```
+ *
  * @since Spice 1.3.5
  */
 class HitlTemplateRegistry(

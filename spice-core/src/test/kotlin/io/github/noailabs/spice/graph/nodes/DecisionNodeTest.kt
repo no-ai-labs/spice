@@ -753,4 +753,238 @@ class DecisionNodeTest {
         val result = runner.execute(g, noStatusMessage)
         assertEquals("Default", (result as SpiceResult.Success).value.content)
     }
+
+    // ==================== HITL Prefix Routing Tests (1.3.6+) ====================
+
+    @Test
+    fun `whenHitlPrefix routes when canonical starts with prefix`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("confirm", "confirm-handler")
+                    .whenHitlPrefix("confirm_")
+                branch("cancel", "cancel-handler")
+                    .whenHitlPrefix("cancel_")
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("cancel-handler") { "Cancelled" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test confirm_yes matches "confirm_" prefix
+        val confirmMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("confirm_yes").toMap()
+            ))
+        val confirmResult = runner.execute(g, confirmMessage)
+        assertEquals("Confirmed", (confirmResult as SpiceResult.Success).value.content)
+
+        // Test cancel_order matches "cancel_" prefix
+        val cancelMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("cancel_order").toMap()
+            ))
+        val cancelResult = runner.execute(g, cancelMessage)
+        assertEquals("Cancelled", (cancelResult as SpiceResult.Success).value.content)
+
+        // Test other_action falls through to default
+        val otherMessage = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("other_action").toMap()
+            ))
+        val otherResult = runner.execute(g, otherMessage)
+        assertEquals("Default", (otherResult as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlPrefix with ignoreCase true matches case-insensitively`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("confirm", "confirm-handler")
+                    .whenHitlPrefix("CONFIRM_", ignoreCase = true)
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test lowercase "confirm_yes" matches uppercase prefix with ignoreCase
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("confirm_yes").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Confirmed", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlPrefix with ignoreCase false is case-sensitive`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("confirm", "confirm-handler")
+                    .whenHitlPrefix("CONFIRM_", ignoreCase = false)
+                branch("default", "default-handler")
+                    .otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test lowercase "confirm_yes" does NOT match uppercase prefix
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("confirm_yes").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Default", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlPrefix shorthand syntax works`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "confirm-handler".whenHitlPrefix("confirm_")
+                "cancel-handler".whenHitlPrefix("cancel_")
+                "default-handler".otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("cancel-handler") { "Cancelled" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("confirm_action").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Confirmed", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlStartsWith alias works same as whenHitlPrefix`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "confirm-handler".whenHitlStartsWith("confirm_")
+                "default-handler".otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("confirm_yes").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Confirmed", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlContains shorthand syntax works`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "premium-handler".whenHitlContains("premium")
+                "basic-handler".otherwise()
+            }
+
+            output("premium-handler") { "Premium" }
+            output("basic-handler") { "Basic" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Test multi-selection containing "premium"
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.multi(listOf("feature_basic", "feature_premium")).toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Premium", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlContains with ignoreCase true matches case-insensitively`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("premium", "premium-handler")
+                    .whenHitlContains("PREMIUM", ignoreCase = true)
+                branch("basic", "basic-handler")
+                    .otherwise()
+            }
+
+            output("premium-handler") { "Premium" }
+            output("basic-handler") { "Basic" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("feature_premium_plus").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Premium", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlContains default ignoreCase false maintains backward compatibility`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                branch("premium", "premium-handler")
+                    .whenHitlContains("PREMIUM")  // Default ignoreCase = false
+                branch("basic", "basic-handler")
+                    .otherwise()
+            }
+
+            output("premium-handler") { "Premium" }
+            output("basic-handler") { "Basic" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // Lowercase "premium" should NOT match uppercase "PREMIUM" with default ignoreCase=false
+        val message = SpiceMessage.create("test", "user")
+            .withData(mapOf(
+                "hitl" to io.github.noailabs.spice.hitl.result.HitlResult.single("feature_premium").toMap()
+            ))
+        val result = runner.execute(g, message)
+        assertEquals("Basic", (result as SpiceResult.Success).value.content)
+    }
+
+    @Test
+    fun `whenHitlPrefix handles null hitl data gracefully`() = runTest {
+        val g = graph("test-workflow") {
+            decision("route") {
+                "confirm-handler".whenHitlPrefix("confirm_")
+                "default-handler".otherwise()
+            }
+
+            output("confirm-handler") { "Confirmed" }
+            output("default-handler") { "Default" }
+        }
+
+        val runner = DefaultGraphRunner()
+
+        // No hitl data - should fall through to default
+        val message = SpiceMessage.create("test", "user")
+        val result = runner.execute(g, message)
+        assertEquals("Default", (result as SpiceResult.Success).value.content)
+    }
 }

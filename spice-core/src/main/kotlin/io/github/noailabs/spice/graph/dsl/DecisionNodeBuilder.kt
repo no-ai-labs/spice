@@ -507,6 +507,50 @@ class DecisionNodeBuilder(val id: String) {
         }
 
         /**
+         * Route to target when HITL canonical value starts with prefix.
+         *
+         * Useful for routing based on option ID naming conventions
+         * (e.g., "confirm_yes", "confirm_no" -> prefix "confirm_").
+         *
+         * ```kotlin
+         * decision("route") {
+         *     branch("confirm-action", "confirm-handler")
+         *         .whenHitlPrefix("confirm_")
+         *
+         *     // Case-insensitive matching
+         *     branch("cancel-action", "cancel-handler")
+         *         .whenHitlPrefix("CANCEL_", ignoreCase = true)
+         * }
+         * ```
+         *
+         * @param prefix Prefix to check in canonical value
+         * @param ignoreCase Whether to ignore case (default: false)
+         * @since Spice 1.3.5
+         */
+        fun whenHitlPrefix(prefix: String, ignoreCase: Boolean = false): DecisionNodeBuilder {
+            parent.addBranch(
+                DecisionBranch(
+                    name = name,
+                    target = target,
+                    condition = { message ->
+                        val hitlResult = HitlResult.fromData(message.data)
+                        hitlResult?.canonical?.startsWith(prefix, ignoreCase) == true
+                    }
+                )
+            )
+            return parent
+        }
+
+        /**
+         * Alias for [whenHitlPrefix] - Kotlin stdlib style naming.
+         *
+         * @see whenHitlPrefix
+         * @since Spice 1.3.5
+         */
+        fun whenHitlStartsWith(prefix: String, ignoreCase: Boolean = false): DecisionNodeBuilder =
+            whenHitlPrefix(prefix, ignoreCase)
+
+        /**
          * Route to target when HITL canonical value contains substring.
          *
          * Useful for multi-selection where canonical is comma-separated.
@@ -514,19 +558,24 @@ class DecisionNodeBuilder(val id: String) {
          * ```kotlin
          * branch("has_premium", "premium_handler")
          *     .whenHitlContains("premium")
+         *
+         * // Case-insensitive matching
+         * branch("has_feature", "feature_handler")
+         *     .whenHitlContains("FEATURE", ignoreCase = true)
          * ```
          *
          * @param substring Substring to check in canonical value
-         * @since Spice 1.3.4
+         * @param ignoreCase Whether to ignore case (default: false for backward compatibility)
+         * @since Spice 1.3.4 (ignoreCase added in 1.3.5)
          */
-        fun whenHitlContains(substring: String): DecisionNodeBuilder {
+        fun whenHitlContains(substring: String, ignoreCase: Boolean = false): DecisionNodeBuilder {
             parent.addBranch(
                 DecisionBranch(
                     name = name,
                     target = target,
                     condition = { message ->
                         val hitlResult = HitlResult.fromData(message.data)
-                        hitlResult?.canonical?.contains(substring) == true
+                        hitlResult?.canonical?.contains(substring, ignoreCase) == true
                     }
                 )
             )
@@ -746,6 +795,54 @@ class DecisionNodeBuilder(val id: String) {
      */
     fun String.whenHitlAnyIn(vararg values: String): DecisionNodeBuilder {
         branch(this, this).whenHitlAnyIn(*values)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Define a branch when HITL canonical starts with prefix.
+     *
+     * ```kotlin
+     * decision("route") {
+     *     "confirm-handler".whenHitlPrefix("confirm_")
+     *     "cancel-handler".whenHitlPrefix("cancel_")
+     *     "default".otherwise()
+     * }
+     * ```
+     *
+     * @param prefix Prefix to check in canonical value
+     * @param ignoreCase Whether to ignore case (default: false)
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlPrefix(prefix: String, ignoreCase: Boolean = false): DecisionNodeBuilder {
+        branch(this, this).whenHitlPrefix(prefix, ignoreCase)
+        return this@DecisionNodeBuilder
+    }
+
+    /**
+     * Shorthand: Alias for [whenHitlPrefix].
+     *
+     * @see whenHitlPrefix
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlStartsWith(prefix: String, ignoreCase: Boolean = false): DecisionNodeBuilder =
+        whenHitlPrefix(prefix, ignoreCase)
+
+    /**
+     * Shorthand: Define a branch when HITL canonical contains substring.
+     *
+     * ```kotlin
+     * decision("feature_check") {
+     *     "premium-handler".whenHitlContains("premium")
+     *     "basic".otherwise()
+     * }
+     * ```
+     *
+     * @param substring Substring to check in canonical value
+     * @param ignoreCase Whether to ignore case (default: false)
+     * @since Spice 1.3.5
+     */
+    fun String.whenHitlContains(substring: String, ignoreCase: Boolean = false): DecisionNodeBuilder {
+        branch(this, this).whenHitlContains(substring, ignoreCase)
         return this@DecisionNodeBuilder
     }
 }
