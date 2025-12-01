@@ -489,3 +489,403 @@ enum class ClarificationStrategy {
     /** 템플릿 + LLM 폴백 */
     HYBRID
 }
+
+// ============================================================================
+// Intelligence Layer v2.0 Types
+// ============================================================================
+
+/**
+ * 라우팅 신호 (Intelligence Layer v2)
+ *
+ * Intelligence Middleware가 DECISION 노드에 전달하는 신호.
+ * DECISION 노드는 이 신호를 직접 보지 않음 - canonical만 봄.
+ *
+ * ## v2 Spec 매핑
+ * - NORMAL: 정상 진행 → DECISION에 canonical 전달
+ * - AMBIGUOUS: Clarification 필요 → HITL 재질문
+ * - OFF_DOMAIN_HARD: 확실한 Off-domain → Hard Block
+ * - OFF_DOMAIN_SOFT: 가능성 있는 Off-domain → Soft Block (LLM 위임 가능)
+ * - SWITCH_WORKFLOW: Intent Shift → 워크플로우 전환
+ * - RESUME_WORKFLOW: 이전 워크플로우 복귀
+ * - DELEGATE_TO_LLM: 불확실 → 상위 LLM 위임
+ * - ESCALATE: 상담원 연결
+ * - POLICY_BLOCK: 정책 위반 차단
+ *
+ * @since 2.0.0
+ */
+@Serializable
+enum class RoutingSignal {
+    /** 정상 진행 - canonical 그대로 DECISION으로 */
+    NORMAL,
+
+    /** Clarification 필요 - HITL 재질문 (1위/2위 격차 부족) */
+    AMBIGUOUS,
+
+    /** 확실한 Off-domain - Hard Block (domainRelevance < 0.3) */
+    OFF_DOMAIN_HARD,
+
+    /** 가능성 있는 Off-domain - Soft Block (0.3 ≤ domainRelevance < 0.5) */
+    OFF_DOMAIN_SOFT,
+
+    /** 워크플로우 전환 - DECISION 우회, Intent Shift 감지 */
+    SWITCH_WORKFLOW,
+
+    /** 워크플로우 재개 - 이전 워크플로우로 복귀 */
+    RESUME_WORKFLOW,
+
+    /** LLM 위임 - DECISION 우회, 상위 LLM으로 */
+    DELEGATE_TO_LLM,
+
+    /** 에스컬레이션 - 상담원 연결 */
+    ESCALATE,
+
+    /** 정책 위반 차단 */
+    POLICY_BLOCK;
+
+    // === 하위 호환용 별칭 ===
+    companion object {
+        /** @deprecated Use NORMAL instead */
+        @Deprecated("Use NORMAL", ReplaceWith("NORMAL"))
+        val CONTINUE = NORMAL
+
+        /** @deprecated Use AMBIGUOUS instead */
+        @Deprecated("Use AMBIGUOUS", ReplaceWith("AMBIGUOUS"))
+        val CLARIFY = AMBIGUOUS
+
+        /** @deprecated Use OFF_DOMAIN_HARD instead */
+        @Deprecated("Use OFF_DOMAIN_HARD or OFF_DOMAIN_SOFT", ReplaceWith("OFF_DOMAIN_HARD"))
+        val BLOCK = OFF_DOMAIN_HARD
+    }
+}
+
+/**
+ * Gating 결정 (Intelligence Layer v2)
+ *
+ * Confidence 기반 파이프라인 분기 결정.
+ * embedding score + domain relevance + gap + policy context 조합으로 판단.
+ *
+ * @since 2.0.0
+ */
+@Serializable
+enum class GatingDecision {
+    /** Fast Path - 즉시 canonical 결정 (≥0.85 + 조건 충족) */
+    FAST_PATH,
+
+    /** Nano LLM 검증 필요 (0.65-0.85) */
+    NANO_VALIDATION,
+
+    /** Big LLM 호출 필요 (<0.65) */
+    BIG_LLM
+}
+
+/**
+ * 차단 사유 (Intelligence Layer v2)
+ *
+ * ## 차단 유형
+ * - Hard Block: 즉시 종료, 사용자 메시지 표시
+ * - Soft Block: LLM 위임 또는 에스컬레이션 가능
+ *
+ * @since 2.0.0
+ */
+@Serializable
+enum class BlockReason {
+    // === Hard Block ===
+
+    /** 확실한 Off-domain 발화 (domainRelevance < 0.3) */
+    OFF_DOMAIN_HARD,
+
+    /** 무의미한 발화 (hard nonsense) */
+    NONSENSE,
+
+    /** 금지된 콘텐츠 (욕설, 부적절 표현 등) */
+    PROHIBITED_CONTENT,
+
+    /** 정책 위반 (Policy-RAG에서 감지) */
+    POLICY_VIOLATION,
+
+    /** Rate limit 초과 */
+    RATE_LIMIT_EXCEEDED,
+
+    // === Soft Block (LLM 위임 가능) ===
+
+    /** 가능성 있는 Off-domain (0.3 ≤ domainRelevance < 0.5) */
+    OFF_DOMAIN_SOFT,
+
+    // === Session Guard ===
+
+    /** LoopGuard 트리거됨 (동일 질문 반복) */
+    LOOP_GUARD_TRIGGERED,
+
+    /** 최대 Clarification 시도 초과 */
+    MAX_CLARIFICATION_EXCEEDED,
+
+    /** Frustration 감지 (사용자 불만) */
+    FRUSTRATION_DETECTED;
+
+    /**
+     * Hard Block 여부 (즉시 종료)
+     */
+    val isHardBlock: Boolean
+        get() = this in setOf(
+            OFF_DOMAIN_HARD,
+            NONSENSE,
+            PROHIBITED_CONTENT,
+            POLICY_VIOLATION,
+            RATE_LIMIT_EXCEEDED
+        )
+
+    /**
+     * Soft Block 여부 (LLM 위임 또는 에스컬레이션 가능)
+     */
+    val isSoftBlock: Boolean
+        get() = !isHardBlock
+
+    companion object {
+        /** @deprecated Use OFF_DOMAIN_HARD instead */
+        @Deprecated("Use OFF_DOMAIN_HARD or OFF_DOMAIN_SOFT", ReplaceWith("OFF_DOMAIN_HARD"))
+        val OFF_DOMAIN = OFF_DOMAIN_HARD
+    }
+}
+
+/**
+ * 정책 유형 (Policy-RAG용)
+ *
+ * PolicyStore가 반환하는 정책 힌트의 분류.
+ * 주의: PolicyStore는 정보만 제공, 판단은 OneShotReasoner에서 수행!
+ *
+ * @since 2.0.0
+ */
+@Serializable
+enum class PolicyType {
+    /** 라우팅 정책 (어떤 워크플로우로 이동할지) */
+    ROUTING,
+
+    /** 비즈니스 규칙 */
+    BUSINESS_RULE,
+
+    /** 응답 가이드라인 */
+    RESPONSE_GUIDELINE,
+
+    /** 금지 사항 */
+    PROHIBITION,
+
+    /** 에스컬레이션 조건 */
+    ESCALATION
+}
+
+/**
+ * 정책 힌트 (Policy-RAG 검색 결과)
+ *
+ * PolicyStore.search()가 반환하는 정보.
+ * 주의: 이 클래스는 정보만 담는다! 판단 필드 금지!
+ *
+ * @property policyId 정책 ID
+ * @property content 정책 텍스트 (raw)
+ * @property workflowId 관련 워크플로우 ID (optional)
+ * @property score 검색 유사도 (판단 아님!)
+ * @property policyType 정책 분류 (판단 아님!)
+ * @property metadata 추가 메타데이터
+ *
+ * @since 2.0.0
+ */
+@Serializable
+data class PolicyHint(
+    val policyId: String,
+    val content: String,
+    val workflowId: String? = null,
+    val score: Double,
+    val policyType: PolicyType,
+    val metadata: Map<String, @Contextual Any> = emptyMap()
+)
+
+/**
+ * 복합 의사결정 (One-Shot Reasoner 출력)
+ *
+ * GPT-5.1급 모델이 한 번에 판단하는 모든 cross-cutting concern.
+ * DECISION 노드는 이 구조체를 직접 보지 않음 - canonical만 봄.
+ *
+ * @property domainRelevance 도메인 관련성 (0.0-1.0)
+ * @property isOffDomain Off-domain 여부
+ * @property intentShift Intent 전환 감지 여부
+ * @property newWorkflowId 전환할 워크플로우 ID (intentShift=true 시)
+ * @property resumeNodeId Resume할 노드 ID (워크플로우 재개 시)
+ * @property aiCanonical AI가 추론한 canonical 값
+ * @property confidence 전체 신뢰도
+ * @property reasoning 추론 근거 (디버깅용)
+ * @property decisionSource 결정 출처
+ * @property needsClarification Clarification 필요 여부
+ * @property clarificationRequest Clarification 요청 (needsClarification=true 시)
+ * @property routingSignal 라우팅 신호
+ * @property tokensUsed 토큰 사용량 (optional)
+ * @property latencyMs 처리 지연시간
+ *
+ * @since 2.0.0
+ */
+@Serializable
+data class CompositeDecision(
+    val domainRelevance: Double,
+    val isOffDomain: Boolean = false,
+    val intentShift: Boolean = false,
+    val newWorkflowId: String? = null,
+    val resumeNodeId: String? = null,
+    val aiCanonical: String? = null,
+    val confidence: Double,
+    val reasoning: String? = null,
+    val decisionSource: DecisionSource,
+    val needsClarification: Boolean = false,
+    val clarificationRequest: ClarificationRequest? = null,
+    val routingSignal: RoutingSignal = RoutingSignal.NORMAL,
+    val tokensUsed: TokenUsage? = null,
+    val latencyMs: Long = 0
+) {
+    /**
+     * DECISION으로 진행 가능한지 여부
+     */
+    val canProceedToDecision: Boolean
+        get() = routingSignal == RoutingSignal.NORMAL && aiCanonical != null
+
+    /**
+     * 워크플로우 전환이 필요한지 여부
+     */
+    val needsWorkflowSwitch: Boolean
+        get() = intentShift && newWorkflowId != null
+
+    companion object {
+        /**
+         * Fast Path 결정 생성
+         */
+        fun fastPath(
+            canonical: String,
+            confidence: Double,
+            domainRelevance: Double,
+            reasoning: String? = null
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            aiCanonical = canonical,
+            confidence = confidence,
+            reasoning = reasoning,
+            decisionSource = DecisionSource.EMBEDDING,
+            routingSignal = RoutingSignal.NORMAL
+        )
+
+        /**
+         * Hard Off-domain 결정 생성 (확실한 off-domain)
+         */
+        fun offDomainHard(
+            reason: String,
+            domainRelevance: Double = 0.0
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            isOffDomain = true,
+            confidence = 1.0,
+            reasoning = reason,
+            decisionSource = DecisionSource.REASONER,
+            routingSignal = RoutingSignal.OFF_DOMAIN_HARD
+        )
+
+        /**
+         * Soft Off-domain 결정 생성 (가능성 있는 off-domain)
+         */
+        fun offDomainSoft(
+            reason: String,
+            domainRelevance: Double = 0.4
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            isOffDomain = true,
+            confidence = 0.7,
+            reasoning = reason,
+            decisionSource = DecisionSource.REASONER,
+            routingSignal = RoutingSignal.OFF_DOMAIN_SOFT
+        )
+
+        /**
+         * Off-domain 결정 생성 (domainRelevance 기반 자동 판단)
+         */
+        fun offDomain(
+            reason: String,
+            domainRelevance: Double = 0.0
+        ) = if (domainRelevance < 0.3) {
+            offDomainHard(reason, domainRelevance)
+        } else {
+            offDomainSoft(reason, domainRelevance)
+        }
+
+        /**
+         * Intent Shift 결정 생성
+         */
+        fun intentShift(
+            newWorkflowId: String,
+            resumeNodeId: String?,
+            reason: String,
+            confidence: Double = 0.9
+        ) = CompositeDecision(
+            domainRelevance = 0.3, // 현재 도메인과는 관련 낮음
+            intentShift = true,
+            newWorkflowId = newWorkflowId,
+            resumeNodeId = resumeNodeId,
+            confidence = confidence,
+            reasoning = reason,
+            decisionSource = DecisionSource.REASONER,
+            routingSignal = RoutingSignal.SWITCH_WORKFLOW
+        )
+
+        /**
+         * Clarification 필요 결정 생성 (Ambiguous)
+         */
+        fun needsClarification(
+            request: ClarificationRequest,
+            domainRelevance: Double,
+            confidence: Double = 0.5
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            confidence = confidence,
+            decisionSource = DecisionSource.EMBEDDING,
+            needsClarification = true,
+            clarificationRequest = request,
+            routingSignal = RoutingSignal.AMBIGUOUS
+        )
+
+        /**
+         * Pass-through 결정 생성 (Intelligence 개입 없음)
+         */
+        fun passThrough(
+            reason: String,
+            domainRelevance: Double = 0.5
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            confidence = 0.0,
+            reasoning = reason,
+            decisionSource = DecisionSource.FALLBACK,
+            routingSignal = RoutingSignal.NORMAL
+        )
+
+        /**
+         * LLM 위임 결정 생성
+         */
+        fun delegateToLLM(
+            reason: String,
+            domainRelevance: Double = 0.5,
+            confidence: Double = 0.0
+        ) = CompositeDecision(
+            domainRelevance = domainRelevance,
+            confidence = confidence,
+            reasoning = reason,
+            decisionSource = DecisionSource.EMBEDDING,
+            routingSignal = RoutingSignal.DELEGATE_TO_LLM
+        )
+    }
+}
+
+/**
+ * 토큰 사용량 (LLM 호출 추적용)
+ *
+ * @since 2.0.0
+ */
+@Serializable
+data class TokenUsage(
+    val inputTokens: Int,
+    val outputTokens: Int
+) {
+    val totalTokens: Int
+        get() = inputTokens + outputTokens
+}
