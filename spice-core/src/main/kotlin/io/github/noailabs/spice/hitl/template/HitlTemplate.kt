@@ -119,14 +119,18 @@ data class HitlTemplate(
             putAll(metadata)
 
             // Include flags
-            put("flags", mapOf(
-                "required" to flags.required,
-                "autoProceed" to flags.autoProceed,
-                "allowSkip" to flags.allowSkip,
-                "retryCount" to flags.retryCount
-            ).let { flagsMap ->
-                flags.timeout?.let { flagsMap + ("timeout" to it) } ?: flagsMap
+            put("flags", buildMap {
+                put("required", flags.required)
+                put("autoProceed", flags.autoProceed)
+                put("allowSkip", flags.allowSkip)
+                put("allowFreeText", flags.allowFreeText)
+                put("retryCount", flags.retryCount)
+                flags.timeout?.let { put("timeout", it) }
             })
+
+            // Include allowFreeText at top level for downstream convenience (snake_case)
+            // Always record (true or false) to enable strict mode
+            put("allow_free_text", flags.allowFreeText)
 
             // Include quantityConfig if present
             quantityConfig?.let { config ->
@@ -196,34 +200,44 @@ data class HitlTemplate(
 
         /**
          * Create a single selection template
+         *
+         * @param allowFreeText Convenience parameter to enable free text input.
+         *                      If true, flags.copy(allowFreeText = true) is applied.
+         * @since 1.5.5 Added allowFreeText parameter
          */
         fun singleSelect(
             id: String,
             prompt: String,
             options: List<HitlOption>,
-            flags: HitlTemplateFlags = HitlTemplateFlags.DEFAULT
+            flags: HitlTemplateFlags = HitlTemplateFlags.DEFAULT,
+            allowFreeText: Boolean = false
         ) = HitlTemplate(
             id = id,
             kind = HitlTemplateKind.SINGLE_SELECT,
             promptTemplate = prompt,
             options = options,
-            flags = flags
+            flags = if (allowFreeText) flags.copy(allowFreeText = true) else flags
         )
 
         /**
          * Create a multi selection template
+         *
+         * @param allowFreeText Convenience parameter to enable free text input.
+         *                      If true, flags.copy(allowFreeText = true) is applied.
+         * @since 1.5.5 Added allowFreeText parameter
          */
         fun multiSelect(
             id: String,
             prompt: String,
             options: List<HitlOption>,
-            flags: HitlTemplateFlags = HitlTemplateFlags.DEFAULT
+            flags: HitlTemplateFlags = HitlTemplateFlags.DEFAULT,
+            allowFreeText: Boolean = false
         ) = HitlTemplate(
             id = id,
             kind = HitlTemplateKind.MULTI_SELECT,
             promptTemplate = prompt,
             options = options,
-            flags = flags
+            flags = if (allowFreeText) flags.copy(allowFreeText = true) else flags
         )
 
         /**

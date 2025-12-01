@@ -90,6 +90,7 @@ class HitlRequestSelectionTool(
         // Extract optional parameters
         val selectionType = params["selection_type"] as? String ?: "single"
         val timeout = (params["timeout"] as? Number)?.toLong()
+        val allowFreeText = params["allow_free_text"] as? Boolean ?: false
 
         // Get invocation index for loop-safe ID generation
         val invocationIndex = (params[HITLMetadata.INVOCATION_INDEX_KEY] as? Number)?.toInt() ?: 0
@@ -120,13 +121,14 @@ class HitlRequestSelectionTool(
             invocationIndex = invocationIndex,
             graphId = graphId,
             timeout = timeout,
-            additionalMetadata = mapOf(
-                "selection_type" to selectionType,
-                "agent_id" to context.agentId,
-                "correlation_id" to (context.correlationId ?: ""),
-                "user_id" to (context.auth.userId ?: ""),
-                "tenant_id" to (context.auth.tenantId ?: "")
-            ).filterValues { it.isNotEmpty() }
+            additionalMetadata = buildMap {
+                put("selection_type", selectionType)
+                put("allow_free_text", allowFreeText)  // Always record (true or false)
+                put("agent_id", context.agentId)
+                context.correlationId?.takeIf { it.isNotEmpty() }?.let { put("correlation_id", it) }
+                context.auth.userId?.takeIf { it.isNotEmpty() }?.let { put("user_id", it) }
+                context.auth.tenantId?.takeIf { it.isNotEmpty() }?.let { put("tenant_id", it) }
+            }
         )
 
         // Emit HITL request to external systems (via Port Interface)
@@ -147,22 +149,16 @@ class HitlRequestSelectionTool(
                 toolCallId = toolCallId,
                 prompt = prompt,
                 hitlType = HITLMetadata.TYPE_SELECTION,
-                metadata = mapOf(
-                    "options" to options.map { it.toMap() },
-                    "selection_type" to selectionType,
-                    "timeout" to (timeout ?: 0L),
-                    "run_id" to runId,
-                    "node_id" to nodeId,
-                    "graph_id" to (graphId ?: ""),
+                metadata = buildMap {
+                    put("options", options.map { it.toMap() })
+                    put("selection_type", selectionType)
+                    put("allow_free_text", allowFreeText)  // Always record (true or false)
+                    put("timeout", timeout ?: 0L)
+                    put("run_id", runId)
+                    put("node_id", nodeId)
+                    graphId?.takeIf { it.isNotEmpty() }?.let { put("graph_id", it) }
                     // Store invocation index for next HITL request in loops
-                    HITLMetadata.INVOCATION_INDEX_KEY to invocationIndex
-                ).filterValues {
-                    when (it) {
-                        is String -> it.isNotEmpty()
-                        is Number -> it.toLong() >= 0  // Allow 0 for invocation index
-                        is List<*> -> it.isNotEmpty()
-                        else -> true
-                    }
+                    put(HITLMetadata.INVOCATION_INDEX_KEY, invocationIndex)
                 }
             )
         )
@@ -218,12 +214,15 @@ class HitlRequestSelectionTool(
          * @param options List of selection options
          * @param selectionType "single" or "multiple"
          * @param timeout Optional timeout in milliseconds
+         * @param allowFreeText Whether to allow free text input in addition to selection (default: false)
+         * @since 1.5.5 Added allowFreeText parameter
          */
         fun params(
             prompt: String,
             options: List<HITLOption>,
             selectionType: String = "single",
-            timeout: Long? = null
+            timeout: Long? = null,
+            allowFreeText: Boolean = false
         ): Map<String, Any> = buildMap {
             put("prompt", prompt)
             put("options", options)
@@ -231,6 +230,7 @@ class HitlRequestSelectionTool(
             if (timeout != null) {
                 put("timeout", timeout)
             }
+            put("allow_free_text", allowFreeText)  // Always record (true or false)
         }
 
         /**

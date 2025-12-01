@@ -109,16 +109,19 @@ data class HitlOption(
  * @property required Whether user input is required (default: true)
  * @property autoProceed Whether to auto-proceed without confirmation (default: false)
  * @property allowSkip Whether to allow skipping this HITL (default: false)
+ * @property allowFreeText Whether to allow free text input for selection types (default: false)
  * @property timeout Timeout in milliseconds (null for no timeout)
  * @property retryCount Maximum retry count for invalid input (default: 3)
  *
  * @since Spice 1.3.5
+ * @since Spice 1.5.5 Added allowFreeText
  */
 @Serializable
 data class HitlTemplateFlags(
     val required: Boolean = true,
     val autoProceed: Boolean = false,
     val allowSkip: Boolean = false,
+    val allowFreeText: Boolean = false,
     val timeout: Long? = null,
     val retryCount: Int = 3
 ) {
@@ -133,6 +136,12 @@ data class HitlTemplateFlags(
          * Create flags with a specific timeout
          */
         fun withTimeout(timeoutMs: Long) = HitlTemplateFlags(timeout = timeoutMs)
+
+        /**
+         * Create flags allowing free text input for selection types
+         * @since 1.5.5
+         */
+        fun withFreeText() = HitlTemplateFlags(allowFreeText = true)
     }
 }
 

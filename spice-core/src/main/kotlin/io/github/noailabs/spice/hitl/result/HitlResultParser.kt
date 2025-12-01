@@ -7,6 +7,52 @@ import mu.KotlinLogging
 private val logger = KotlinLogging.logger {}
 
 /**
+ * Parser context for controlling parse behavior
+ *
+ * When null or LENIENT, parser operates in lenient mode (existing behavior).
+ * When provided with strict settings, parser enforces allowFreeText policy.
+ *
+ * @property allowFreeText Whether free text input is allowed for selection types.
+ *                         null = lenient (existing behavior), false = strict, true = allowed.
+ * @property selectionType The expected selection type: "single", "multiple", or null.
+ *
+ * @since 1.5.5
+ */
+data class ParseContext(
+    val allowFreeText: Boolean? = null,
+    val selectionType: String? = null
+) {
+    companion object {
+        /** Lenient mode - allows text-only for any selection (existing behavior) */
+        val LENIENT = ParseContext(allowFreeText = null)
+
+        /** Strict mode - rejects text-only for selection types */
+        fun strict(selectionType: String? = null) =
+            ParseContext(allowFreeText = false, selectionType = selectionType)
+
+        /** Free text allowed mode */
+        fun allowFreeText(selectionType: String? = null) =
+            ParseContext(allowFreeText = true, selectionType = selectionType)
+
+        /**
+         * Create context from checkpoint/metadata
+         *
+         * @param allowFreeText Value from checkpoint/metadata (can be null)
+         * @param selectionType Value from checkpoint/metadata
+         * @return ParseContext, or null if both values are null (use lenient mode)
+         */
+        fun fromMetadata(
+            allowFreeText: Boolean?,
+            selectionType: String?
+        ): ParseContext? {
+            return if (allowFreeText != null || selectionType != null) {
+                ParseContext(allowFreeText = allowFreeText, selectionType = selectionType)
+            } else null
+        }
+    }
+}
+
+/**
  * HITL Result Parser
  *
  * Normalizes various HITL response formats into a unified [HitlResult].
@@ -52,10 +98,19 @@ object HitlResultParser {
      *
      * @param data Response data map from various sources (UI, LLM, etc.)
      * @param toolCallId Optional tool call ID for tracing
-     * @return Normalized HitlResult, or null if parsing fails
+     * @param context Optional parse context for policy enforcement.
+     *                null = lenient mode (existing behavior).
+     *                When context.allowFreeText == false for selection types,
+     *                text-only responses will be rejected (returns null).
+     * @return Normalized HitlResult, or null if parsing fails or policy rejects
+     * @since 1.5.5 Added context parameter
      */
     @Suppress("UNCHECKED_CAST")
-    fun parse(data: Map<String, Any?>, toolCallId: String? = null): HitlResult? {
+    fun parse(
+        data: Map<String, Any?>,
+        toolCallId: String? = null,
+        context: ParseContext? = null
+    ): HitlResult? {
         val options = HitlResultParserConfig.options
 
         HitlLogLevelMapper.log(logger, options.successLogLevel) {
@@ -171,9 +226,21 @@ object HitlResultParser {
             }
         }
 
-        // Case 4: text only
+        // Case 4: text only - with context policy enforcement
         val text = extractText(data)
         if (!text.isNullOrBlank()) {
+            // Check context policy: reject text-only if allowFreeText=false for selection types
+            if (context != null &&
+                context.allowFreeText == false &&
+                context.selectionType in listOf("single", "multiple")
+            ) {
+                HitlLogLevelMapper.log(logger, options.parseFailureLogLevel) {
+                    "[HitlResultParser] Rejected text-only for selection (allowFreeText=false, " +
+                        "selectionType=${context.selectionType}): ${text.take(30)}..."
+                }
+                return null // Upper layer should route to DECISION otherwise branch
+            }
+
             return try {
                 HitlLogLevelMapper.log(logger, options.successLogLevel) {
                     "[HitlResultParser] Parsed as TEXT: ${text.take(50)}..."

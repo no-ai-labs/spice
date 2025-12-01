@@ -9,6 +9,7 @@ import io.github.noailabs.spice.graph.Graph
 import io.github.noailabs.spice.graph.runner.GraphRunner
 import io.github.noailabs.spice.hitl.result.HitlResult
 import io.github.noailabs.spice.hitl.result.HitlResultParser
+import io.github.noailabs.spice.hitl.result.ParseContext
 import kotlinx.datetime.Clock
 
 /**
@@ -181,9 +182,33 @@ suspend fun GraphRunner.resumeFromCheckpoint(
             mapOf("response_text" to userResponse.content)
         }
 
-        // Spice 1.3.4: Parse and normalize HITL response
-        val hitlResult = HitlResultParser.parse(userResponse.data + responseData, toolCall?.id)
-            ?: userResponse.content.takeIf { it.isNotBlank() }?.let { HitlResult.text(it, toolCall?.id) }
+        // Spice 1.5.5: Extract ParseContext from checkpoint.pendingToolCall or message.data
+        // This enables allowFreeText policy enforcement during resume
+        val parseContext = checkpoint.pendingToolCall?.let { pendingCall ->
+            val args = pendingCall.function.arguments
+            val allowFreeText = args["allow_free_text"] as? Boolean
+            val selectionType = args["selection_type"] as? String
+            ParseContext.fromMetadata(allowFreeText, selectionType)
+        } ?: run {
+            // Fallback: try to extract from message.data (e.g., template-based HITL)
+            val allowFreeText = message.data["allow_free_text"] as? Boolean
+            val selectionType = message.data["selection_type"] as? String
+            ParseContext.fromMetadata(allowFreeText, selectionType)
+        }
+
+        // Spice 1.3.4: Parse and normalize HITL response with context
+        val parsedResult = HitlResultParser.parse(userResponse.data + responseData, toolCall?.id, parseContext)
+
+        // CRITICAL: Only use text fallback if context allows it (lenient mode or allowFreeText=true)
+        // If parseContext is strict (allowFreeText=false) and parse returned null, respect the rejection
+        val hitlResult = parsedResult ?: run {
+            val canFallbackToText = parseContext == null || parseContext.allowFreeText != false
+            if (canFallbackToText) {
+                userResponse.content.takeIf { it.isNotBlank() }?.let { HitlResult.text(it, toolCall?.id) }
+            } else {
+                null  // Strict mode rejected text-only, don't override with fallback
+            }
+        }
 
         // CRITICAL: Merge data (checkpoint.data + userResponse.data + responseData + hitl)
         // Previous bug: withData(responseData) overwrote all existing data

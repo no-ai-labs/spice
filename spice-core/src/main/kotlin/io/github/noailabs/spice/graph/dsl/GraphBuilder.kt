@@ -272,7 +272,8 @@ class GraphBuilder(val id: String) {
                 prompt = prompt,
                 options = configBuilder.options,
                 selectionType = configBuilder.selectionType,
-                timeout = configBuilder.timeout
+                timeout = configBuilder.timeout,
+                allowFreeText = configBuilder.allowFreeText
             ) + (HITLMetadata.INVOCATION_INDEX_KEY to nextIndex)
         }
         if (entryPoint == null) entryPoint = id
@@ -1211,6 +1212,7 @@ class HitlSelectionConfigBuilder {
     internal val options = mutableListOf<HITLOption>()
     internal var selectionType: String = "single"
     internal var timeout: Long? = null
+    internal var allowFreeText: Boolean = false
 
     /**
      * Add an option with id and label
@@ -1297,6 +1299,20 @@ class HitlSelectionConfigBuilder {
      */
     fun timeout(duration: Duration) {
         this.timeout = duration.inWholeMilliseconds
+    }
+
+    /**
+     * Allow free text input in addition to selection options
+     *
+     * When enabled, users can type custom text instead of selecting
+     * from predefined options. The response will be processed as
+     * HitlResult.text() type and routed to decision's otherwise() branch.
+     *
+     * @param allow Whether to allow free text input (default: true when called)
+     * @since 1.5.5
+     */
+    fun allowFreeText(allow: Boolean = true) {
+        this.allowFreeText = allow
     }
 }
 

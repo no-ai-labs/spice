@@ -398,7 +398,9 @@ data class OAIToolCall(
          * @param graphId Optional graph ID for context
          * @param selectionType Type of selection: "single" or "multiple"
          * @param timeout Optional timeout in milliseconds
+         * @param allowFreeText Whether to allow free text input in addition to selection (default: false)
          * @param metadata Additional custom metadata
+         * @since 1.5.5 Added allowFreeText parameter
          */
         fun hitlSelection(
             toolCallId: String,
@@ -409,6 +411,7 @@ data class OAIToolCall(
             graphId: String? = null,
             selectionType: String = "single",
             timeout: Long? = null,
+            allowFreeText: Boolean = false,
             metadata: Map<String, Any> = emptyMap()
         ): OAIToolCall {
             return OAIToolCall(
@@ -429,6 +432,7 @@ data class OAIToolCall(
                         if (timeout != null) {
                             put("timeout", timeout)
                         }
+                        put("allow_free_text", allowFreeText)  // Always record (true or false)
                         if (metadata.isNotEmpty()) {
                             put("metadata", metadata)
                         }

@@ -754,7 +754,7 @@ class DecisionNodeTest {
         assertEquals("Default", (result as SpiceResult.Success).value.content)
     }
 
-    // ==================== HITL Prefix Routing Tests (1.3.6+) ====================
+    // ==================== HITL Prefix Routing Tests (1.5.5+) ====================
 
     @Test
     fun `whenHitlPrefix routes when canonical starts with prefix`() = runTest {
