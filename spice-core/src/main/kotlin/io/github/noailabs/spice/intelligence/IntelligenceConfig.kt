@@ -62,8 +62,7 @@ data class IntelligenceConfig(
 
     // Policy-RAG 설정
     val policyTopK: Int = 3,
-    val policyRagTimeoutMs: Long = 2000,        // Big LLM 경로용 (2초)
-    val policyRagNanoTimeoutMs: Long = 500,     // Nano 경로용 (500ms, optional)
+    val policyRagTimeoutMs: Long = 2000,        // Policy-RAG 타임아웃 (2초)
 
     // Nano LLM 타임아웃
     val nanoTimeoutMs: Long = 500,              // Nano validator 호출 타임아웃 (500ms)

@@ -77,7 +77,6 @@ class IntelligenceAutoConfiguration {
             ),
             policyTopK = properties.policyTopK,
             policyRagTimeoutMs = properties.policyRagTimeoutMs,
-            policyRagNanoTimeoutMs = properties.policyRagNanoTimeoutMs,
             fallbackConfig = FallbackConfig(
                 confidenceMultiplier = properties.fallback.confidenceMultiplier,
                 ambiguousThreshold = properties.fallback.ambiguousThreshold
@@ -192,7 +191,6 @@ data class IntelligenceProperties(
     val domainRelevanceThreshold: Double = 0.70,
     val policyTopK: Int = 3,
     val policyRagTimeoutMs: Long = 2000,
-    val policyRagNanoTimeoutMs: Long = 500,
     val maxClarifyAttempts: Int = 3,
     val loopGuardEnabled: Boolean = true,
     val metricsEnabled: Boolean = true,
