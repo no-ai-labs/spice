@@ -69,6 +69,7 @@ interface IntelligenceCache {
  * 캐시 키
  *
  * @property layer 캐시 레이어 (SEMANTIC, NANO, BIG, POLICY)
+ * @property tenantId 테넌트 ID (멀티테넌트 캐시 격리)
  * @property normalizedUtterance 정규화된 발화
  * @property prevNodesHash 이전 노드 경로 해시
  * @property workflowId 워크플로우 ID
@@ -77,24 +78,24 @@ interface IntelligenceCache {
  */
 data class IntelligenceCacheKey(
     val layer: CacheLayer,
+    val tenantId: String,
     val normalizedUtterance: String,
     val prevNodesHash: String,
     val workflowId: String?
 ) {
     /**
-     * Redis 키 생성 (레이어 포함)
+     * Redis 키 생성 (L2 캐시용, 레이어+테넌트 포함)
      */
-    fun toRedisKey(tenantId: String? = null): String {
-        val tenant = tenantId ?: "_default"
+    fun toRedisKey(): String {
         val workflow = workflowId ?: "_global"
-        return "spice:intel:${layer.key}:$tenant:$workflow:$prevNodesHash:${normalizedUtterance.hashCode()}"
+        return "spice:intel:${layer.key}:$tenantId:$workflow:$prevNodesHash:${normalizedUtterance.hashCode()}"
     }
 
     /**
-     * 해시 코드 기반 단축 키 (레이어 포함)
+     * 해시 코드 기반 단축 키 (L1 캐시용, 레이어+테넌트 포함)
      */
     fun toShortKey(): String {
-        val combined = "${layer.key}|$normalizedUtterance|$prevNodesHash|$workflowId"
+        val combined = "${layer.key}|$tenantId|$normalizedUtterance|$prevNodesHash|$workflowId"
         return combined.hashCode().toString(16)
     }
 
@@ -102,10 +103,14 @@ data class IntelligenceCacheKey(
         /**
          * 요청에서 캐시 키 생성
          */
-        fun from(request: OneShotRequest, layer: CacheLayer = CacheLayer.BIG): IntelligenceCacheKey {
+        fun from(
+            request: OneShotRequest,
+            tenantId: String,
+            layer: CacheLayer = CacheLayer.BIG
+        ): IntelligenceCacheKey {
             val normalized = normalizeUtterance(request.utterance)
             val prevNodesHash = request.prevNodes.joinToString("|").hashCode().toString()
-            return IntelligenceCacheKey(layer, normalized, prevNodesHash, request.workflowId)
+            return IntelligenceCacheKey(layer, tenantId, normalized, prevNodesHash, request.workflowId)
         }
 
         /**
@@ -113,13 +118,14 @@ data class IntelligenceCacheKey(
          */
         fun from(
             layer: CacheLayer,
+            tenantId: String,
             utterance: String,
             prevNodes: List<String>,
             workflowId: String?
         ): IntelligenceCacheKey {
             val normalized = normalizeUtterance(utterance)
             val prevNodesHash = prevNodes.joinToString("|").hashCode().toString()
-            return IntelligenceCacheKey(layer, normalized, prevNodesHash, workflowId)
+            return IntelligenceCacheKey(layer, tenantId, normalized, prevNodesHash, workflowId)
         }
 
         /**

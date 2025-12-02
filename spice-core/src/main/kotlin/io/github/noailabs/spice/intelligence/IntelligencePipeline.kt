@@ -137,7 +137,7 @@ class IntelligencePipeline(
 
         // 4. 경로 분기
         val decision = when (gatingDecision) {
-            GatingDecision.FAST_PATH -> executeFastPath(parallelResult, context)
+            GatingDecision.FAST_PATH -> executeFastPath(utterance, parallelResult, context)
             GatingDecision.NANO_VALIDATION -> executeNanoPath(utterance, parallelResult, context)
             GatingDecision.BIG_LLM -> executeBigLLMPath(utterance, parallelResult, context)
         }
@@ -215,6 +215,7 @@ class IntelligencePipeline(
      * Fast Path 실행 (Gating: FAST_PATH)
      */
     private suspend fun executeFastPath(
+        utterance: String,
         parallelResult: ParallelStageResult,
         context: IntelligenceContext
     ): CompositeDecision {
@@ -230,8 +231,8 @@ class IntelligencePipeline(
             latencyMs = 0
         )
 
-        // Cache 저장
-        saveToCacheIfEnabled(CacheLayer.SEMANTIC, context, decision)
+        // Cache 저장 (입력 utterance로 키 생성)
+        saveToCacheIfEnabled(CacheLayer.SEMANTIC, utterance, context, decision)
 
         return decision
     }
@@ -290,7 +291,7 @@ class IntelligencePipeline(
                     routingSignal = RoutingSignal.NORMAL,
                     latencyMs = nanoResult.latencyMs
                 )
-                saveToCacheIfEnabled(CacheLayer.NANO, context, decision)
+                saveToCacheIfEnabled(CacheLayer.NANO, utterance, context, decision)
                 decision
             }
 
@@ -307,7 +308,7 @@ class IntelligencePipeline(
                 )
                 // CLARIFY는 짧은 TTL로 캐시 (동일 발화 반복 방지)
                 if (cacheConfig.cacheAmbiguous) {
-                    saveToCacheWithTtl(CacheLayer.NANO, context, decision, cacheConfig.ambiguousTtl)
+                    saveToCacheWithTtl(CacheLayer.NANO, utterance, context, decision, cacheConfig.ambiguousTtl)
                 }
                 decision
             }
@@ -356,9 +357,9 @@ class IntelligencePipeline(
             return createFallbackDecision(parallelResult, nanoResult, "Big LLM failed")
         }
 
-        // 캐시 저장 (성공 시)
+        // 캐시 저장 (성공 시, 입력 utterance로 키 생성)
         if (reasonerResult.routingSignal == RoutingSignal.NORMAL) {
-            saveToCacheIfEnabled(CacheLayer.BIG, context, reasonerResult)
+            saveToCacheIfEnabled(CacheLayer.BIG, utterance, context, reasonerResult)
         }
 
         return reasonerResult
@@ -429,6 +430,8 @@ class IntelligencePipeline(
 
     /**
      * Policy-RAG 검색 (timeout/degrade 적용)
+     *
+     * config.policyRagTimeoutMs 사용 (기본 2000ms)
      */
     private suspend fun fetchPolicyHints(
         query: String,
@@ -437,7 +440,7 @@ class IntelligencePipeline(
         if (policyStore == null) return emptyList()
 
         return try {
-            withTimeout(POLICY_RAG_TIMEOUT_MS) {
+            withTimeout(config.policyRagTimeoutMs) {
                 policyStore.search(query, workflowId, config.policyTopK)
                     .getOrNull() ?: emptyList()
             }
@@ -474,9 +477,15 @@ class IntelligencePipeline(
 
     /**
      * 캐시 저장 (조건부)
+     *
+     * @param layer 캐시 레이어
+     * @param utterance 원본 입력 발화 (캐시 키 생성에 사용, 조회와 일치해야 함)
+     * @param context Intelligence 컨텍스트
+     * @param decision 저장할 결정
      */
     private suspend fun saveToCacheIfEnabled(
         layer: CacheLayer,
+        utterance: String,
         context: IntelligenceContext,
         decision: CompositeDecision
     ) {
@@ -489,16 +498,23 @@ class IntelligencePipeline(
         )
 
         if (cacheDecision.enabled && cacheDecision.ttl != null) {
-            val key = buildCacheKey(layer, decision.aiCanonical ?: "", context)
+            val key = buildCacheKey(layer, utterance, context)
             cache.put(key, decision, cacheDecision.ttl)
         }
     }
 
     /**
      * 캐시 저장 (명시적 TTL)
+     *
+     * @param layer 캐시 레이어
+     * @param utterance 원본 입력 발화 (캐시 키 생성에 사용, 조회와 일치해야 함)
+     * @param context Intelligence 컨텍스트
+     * @param decision 저장할 결정
+     * @param ttl 유효 기간
      */
     private suspend fun saveToCacheWithTtl(
         layer: CacheLayer,
+        utterance: String,
         context: IntelligenceContext,
         decision: CompositeDecision,
         ttl: kotlin.time.Duration
@@ -512,13 +528,13 @@ class IntelligencePipeline(
         )
 
         if (cacheDecision.enabled) {
-            val key = buildCacheKey(layer, decision.aiCanonical ?: "", context)
+            val key = buildCacheKey(layer, utterance, context)
             cache.put(key, decision, ttl)
         }
     }
 
     /**
-     * 캐시 키 생성 (레이어 포함)
+     * 캐시 키 생성 (레이어 + 테넌트 포함)
      */
     private fun buildCacheKey(
         layer: CacheLayer,
@@ -527,6 +543,7 @@ class IntelligencePipeline(
     ): IntelligenceCacheKey {
         return IntelligenceCacheKey.from(
             layer = layer,
+            tenantId = context.tenantId,
             utterance = utterance,
             prevNodes = context.prevNodes,
             workflowId = context.workflowId
@@ -534,9 +551,6 @@ class IntelligencePipeline(
     }
 
     companion object {
-        /** Policy-RAG 타임아웃 (ms) */
-        const val POLICY_RAG_TIMEOUT_MS = 2000L
-
         /** Domain Relevance 계산 타임아웃 (ms) */
         const val DOMAIN_RELEVANCE_TIMEOUT_MS = 1000L
     }

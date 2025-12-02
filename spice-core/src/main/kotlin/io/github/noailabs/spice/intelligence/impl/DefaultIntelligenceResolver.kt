@@ -203,7 +203,7 @@ class DefaultIntelligenceResolver(
     }
 
     /**
-     * 캐시 키 생성
+     * 캐시 키 생성 (레이어 + 테넌트 포함)
      */
     private fun buildCacheKey(
         utterance: String,
@@ -211,6 +211,7 @@ class DefaultIntelligenceResolver(
     ): IntelligenceCacheKey {
         return IntelligenceCacheKey.from(
             layer = CacheLayer.SEMANTIC,
+            tenantId = context.tenantId,
             utterance = utterance,
             prevNodes = context.prevNodes,
             workflowId = context.workflowId
