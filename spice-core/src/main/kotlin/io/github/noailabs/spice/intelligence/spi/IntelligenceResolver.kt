@@ -79,6 +79,7 @@ data class SemanticMatchResult(
     val secondScore: Double,
     val topCanonical: String?,
     val candidates: List<ScoredCandidate>,
+    val originalOrderCandidates: List<ScoredCandidate> = emptyList(),
     val optionCount: Int = 0,
     val domainRelevance: Double,
     val domainRelevanceSource: DomainRelevanceSource = DomainRelevanceSource.HEURISTIC
@@ -142,6 +143,7 @@ data class SemanticMatchResult(
             secondScore = 0.0,
             topCanonical = null,
             candidates = emptyList(),
+            originalOrderCandidates = emptyList(),
             optionCount = 0,
             domainRelevance = 0.0
         )

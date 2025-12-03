@@ -104,6 +104,7 @@ data class NanoValidationRequest(
     val suggestedCanonical: String?,
     val suggestedConfidence: Double,
     val candidates: List<ScoredCandidate>,
+    val originalOptions: List<ScoredCandidate> = emptyList(),
     val gap: Double,
     val policyHints: List<PolicyHint> = emptyList(),
     val workflowId: String? = null

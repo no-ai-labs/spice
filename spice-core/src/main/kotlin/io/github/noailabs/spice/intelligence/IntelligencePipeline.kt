@@ -259,6 +259,7 @@ class IntelligencePipeline(
             suggestedCanonical = parallelResult.semanticResult.topCanonical,
             suggestedConfidence = parallelResult.semanticResult.topScore,
             candidates = parallelResult.semanticResult.candidates,
+            originalOptions = parallelResult.semanticResult.originalOrderCandidates,
             gap = parallelResult.semanticResult.gap,
             policyHints = parallelResult.policyHints,
             workflowId = workflowId
@@ -406,13 +407,17 @@ class IntelligencePipeline(
 
         val scores = semanticMatcher.match(utterance, options)
 
-        val scoredCandidates = context.routingOptions.mapIndexed { index, option ->
+        // 원래 순서 유지 (HITL UI 표시 순서)
+        val originalOrderCandidates = context.routingOptions.mapIndexed { index, option ->
             ScoredCandidate(
                 canonical = option.canonical,
                 score = scores.getOrElse(index) { 0.0 },
                 label = option.description
             )
-        }.sortedByDescending { it.score }
+        }
+
+        // similarity 정렬 (Gating용)
+        val scoredCandidates = originalOrderCandidates.sortedByDescending { it.score }
 
         val topCandidate = scoredCandidates.firstOrNull()
         val secondScore = scoredCandidates.getOrNull(1)?.score ?: 0.0
@@ -422,6 +427,7 @@ class IntelligencePipeline(
             secondScore = secondScore,
             topCanonical = topCandidate?.canonical,
             candidates = scoredCandidates,
+            originalOrderCandidates = originalOrderCandidates,
             optionCount = options.size,
             domainRelevance = 0.0,  // 별도 계산
             domainRelevanceSource = DomainRelevanceSource.HEURISTIC
