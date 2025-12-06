@@ -96,8 +96,10 @@ class OutputNode(
                 val mapOutput = output.filterKeys { it != null }
                     .mapKeys { it.key.toString() } as Map<String, Any>
                 val mergedData = completedMessage.data + mapOutput
-                // Content is the map as string for debugging
-                mergedData to mapOutput.toString()
+                // 1.6.1: message 키가 있으면 content로 사용, 없으면 빈 문자열
+                // (내부 데이터가 사용자에게 노출되는 버그 수정)
+                val contentMessage = mapOutput["message"]?.toString() ?: ""
+                mergedData to contentMessage
             }
             else -> {
                 // Default behavior: output goes to content only

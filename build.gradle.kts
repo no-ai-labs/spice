@@ -8,7 +8,7 @@ plugins {
 
 allprojects {
     group = "com.github.no-ai-labs.spice"
-    version = "1.6.1"
+    version = "1.6.2"
 
     repositories {
         mavenCentral()
