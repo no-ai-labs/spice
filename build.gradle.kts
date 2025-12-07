@@ -29,6 +29,14 @@ subprojects {
         extensions.configure<PublishingExtension>("publishing") {
             repositories {
                 maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/no-ai-labs/spice")
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR") ?: findProperty("gpr.user") as String? ?: ""
+                        password = System.getenv("GITHUB_TOKEN") ?: findProperty("gpr.key") as String? ?: ""
+                    }
+                }
+                maven {
                     name = "Nexus"
                     val releasesRepoUrl = uri("https://registry.kjai.kr/repository/maven-releases")
                     val snapshotsRepoUrl = uri("https://registry.kjai.kr/repository/maven-snapshots")
