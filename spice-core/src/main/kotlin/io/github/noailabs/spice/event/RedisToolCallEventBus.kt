@@ -127,7 +127,8 @@ class RedisToolCallEventBus(
             jedisPool.resource.use { jedis ->
                 try {
                     // MKSTREAM=true (4th param) creates stream if it doesn't exist
-                    jedis.xgroupCreate(streamKey, consumerGroup, StreamEntryID(startFrom), true)
+                    val entryId = if (startFrom == "$") StreamEntryID.LAST_ENTRY else StreamEntryID(startFrom)
+                    jedis.xgroupCreate(streamKey, consumerGroup, entryId, true)
                     println("[RedisToolCallEventBus] Consumer group created: $consumerGroup (stream: $streamKey)")
                     true
                 } catch (e: JedisDataException) {
@@ -288,11 +289,12 @@ class RedisToolCallEventBus(
 
         val entries = jedisPool.resource.use { jedis ->
             try {
+                val entryId = if (startId == "$") StreamEntryID.LAST_ENTRY else StreamEntryID(startId)
                 jedis.xread(
                     XReadParams.xReadParams()
                         .count(100)
                         .block(pollInterval.inWholeMilliseconds.toInt()),
-                    mapOf(streamKey to StreamEntryID(startId))
+                    mapOf(streamKey to entryId)
                 )
             } catch (e: JedisDataException) {
                 null
