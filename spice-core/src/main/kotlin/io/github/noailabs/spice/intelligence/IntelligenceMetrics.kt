@@ -329,5 +329,262 @@ object IntelligenceMetrics {
         const val ERROR_TYPE = "intelligence.error_type"
         const val ERROR_MESSAGE = "intelligence.error_message"
         const val RECOVERY_ACTION = "intelligence.recovery_action"
+
+        // === v2 추가 필드 ===
+        /** 라우팅 신호 (NORMAL, AMBIGUOUS, OFF_DOMAIN_HARD, etc.) */
+        const val ROUTING_SIGNAL = "intelligence.routing_signal"
+
+        /** 캐시 레이어 (L1, L2) */
+        const val CACHE_LAYER = "intelligence.cache_layer"
+
+        /** Policy-RAG 매칭 정책 수 */
+        const val POLICY_HIT_COUNT = "intelligence.policy_hit_count"
+
+        /** Gating 결정 (FAST_PATH, NANO_VALIDATION, BIG_LLM) */
+        const val GATING_DECISION = "intelligence.gating_decision"
+
+        /** 도메인 관련성 점수 */
+        const val DOMAIN_RELEVANCE = "intelligence.domain_relevance"
+
+        /** Intent Shift 여부 */
+        const val INTENT_SHIFT = "intelligence.intent_shift"
+
+        /** Top 점수 */
+        const val TOP_SCORE = "intelligence.top_score"
+
+        /** 2위 점수 */
+        const val SECOND_SCORE = "intelligence.second_score"
+
+        /** 점수 격차 */
+        const val GAP = "intelligence.gap"
+
+        /** 확정된 canonical */
+        const val CANONICAL = "intelligence.canonical"
+
+        /** Block 사유 */
+        const val BLOCK_REASON = "intelligence.block_reason"
+
+        /** Nano 검증 상태 */
+        const val NANO_STATUS = "intelligence.nano_status"
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // v2 METRICS (Intelligence Layer v2.0)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Counter: RoutingSignal별 카운트
+     * Labels: tenant_id, workflow_id, signal
+     */
+    const val V2_ROUTING_SIGNAL_TOTAL = "spice_intelligence_v2_routing_signal_total"
+
+    /**
+     * Counter: Intent Shift 발생 횟수
+     * Labels: tenant_id, from_workflow, to_workflow
+     */
+    const val V2_INTENT_SHIFT_TOTAL = "spice_intelligence_v2_intent_shift_total"
+
+    /**
+     * Counter: Off-domain 탐지 횟수
+     * Labels: tenant_id, type (hard|soft)
+     */
+    const val V2_OFF_DOMAIN_TOTAL = "spice_intelligence_v2_off_domain_total"
+
+    /**
+     * Counter: 캐시 히트/미스
+     * Labels: tenant_id, layer (L1|L2), result (hit|miss)
+     */
+    const val V2_CACHE_TOTAL = "spice_intelligence_v2_cache_total"
+
+    /**
+     * Counter: Policy-RAG 히트 횟수
+     * Labels: tenant_id, workflow_id
+     */
+    const val V2_POLICY_HIT_TOTAL = "spice_intelligence_v2_policy_hit_total"
+
+    /**
+     * Counter: Gating 결정별 카운트
+     * Labels: tenant_id, decision (FAST_PATH|NANO_VALIDATION|BIG_LLM)
+     */
+    const val V2_GATING_DECISION_TOTAL = "spice_intelligence_v2_gating_decision_total"
+
+    /**
+     * Counter: Nano 검증 상태별 카운트
+     * Labels: tenant_id, status (OVERRIDE|CLARIFY|DELEGATE|FALLBACK)
+     */
+    const val V2_NANO_STATUS_TOTAL = "spice_intelligence_v2_nano_status_total"
+
+    /**
+     * Counter: Block 횟수
+     * Labels: tenant_id, reason
+     */
+    const val V2_BLOCK_TOTAL = "spice_intelligence_v2_block_total"
+
+    /**
+     * Timer: Fast Layer 처리 시간
+     * Labels: tenant_id, workflow_id
+     */
+    const val V2_LATENCY_FAST_SECONDS = "spice_intelligence_v2_latency_fast_seconds"
+
+    /**
+     * Timer: Nano LLM 처리 시간
+     * Labels: tenant_id
+     */
+    const val V2_LATENCY_NANO_SECONDS = "spice_intelligence_v2_latency_nano_seconds"
+
+    /**
+     * Timer: Big LLM 처리 시간
+     * Labels: tenant_id
+     */
+    const val V2_LATENCY_BIG_SECONDS = "spice_intelligence_v2_latency_big_seconds"
+
+    /**
+     * Timer: Policy-RAG 검색 시간
+     * Labels: tenant_id
+     */
+    const val V2_LATENCY_POLICY_RAG_SECONDS = "spice_intelligence_v2_latency_policy_rag_seconds"
+
+    /**
+     * Gauge: 캐시 크기
+     * Labels: layer (L1|L2)
+     */
+    const val V2_CACHE_SIZE = "spice_intelligence_v2_cache_size"
+
+    /**
+     * Histogram: Domain Relevance 분포
+     * Labels: tenant_id
+     */
+    const val V2_DOMAIN_RELEVANCE = "spice_intelligence_v2_domain_relevance"
+
+    /**
+     * Histogram: Gap 분포
+     * Labels: tenant_id
+     */
+    const val V2_GAP = "spice_intelligence_v2_gap"
+
+    // === v2 Label Keys ===
+
+    /** 라우팅 신호 */
+    const val LABEL_ROUTING_SIGNAL = "routing_signal"
+
+    /** 캐시 레이어 */
+    const val LABEL_CACHE_LAYER = "cache_layer"
+
+    /** Gating 결정 */
+    const val LABEL_GATING_DECISION = "gating_decision"
+
+    /** Block 사유 */
+    const val LABEL_BLOCK_REASON = "block_reason"
+
+    /** Off-domain 타입 */
+    const val LABEL_OFF_DOMAIN_TYPE = "off_domain_type"
+
+    /** Nano 상태 */
+    const val LABEL_NANO_STATUS = "nano_status"
+
+    /** 출발 워크플로우 */
+    const val LABEL_FROM_WORKFLOW = "from_workflow"
+
+    /** 도착 워크플로우 */
+    const val LABEL_TO_WORKFLOW = "to_workflow"
+
+    // === Cache Layer Values ===
+
+    const val CACHE_LAYER_L1 = "L1"
+    const val CACHE_LAYER_L2 = "L2"
+
+    // ═══════════════════════════════════════════════════════
+    // ROUTING SIGNAL VALUES (v2)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * RoutingSignal 값 상수 (대시보드/쿼리용)
+     *
+     * RoutingSignal enum과 동기화 필요:
+     * - NORMAL: 정상 라우팅
+     * - AMBIGUOUS: 모호함, 재질문 필요
+     * - OFF_DOMAIN_HARD: 도메인 외 확실 (차단)
+     * - OFF_DOMAIN_SOFT: 도메인 외 가능성 (fallback)
+     * - SWITCH_WORKFLOW: 워크플로우 전환
+     * - RESUME_WORKFLOW: 워크플로우 재개
+     * - DELEGATE_TO_LLM: LLM에게 위임
+     * - ESCALATE: 상담원 연결
+     * - POLICY_BLOCK: 정책 위반 차단
+     */
+    object RoutingSignalValues {
+        const val NORMAL = "NORMAL"
+        const val AMBIGUOUS = "AMBIGUOUS"
+        const val OFF_DOMAIN_HARD = "OFF_DOMAIN_HARD"
+        const val OFF_DOMAIN_SOFT = "OFF_DOMAIN_SOFT"
+        const val SWITCH_WORKFLOW = "SWITCH_WORKFLOW"
+        const val RESUME_WORKFLOW = "RESUME_WORKFLOW"
+        const val DELEGATE_TO_LLM = "DELEGATE_TO_LLM"
+        const val ESCALATE = "ESCALATE"
+        const val POLICY_BLOCK = "POLICY_BLOCK"
+
+        /**
+         * 모든 값 목록 (대시보드 설정용)
+         */
+        val ALL = listOf(
+            NORMAL, AMBIGUOUS, OFF_DOMAIN_HARD, OFF_DOMAIN_SOFT,
+            SWITCH_WORKFLOW, RESUME_WORKFLOW, DELEGATE_TO_LLM,
+            ESCALATE, POLICY_BLOCK
+        )
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // GATING DECISION VALUES (v2)
+    // ═══════════════════════════════════════════════════════
+
+    object GatingDecisionValues {
+        const val FAST_PATH = "FAST_PATH"
+        const val NANO_VALIDATION = "NANO_VALIDATION"
+        const val BIG_LLM = "BIG_LLM"
+
+        val ALL = listOf(FAST_PATH, NANO_VALIDATION, BIG_LLM)
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // NANO STATUS VALUES (v2)
+    // ═══════════════════════════════════════════════════════
+
+    object NanoStatusValues {
+        const val OVERRIDE = "OVERRIDE"
+        const val CLARIFY = "CLARIFY"
+        const val DELEGATE = "DELEGATE"
+        const val FALLBACK = "FALLBACK"
+
+        val ALL = listOf(OVERRIDE, CLARIFY, DELEGATE, FALLBACK)
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // BLOCK REASON VALUES (v2)
+    // ═══════════════════════════════════════════════════════
+
+    object BlockReasonValues {
+        // Hard blocks
+        const val OFF_DOMAIN_HARD = "OFF_DOMAIN_HARD"
+        const val NONSENSE = "NONSENSE"
+        const val PROHIBITED_CONTENT = "PROHIBITED_CONTENT"
+        const val POLICY_VIOLATION = "POLICY_VIOLATION"
+        const val RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
+
+        // Soft blocks
+        const val OFF_DOMAIN_SOFT = "OFF_DOMAIN_SOFT"
+        const val LOOP_GUARD_TRIGGERED = "LOOP_GUARD_TRIGGERED"
+        const val MAX_CLARIFICATION_EXCEEDED = "MAX_CLARIFICATION_EXCEEDED"
+        const val FRUSTRATION_DETECTED = "FRUSTRATION_DETECTED"
+
+        val HARD_BLOCKS = listOf(
+            OFF_DOMAIN_HARD, NONSENSE, PROHIBITED_CONTENT,
+            POLICY_VIOLATION, RATE_LIMIT_EXCEEDED
+        )
+
+        val SOFT_BLOCKS = listOf(
+            OFF_DOMAIN_SOFT, LOOP_GUARD_TRIGGERED,
+            MAX_CLARIFICATION_EXCEEDED, FRUSTRATION_DETECTED
+        )
+
+        val ALL = HARD_BLOCKS + SOFT_BLOCKS
     }
 }

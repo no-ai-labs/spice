@@ -99,28 +99,54 @@ class RedisToolCallEventBus(
     private var errors = 0L
     private var dlqCount = 0L
 
+    // Recovery tracking for consumer group mode
+    private var lastRecoveryAttempt: Long = 0
+    private val recoveryIntervalMs: Long = 30_000  // 30초마다 복구 시도
+
     init {
         // Create consumer group if specified
         if (consumerGroup != null) {
-            try {
-                jedisPool.resource.use { jedis ->
-                    try {
-                        // Create group starting from specified position
-                        jedis.xgroupCreate(streamKey, consumerGroup, StreamEntryID(startFrom), true)
-                    } catch (e: JedisDataException) {
-                        // Group already exists - that's fine
-                        if (e.message?.contains("BUSYGROUP") != true) {
-                            throw e
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // Log error but continue (group might already exist)
+            val created = tryCreateConsumerGroup()
+            if (!created) {
+                System.err.println("[RedisToolCallEventBus] Warning: Consumer group $consumerGroup initialization failed. Will retry during polling.")
             }
         }
 
         // Start background polling to read from Redis and emit to local Flow
         startPolling()
+    }
+
+    /**
+     * Attempt to create consumer group.
+     * Returns true if successful or group already exists, false otherwise.
+     */
+    private fun tryCreateConsumerGroup(): Boolean {
+        if (consumerGroup == null) return false
+
+        return try {
+            jedisPool.resource.use { jedis ->
+                try {
+                    // MKSTREAM=true (4th param) creates stream if it doesn't exist
+                    jedis.xgroupCreate(streamKey, consumerGroup, StreamEntryID(startFrom), true)
+                    println("[RedisToolCallEventBus] Consumer group created: $consumerGroup (stream: $streamKey)")
+                    true
+                } catch (e: JedisDataException) {
+                    when {
+                        e.message?.contains("BUSYGROUP") == true -> {
+                            // Group already exists - that's fine
+                            true
+                        }
+                        else -> {
+                            System.err.println("[RedisToolCallEventBus] Failed to create consumer group: ${e.message}")
+                            false
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            System.err.println("[RedisToolCallEventBus] Redis connection failed for consumer group creation: ${e.message}")
+            false
+        }
     }
 
     /**
@@ -150,9 +176,20 @@ class RedisToolCallEventBus(
         pollingJob = scope.launch {
             while (isActive) {
                 try {
+                    // Try to recover consumer group mode if we fell back
+                    if (!useConsumerGroup && consumerGroup != null) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastRecoveryAttempt > recoveryIntervalMs) {
+                            lastRecoveryAttempt = now
+                            if (tryCreateConsumerGroup()) {
+                                println("[RedisToolCallEventBus] Consumer group mode recovered")
+                                useConsumerGroup = true
+                            }
+                        }
+                    }
                     pollEvents()
                 } catch (e: Exception) {
-                    // Log error but continue polling
+                    System.err.println("[RedisToolCallEventBus] Polling loop error: ${e.message}")
                     delay(pollInterval)
                 }
             }
@@ -184,7 +221,28 @@ class RedisToolCallEventBus(
                         .block(pollInterval.inWholeMilliseconds.toInt()),
                     mapOf(streamKey to StreamEntryID.UNRECEIVED_ENTRY)
                 )
+            } catch (e: JedisDataException) {
+                when {
+                    e.message?.contains("NOGROUP") == true -> {
+                        // Consumer group doesn't exist - try to recreate
+                        System.err.println("[RedisToolCallEventBus] Consumer group not found, attempting to recreate...")
+                        if (tryCreateConsumerGroup()) {
+                            // Successfully recreated - will retry on next poll
+                            null
+                        } else {
+                            // Still can't create - fall back to non-consumer-group mode
+                            System.err.println("[RedisToolCallEventBus] Fallback: switching to non-consumer-group polling")
+                            useConsumerGroup = false
+                            null
+                        }
+                    }
+                    else -> {
+                        System.err.println("[RedisToolCallEventBus] Redis error: ${e.message}")
+                        null
+                    }
+                }
             } catch (e: Exception) {
+                System.err.println("[RedisToolCallEventBus] Polling error: ${e.message}")
                 null
             }
         } ?: emptyList()

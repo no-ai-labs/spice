@@ -121,9 +121,44 @@ data class IntelligenceSession(
         )
 
     /**
-     * Clarification 시도 기록 추가
+     * Clarification 시도 기록 추가 (권장)
+     *
+     * attemptNumber를 자동으로 계산하고 clarifyAttempts를 증가시킴.
+     * 이 메서드는 이중 증가 문제를 방지함.
+     *
+     * @param clarificationType Clarification 유형
+     * @param reason Clarification 이유
+     * @param candidatesOffered 제시한 옵션들
      */
-    fun recordClarification(attempt: ClarificationAttempt): IntelligenceSession =
+    fun recordClarification(
+        clarificationType: String,
+        reason: ClarificationReason,
+        candidatesOffered: List<String>
+    ): IntelligenceSession {
+        val attempt = ClarificationAttempt.create(
+            attemptNumber = clarifyAttempts + 1,
+            clarificationType = clarificationType,
+            reason = reason,
+            candidatesOffered = candidatesOffered
+        )
+        return copy(
+            clarificationHistory = clarificationHistory + attempt,
+            clarifyAttempts = clarifyAttempts + 1,
+            lastClarificationType = clarificationType,
+            lastActivityAt = Clock.System.now()
+        )
+    }
+
+    /**
+     * Clarification 시도 기록 추가 (레거시)
+     *
+     * @deprecated 이중 증가 위험. recordClarification(clarificationType, reason, candidatesOffered) 사용 권장.
+     */
+    @Deprecated(
+        message = "attemptNumber 불일치 위험. 새 시그니처 사용 권장",
+        replaceWith = ReplaceWith("recordClarification(attempt.clarificationType, attempt.reason, attempt.candidatesOffered)")
+    )
+    fun recordClarificationLegacy(attempt: ClarificationAttempt): IntelligenceSession =
         copy(
             clarificationHistory = clarificationHistory + attempt,
             clarifyAttempts = clarifyAttempts + 1,
@@ -418,7 +453,10 @@ enum class DecisionSource {
     HITL,
 
     /** Intent 재분석 */
-    REANALYSIS
+    REANALYSIS,
+
+    /** One-Shot Reasoner (GPT-5.1급) - Intelligence Layer v2 */
+    REASONER
 }
 
 /**
